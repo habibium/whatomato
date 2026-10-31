@@ -37,7 +37,7 @@ impl PwnedPasswords {
                 .with_no_client_auth();
         let client = reqwest::Client::builder()
             .tls_backend_preconfigured(tls)
-            .user_agent(concat!("whatsapp-automator/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("whatomato/", env!("CARGO_PKG_VERSION")))
             .timeout(TIMEOUT)
             .build()?;
 

@@ -5,7 +5,7 @@ use url::Url;
 use super::Email;
 use crate::auth::token::Purpose;
 
-const PRODUCT_NAME: &str = "WhatsApp Automator";
+const PRODUCT_NAME: &str = "Whatomato";
 
 // Email clients ignore stylesheets and custom properties, so the neutral theme's light values
 // are inlined: text primary and secondary, accent, and the border on white.

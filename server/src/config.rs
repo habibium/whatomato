@@ -61,7 +61,7 @@ impl Config {
                 .parse()
                 .context("EMAIL_FROM must look like `Name <address@example.com>`")?,
             Err(_) if smtp_url.is_some() => anyhow::bail!("EMAIL_FROM is required with SMTP_URL"),
-            Err(_) => "WhatsApp Automator <no-reply@localhost>".parse()?,
+            Err(_) => "Whatomato <no-reply@localhost>".parse()?,
         };
 
         let client_ip_header = match env::var("CLIENT_IP_HEADER") {

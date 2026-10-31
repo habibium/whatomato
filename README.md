@@ -1,4 +1,6 @@
-# whatsapp-automator
+<img src="web/public/favicon-192.png" alt="" width="96" height="96" />
+
+# Whatomato
 
 Schedule and send WhatsApp messages. Rust backend (`server/`, axum) and a React frontend (`web/`, Vite + TanStack), shipped as one Docker image.
 
@@ -6,7 +8,7 @@ Run it yourself with the image described under [Self-hosting](#self-hosting), or
 
 ## Hosted service
 
-The maintainer runs a hosted instance at https://wa.habibium.com. It runs the same image that is published from this repository.
+The maintainer runs a hosted instance at https://whatomato.habibium.com. It runs the same image that is published from this repository.
 
 ## Prerequisites
 
@@ -71,7 +73,7 @@ Environment variables, or a `.env` file in development (see `.env.example`):
 | `RUST_LOG`         | `info,server=debug,…`                                               | tracing filter                                                                                                                                                                            |
 | `APP_URL`          | required in release builds; `http://localhost:5173` in debug builds | Public URL of the app. Links in emails point here, and an `https` URL makes the cookies `Secure`                                                                                          |
 | `SMTP_URL`         | required when `APP_URL` is `https`                                  | SMTP server for verification and password reset emails, e.g. `smtps://user:password@host:465`                                                                                             |
-| `EMAIL_FROM`       | required with SMTP                                                  | Sender, e.g. `WhatsApp Automator <no-reply@example.com>`                                                                                                                                  |
+| `EMAIL_FROM`       | required with SMTP                                                  | Sender, e.g. `Whatomato <no-reply@example.com>`                                                                                                                                           |
 | `ENCRYPTION_KEY`   | required in release builds; a fixed development key in debug builds | Encrypts secrets kept in the database, such as authenticator app keys: 32 random bytes in base64, from `openssl rand -base64 32`                                                          |
 | `CLIENT_IP_HEADER` | unset                                                               | Header a trusted proxy sets to the client's address, e.g. `CF-Connecting-IP` behind Cloudflare. Unset, rate limits key on the peer address. `X-Forwarded-For` and `Forwarded` are refused |
 

@@ -152,9 +152,7 @@ async fn turning_on_takes_the_password_then_a_code_from_the_app(pool: PgPool) {
     let secret = setup.body["secret"].as_str().unwrap();
     assert_eq!(
         url,
-        format!(
-            "otpauth://totp/WhatsApp%20Automator:ada%40example.com?secret={secret}&issuer=WhatsApp%20Automator"
-        )
+        format!("otpauth://totp/Whatomato:ada%40example.com?secret={secret}&issuer=Whatomato")
     );
     assert!(
         setup.body["qr_code"]

@@ -42,7 +42,7 @@ const COPY = {
   app: {
     title: 'Enter the code from your authenticator app.',
     description:
-      'Open the app on your phone and type the 6-digit code it shows for WhatsApp Automator.',
+      'Open the app on your phone and type the 6-digit code it shows for Whatomato.',
   },
   recovery: {
     title: 'Enter a recovery code.',

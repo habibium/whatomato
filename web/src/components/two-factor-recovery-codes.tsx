@@ -15,7 +15,7 @@ import { Check, Copy, Download } from 'lucide-react'
 
 export const RECOVERY_DIALOG_WIDTH = 480
 
-const FILENAME = 'whatsapp-automator-recovery-codes.txt'
+const FILENAME = 'whatomato-recovery-codes.txt'
 const CODE_COLUMN_MIN_WIDTH = 168
 
 interface RecoveryCodesProps {
@@ -127,7 +127,7 @@ function toFile(codes: string[], email: string) {
     dateStyle: 'long',
   })
   return [
-    'WhatsApp Automator recovery codes',
+    'Whatomato recovery codes',
     `Account: ${email}`,
     `Created: ${created}`,
     '',

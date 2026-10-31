@@ -16,7 +16,7 @@ use crate::{db, error::AppError};
 /// How long a browser has to answer a challenge, which is also the timeout it is given
 pub const TTL: TimeDelta = TimeDelta::minutes(5);
 
-const RP_NAME: &str = "WhatsApp Automator";
+const RP_NAME: &str = "Whatomato";
 
 /// `APP_URL` is the only origin accepted, and its host is the RP ID every passkey is bound to: moving
 /// the app to another host strands the passkeys registered on the old one.

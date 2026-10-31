@@ -23,7 +23,7 @@ pub use crate::{
 };
 
 #[derive(OpenApi)]
-#[openapi(info(title = "whatsapp-automator"))]
+#[openapi(info(title = "Whatomato"))]
 struct ApiDoc;
 
 pub fn router() -> (Router<AppState>, utoipa::openapi::OpenApi) {

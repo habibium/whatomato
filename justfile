@@ -52,7 +52,7 @@ prod: build migrate start
 
 # Build the production image locally
 docker-build:
-    docker build -t whatsapp-automator .
+    docker build -t whatomato .
 
 # Preview the changelog entries since the last release
 changelog:

@@ -211,7 +211,7 @@ function ScanStep({ setup, onEnabled, onRestart, onCancel }: ScanStepProps) {
                 <img
                   {...stylex.props(styles.qr)}
                   src={setup.qr_code}
-                  alt="QR code that adds WhatsApp Automator to an authenticator app"
+                  alt="QR code that adds Whatomato to an authenticator app"
                   width={QR_SIZE}
                   height={QR_SIZE}
                 />

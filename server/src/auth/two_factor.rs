@@ -25,7 +25,7 @@ pub const WRONG_CODE_LIMIT: i16 = 30;
 pub const WRONG_CODE_WINDOW: TimeDelta = TimeDelta::days(1);
 
 /// The label authenticator apps show next to the account's codes
-const ISSUER: &str = "WhatsApp Automator";
+const ISSUER: &str = "Whatomato";
 const RECOVERY_CODE_COUNT: usize = 10;
 /// Crockford's base32 alphabet, which leaves out I, L, O and U so no character reads as another
 const RECOVERY_ALPHABET: &[u8; 32] = b"0123456789abcdefghjkmnpqrstvwxyz";
@@ -192,8 +192,8 @@ mod tests {
             .to_url()
             .unwrap();
 
-        assert!(url.starts_with("otpauth://totp/WhatsApp%20Automator:ada%40example.com?secret="));
-        assert!(url.ends_with("&issuer=WhatsApp%20Automator"));
+        assert!(url.starts_with("otpauth://totp/Whatomato:ada%40example.com?secret="));
+        assert!(url.ends_with("&issuer=Whatomato"));
         assert!(
             qr_code(&url)
                 .unwrap()
