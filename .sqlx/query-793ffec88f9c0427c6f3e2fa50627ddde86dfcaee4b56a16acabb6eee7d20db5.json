@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT base_key FROM whatsapp_base_keys WHERE account_id = $1 AND address = $2 AND message_id = $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "base_key",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_base_keys",
+            "name": "base_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "793ffec88f9c0427c6f3e2fa50627ddde86dfcaee4b56a16acabb6eee7d20db5"
+}

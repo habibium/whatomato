@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT key_id FROM whatsapp_app_state_keys WHERE account_id = $1 ORDER BY stored DESC LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key_id",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_app_state_keys",
+            "name": "key_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ef85f7565d48dff0cda2ad33c596db6169d18d176a15b03a7b015e91271afa48"
+}

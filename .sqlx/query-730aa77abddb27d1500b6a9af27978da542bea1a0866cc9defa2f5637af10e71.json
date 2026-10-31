@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM whatsapp_tc_tokens WHERE account_id = $1 AND jid = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "730aa77abddb27d1500b6a9af27978da542bea1a0866cc9defa2f5637af10e71"
+}

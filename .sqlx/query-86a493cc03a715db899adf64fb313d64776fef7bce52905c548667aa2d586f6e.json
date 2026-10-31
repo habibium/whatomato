@@ -1,0 +1,43 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT secret, message_ts FROM whatsapp_msg_secrets WHERE account_id = $1 AND chat = $2 AND sender = $3 AND msg_id = $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "secret",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_msg_secrets",
+            "name": "secret"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "message_ts",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_msg_secrets",
+            "name": "message_ts"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "86a493cc03a715db899adf64fb313d64776fef7bce52905c548667aa2d586f6e"
+}

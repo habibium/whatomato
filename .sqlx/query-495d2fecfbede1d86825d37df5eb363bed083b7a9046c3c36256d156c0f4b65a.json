@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM whatsapp_sender_key_devices WHERE account_id = $1 AND device_jid = ANY($2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "495d2fecfbede1d86825d37df5eb363bed083b7a9046c3c36256d156c0f4b65a"
+}

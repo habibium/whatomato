@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT jid, token, token_timestamp, sender_timestamp FROM whatsapp_tc_tokens WHERE account_id = $1 AND jid = ANY($2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "jid",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_tc_tokens",
+            "name": "jid"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "token",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_tc_tokens",
+            "name": "token"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "token_timestamp",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_tc_tokens",
+            "name": "token_timestamp"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "sender_timestamp",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_tc_tokens",
+            "name": "sender_timestamp"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "03d9c9e3a7a7d6f141d77a0286fbbdb582b3865512bc5609a5d9478ff1a5ca75"
+}

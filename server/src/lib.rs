@@ -9,6 +9,7 @@ mod extract;
 mod rate_limit;
 mod routes;
 pub mod state;
+pub mod whatsapp;
 
 use axum::{Router, middleware, routing::any};
 use utoipa::OpenApi;

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_msg_secrets (account_id, chat, sender, msg_id, secret, expires_at, message_ts) SELECT $1, * FROM UNNEST($2::TEXT[], $3::TEXT[], $4::TEXT[], $5::BYTEA[], $6::BIGINT[], $7::BIGINT[]) ON CONFLICT (account_id, chat, sender, msg_id) DO UPDATE SET secret = EXCLUDED.secret, expires_at = CASE WHEN whatsapp_msg_secrets.expires_at = 0 OR EXCLUDED.expires_at = 0 THEN 0 ELSE GREATEST(whatsapp_msg_secrets.expires_at, EXCLUDED.expires_at) END, message_ts = GREATEST(whatsapp_msg_secrets.message_ts, EXCLUDED.message_ts)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "ByteaArray",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a2f060daa2019ce16ed89e0a907b697616af490a3eb4c44d60137c36cda4c53a"
+}

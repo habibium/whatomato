@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT payload FROM whatsapp_sent_messages WHERE account_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "payload",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_sent_messages",
+            "name": "payload"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "36fb7766699091255eeb8c4257772aabb787b88937de9d6c7a818be4f839f1bb"
+}
