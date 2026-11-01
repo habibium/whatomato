@@ -73,6 +73,8 @@ pub enum Event {
     // From the library, as the supervisor translates them
     QrCode(Code),
     PairCode(Code),
+    /// The pair code ran out and the library wants a new one requested
+    PairCodeExpired,
     QrCodesExhausted,
     Paired {
         phone_number: String,
@@ -101,7 +103,10 @@ pub enum Event {
 pub enum Effect {
     /// Build and spawn a client; while pairing by phone number it also requests the code
     StartClient,
+    /// Like `StartClient`, after a pause that grows with each restart in a row
+    RestartClient,
     StopClient,
+    RequestPairCode,
     /// Ask WhatsApp to remove the device, then stop the client
     LogOut,
     SaveLink {
@@ -177,6 +182,13 @@ fn from_pairing(pairing: &Pairing, event: Event) -> Result<(Status, Vec<Effect>)
         | (Event::Cancel | Event::Unlink | Event::PairFailed | Event::PairingTimedOut, _) => {
             given_up()
         }
+        (Event::PairCodeExpired, Method::PhoneNumber(_)) => Ok((
+            Status::Pairing(Pairing {
+                method: pairing.method.clone(),
+                code: None,
+            }),
+            vec![Effect::RequestPairCode],
+        )),
         (Event::ClientEnded, _) => Ok((Status::NotLinked, vec![])),
         (Event::Paired { phone_number }, _) => Ok((
             Status::Syncing {
@@ -212,7 +224,7 @@ fn from_linked(
         }
         Event::ClientEnded => Ok((
             Status::Reconnecting { phone_number },
-            vec![Effect::StartClient],
+            vec![Effect::RestartClient],
         )),
         Event::Pause => Ok((
             Status::Paused { phone_number },
@@ -387,6 +399,22 @@ mod tests {
     }
 
     #[test]
+    fn an_expired_pair_code_is_replaced_but_a_qr_one_is_not() {
+        let method = Method::PhoneNumber(PHONE.to_owned());
+        let with_code = Status::Pairing(Pairing {
+            method: method.clone(),
+            code: Some(code("ABCD-EFGH")),
+        });
+        let (status, effects) = run(with_code, [Event::PairCodeExpired]);
+        assert_eq!(status, pairing(method));
+        assert_eq!(effects, [Effect::RequestPairCode]);
+
+        let (status, effects) = run(pairing(Method::Qr), [Event::PairCodeExpired]);
+        assert_eq!(status, pairing(Method::Qr));
+        assert_eq!(effects, Vec::<Effect>::new());
+    }
+
+    #[test]
     fn running_out_of_qr_codes_ends_qr_pairing_only() {
         let (status, effects) = run(pairing(Method::Qr), [Event::QrCodesExhausted]);
         assert_eq!(status, Status::NotLinked);
@@ -415,7 +443,7 @@ mod tests {
 
         let (status, effects) = run(status, [Event::ClientEnded]);
         assert!(matches!(status, Status::Reconnecting { .. }));
-        assert_eq!(effects, [Effect::StartClient]);
+        assert_eq!(effects, [Effect::RestartClient]);
         assert_eq!(run(status, [Event::Connected]).0, connected());
     }
 
