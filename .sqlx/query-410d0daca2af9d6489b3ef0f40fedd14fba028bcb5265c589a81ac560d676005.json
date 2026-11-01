@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_sessions (account_id, address, record) SELECT $1, * FROM UNNEST($2::TEXT[], $3::BYTEA[]) ON CONFLICT (account_id, address) DO UPDATE SET record = EXCLUDED.record",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray",
+        "ByteaArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "410d0daca2af9d6489b3ef0f40fedd14fba028bcb5265c589a81ac560d676005"
+}

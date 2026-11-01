@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_prekeys (account_id, id, record, uploaded) SELECT $1, id, record, $4 FROM UNNEST($2::INTEGER[], $3::BYTEA[]) AS k (id, record) ON CONFLICT (account_id, id) DO UPDATE SET record = EXCLUDED.record, uploaded = EXCLUDED.uploaded",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4Array",
+        "ByteaArray",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "117a9d69c63b40396b220251c911866dffd8166af2352c17683382f0b503bd32"
+}

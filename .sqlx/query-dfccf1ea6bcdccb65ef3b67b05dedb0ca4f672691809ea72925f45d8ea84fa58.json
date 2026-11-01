@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT record FROM whatsapp_sender_keys WHERE account_id = $1 AND address = 'g@g.us::c:3'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "record",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_sender_keys",
+            "name": "record"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "dfccf1ea6bcdccb65ef3b67b05dedb0ca4f672691809ea72925f45d8ea84fa58"
+}

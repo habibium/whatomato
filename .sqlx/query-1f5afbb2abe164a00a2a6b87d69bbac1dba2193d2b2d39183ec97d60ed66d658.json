@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (SELECT 1 FROM whatsapp_sessions WHERE account_id = $1 AND (starts_with(address, $2) OR starts_with(address, $3))) OR EXISTS (SELECT 1 FROM whatsapp_identities WHERE account_id = $1 AND (starts_with(address, $2) OR starts_with(address, $3))) AS \"exists!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1f5afbb2abe164a00a2a6b87d69bbac1dba2193d2b2d39183ec97d60ed66d658"
+}

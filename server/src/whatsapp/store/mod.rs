@@ -1,8 +1,10 @@
 //! whatsapp-rust's storage traits over Postgres, one [`PgStore`] per linked account
 
 mod app_sync;
+mod device;
 mod msg_secret;
 mod protocol;
+mod signal;
 #[cfg(test)]
 mod tests;
 

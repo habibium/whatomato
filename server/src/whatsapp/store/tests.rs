@@ -1,18 +1,25 @@
+use std::sync::Arc;
+
+use bytes::Bytes;
 use sqlx::PgPool;
 use uuid::Uuid;
 use whatsapp_rust::wacore::{
     appstate::{hash::HashState, processor::AppStateMutationMAC},
+    client_profile::ClientProfile,
     store::{
+        Device, DevicePropsOverride,
+        device::DEVICE_PROPS,
         error::StoreError,
         traits::{
-            AppStateSyncKey, AppSyncStore, DeviceInfo, DeviceListRecord, LidPnMappingEntry,
-            MsgSecretEntry, MsgSecretStore, ProtocolStore, TcTokenEntry,
+            AppStateSyncKey, AppSyncStore, DeviceInfo, DeviceListRecord, DeviceStore,
+            LidPnMappingEntry, MsgSecretEntry, MsgSecretStore, ProtocolStore, SignalStore,
+            TcTokenEntry,
         },
     },
     time::now_secs,
 };
 
-use super::{PgStore, composite};
+use super::{PgStore, composite, encode};
 use crate::crypto::Cipher;
 
 const KEY: [u8; 32] = [7; 32];
@@ -667,4 +674,412 @@ async fn a_stored_secret_of_the_wrong_length_is_an_error(pool: PgPool) {
         store.get_stored_msg_secret("c", "s", "short").await,
         Err(StoreError::InvalidMessageSecret(_))
     ));
+}
+
+#[sqlx::test]
+async fn prekeys_round_trip_and_marking_never_resurrects_one(pool: PgPool) {
+    let store = store(&pool).await;
+    assert_eq!(store.get_max_prekey_id().await.unwrap(), 0);
+    let record = |byte| Bytes::from(vec![byte; 70]);
+    store
+        .store_prekeys_batch(&[(1, record(1)), (2, record(2)), (1, record(11))], false)
+        .await
+        .unwrap();
+    store.store_prekey(3, &[3; 70], true).await.unwrap();
+
+    assert_eq!(store.load_prekey(1).await.unwrap().unwrap(), record(11));
+    let mut loaded = store.load_prekeys_batch(&[1, 3, 9]).await.unwrap();
+    loaded.sort_by_key(|(id, _)| *id);
+    assert_eq!(loaded, [(1, record(11)), (3, record(3))]);
+    assert_eq!(store.get_max_prekey_id().await.unwrap(), 3);
+
+    store.remove_prekey(2).await.unwrap();
+    store.mark_prekeys_uploaded(&[1, 2]).await.unwrap();
+    assert!(store.load_prekey(2).await.unwrap().is_none());
+    let uploaded = sqlx::query_scalar!(
+        "SELECT id FROM whatsapp_prekeys WHERE account_id = $1 AND uploaded ORDER BY id",
+        store.account_id,
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(uploaded, [1, 3]);
+
+    store.remove_prekeys_batch(&[1, 3]).await.unwrap();
+    assert_eq!(store.get_max_prekey_id().await.unwrap(), 0);
+}
+
+#[sqlx::test]
+async fn signed_prekeys_round_trip_in_id_order(pool: PgPool) {
+    let store = store(&pool).await;
+    store.store_signed_prekey(7, b"seven").await.unwrap();
+    store.store_signed_prekey(2, b"two").await.unwrap();
+    store.store_signed_prekey(7, b"seven again").await.unwrap();
+
+    assert_eq!(
+        store.load_signed_prekey(7).await.unwrap().unwrap(),
+        b"seven again"
+    );
+    assert_eq!(
+        store.load_all_signed_prekeys().await.unwrap(),
+        [(2, b"two".to_vec()), (7, b"seven again".to_vec())]
+    );
+    store.remove_signed_prekey(2).await.unwrap();
+    assert!(store.load_signed_prekey(2).await.unwrap().is_none());
+}
+
+#[sqlx::test]
+async fn sender_keys_round_trip_sealed(pool: PgPool) {
+    let store = store(&pool).await;
+    let address = |name: &str| Arc::<str>::from(name);
+    store
+        .put_sender_keys_batch(&[
+            (address("g@g.us::a:1"), Bytes::from_static(b"first")),
+            (address("g@g.us::b:2"), Bytes::from_static(b"other")),
+            (address("g@g.us::a:1"), Bytes::from_static(b"latest")),
+        ])
+        .await
+        .unwrap();
+    store.put_sender_key("g@g.us::c:3", b"third").await.unwrap();
+
+    assert_eq!(
+        store.get_sender_key("g@g.us::a:1").await.unwrap().unwrap(),
+        b"latest"
+    );
+    let sealed = sqlx::query_scalar!(
+        "SELECT record FROM whatsapp_sender_keys WHERE account_id = $1 AND address = 'g@g.us::c:3'",
+        store.account_id,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!sealed.windows(5).any(|window| window == b"third"));
+
+    store
+        .delete_sender_keys_batch(&[address("g@g.us::a:1"), address("g@g.us::b:2")])
+        .await
+        .unwrap();
+    store.delete_sender_key("g@g.us::c:3").await.unwrap();
+    assert!(store.get_sender_key("g@g.us::a:1").await.unwrap().is_none());
+    assert!(store.get_sender_key("g@g.us::c:3").await.unwrap().is_none());
+}
+
+#[sqlx::test]
+async fn identities_round_trip_sealed(pool: PgPool) {
+    let store = store(&pool).await;
+    let address = "100001:2@lid";
+    assert_eq!(store.load_identity(address).await.unwrap(), None);
+
+    store.put_identity(address, [1; 32]).await.unwrap();
+    assert_eq!(store.load_identity(address).await.unwrap(), Some([1; 32]));
+    store.put_identity(address, [2; 32]).await.unwrap();
+    assert_eq!(store.load_identity(address).await.unwrap(), Some([2; 32]));
+    let sealed = sqlx::query_scalar!(
+        "SELECT key FROM whatsapp_identities WHERE account_id = $1",
+        store.account_id,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!sealed.windows(32).any(|window| window == [2; 32]));
+
+    store.delete_identity(address).await.unwrap();
+    assert_eq!(store.load_identity(address).await.unwrap(), None);
+}
+
+#[sqlx::test]
+async fn an_identity_batch_keeps_the_last_key_per_address(pool: PgPool) {
+    let store = store(&pool).await;
+    let address = |name: &str| Arc::<str>::from(name);
+    store
+        .put_identities_batch(&[
+            (address("1@s.whatsapp.net"), [1; 32]),
+            (address("2@s.whatsapp.net"), [2; 32]),
+            (address("1@s.whatsapp.net"), [3; 32]),
+        ])
+        .await
+        .unwrap();
+    assert_eq!(
+        store.load_identity("1@s.whatsapp.net").await.unwrap(),
+        Some([3; 32])
+    );
+    assert_eq!(
+        store.load_identity("2@s.whatsapp.net").await.unwrap(),
+        Some([2; 32])
+    );
+
+    store
+        .delete_identities_batch(&[address("1@s.whatsapp.net"), address("2@s.whatsapp.net")])
+        .await
+        .unwrap();
+    assert_eq!(store.load_identity("1@s.whatsapp.net").await.unwrap(), None);
+    assert_eq!(store.load_identity("2@s.whatsapp.net").await.unwrap(), None);
+}
+
+#[sqlx::test]
+async fn a_stored_identity_of_the_wrong_length_is_an_error(pool: PgPool) {
+    let store = store(&pool).await;
+    let sealed = store
+        .seal("identities", b"1@s.whatsapp.net", &[1; 31])
+        .unwrap();
+    sqlx::query!(
+        "INSERT INTO whatsapp_identities (account_id, address, key) VALUES ($1, '1@s.whatsapp.net', $2)",
+        store.account_id,
+        sealed,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert!(matches!(
+        store.load_identity("1@s.whatsapp.net").await,
+        Err(StoreError::Validation(_))
+    ));
+}
+
+#[sqlx::test]
+async fn sessions_round_trip_sealed(pool: PgPool) {
+    let store = store(&pool).await;
+    let address = "100001:2@lid";
+    assert!(store.get_session(address).await.unwrap().is_none());
+    assert!(!store.has_session(address).await.unwrap());
+
+    store.put_session(address, b"first").await.unwrap();
+    store.put_session(address, b"ratcheted").await.unwrap();
+    assert_eq!(
+        store.get_session(address).await.unwrap().unwrap(),
+        Bytes::from_static(b"ratcheted")
+    );
+    assert!(store.has_session(address).await.unwrap());
+    let sealed = sqlx::query_scalar!(
+        "SELECT record FROM whatsapp_sessions WHERE account_id = $1",
+        store.account_id,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!sealed.windows(9).any(|window| window == b"ratcheted"));
+
+    store.delete_session(address).await.unwrap();
+    assert!(store.get_session(address).await.unwrap().is_none());
+    assert!(!store.has_session(address).await.unwrap());
+}
+
+#[sqlx::test]
+async fn a_session_batch_keeps_the_last_record_and_reads_back_only_hits(pool: PgPool) {
+    let store = store(&pool).await;
+    let address = |name: &str| Arc::<str>::from(name);
+    let record = Bytes::from_static;
+    store
+        .put_sessions_batch(&[
+            (address("1:1@s.whatsapp.net"), record(b"first")),
+            (address("2:2@s.whatsapp.net"), record(b"second")),
+            (address("1:1@s.whatsapp.net"), record(b"latest")),
+        ])
+        .await
+        .unwrap();
+
+    let mut found = store
+        .get_sessions_batch(&[
+            address("1:1@s.whatsapp.net"),
+            address("3:3@s.whatsapp.net"),
+            address("2:2@s.whatsapp.net"),
+        ])
+        .await
+        .unwrap();
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            (address("1:1@s.whatsapp.net"), record(b"latest")),
+            (address("2:2@s.whatsapp.net"), record(b"second")),
+        ]
+    );
+
+    store
+        .delete_sessions_batch(&[address("1:1@s.whatsapp.net"), address("2:2@s.whatsapp.net")])
+        .await
+        .unwrap();
+    assert_eq!(
+        store
+            .get_sessions_batch(&[address("1:1@s.whatsapp.net"), address("2:2@s.whatsapp.net")])
+            .await
+            .unwrap(),
+        Vec::<(Arc<str>, Bytes)>::new()
+    );
+}
+
+#[sqlx::test]
+async fn signal_state_is_found_for_a_whole_user_only(pool: PgPool) {
+    let user = "5511999990000";
+    for address in [
+        "5511999990000@s.whatsapp.net",
+        "5511999990000:5@s.whatsapp.net",
+    ] {
+        let with_session = store(&pool).await;
+        with_session.put_session(address, b"session").await.unwrap();
+        let with_identity = store(&pool).await;
+        with_identity.put_identity(address, [7; 32]).await.unwrap();
+
+        for holder in [&with_session, &with_identity] {
+            assert!(holder.has_signal_state_for_user(user).await.unwrap());
+            // A partial user finds nothing, nor does one that LIKE would match by wildcard
+            for other in ["551199999000", "551199999000_", "%"] {
+                assert!(
+                    !holder.has_signal_state_for_user(other).await.unwrap(),
+                    "{other} matched {address}"
+                );
+            }
+        }
+    }
+
+    let longer = store(&pool).await;
+    longer
+        .put_session("55119999900001@s.whatsapp.net", b"session")
+        .await
+        .unwrap();
+    longer
+        .put_identity("55119999900001:3@s.whatsapp.net", [7; 32])
+        .await
+        .unwrap();
+    assert!(!longer.has_signal_state_for_user(user).await.unwrap());
+}
+
+#[sqlx::test]
+async fn sessions_and_identities_open_only_for_their_own_account(pool: PgPool) {
+    let ada = store(&pool).await;
+    let grace = store(&pool).await;
+    let address = "100001:2@lid";
+    ada.put_session(address, b"session").await.unwrap();
+    ada.put_identity(address, [7; 32]).await.unwrap();
+    assert!(grace.get_session(address).await.unwrap().is_none());
+    assert!(grace.load_identity(address).await.unwrap().is_none());
+
+    sqlx::query!(
+        "INSERT INTO whatsapp_sessions (account_id, address, record) \
+         SELECT $2, address, record FROM whatsapp_sessions WHERE account_id = $1",
+        ada.account_id,
+        grace.account_id,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query!(
+        "INSERT INTO whatsapp_identities (account_id, address, key) \
+         SELECT $2, address, key FROM whatsapp_identities WHERE account_id = $1",
+        ada.account_id,
+        grace.account_id,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(grace.get_session(address).await.is_err());
+    assert!(grace.load_identity(address).await.is_err());
+}
+
+#[sqlx::test]
+async fn a_device_is_created_then_loaded(pool: PgPool) {
+    let store = store(&pool).await;
+    assert!(!store.exists().await.unwrap());
+    assert!(store.load().await.unwrap().is_none());
+
+    store.create().await.unwrap();
+    assert!(store.exists().await.unwrap());
+    let created = store.load().await.unwrap().unwrap();
+    assert!(!created.is_registered());
+    assert_eq!(created.next_pre_key_id, 1);
+    let reloaded = store.load().await.unwrap().unwrap();
+    assert_eq!(encode(&reloaded).unwrap(), encode(&created).unwrap());
+}
+
+#[sqlx::test]
+async fn a_saved_device_round_trips_and_gets_its_runtime_fields_back(pool: PgPool) {
+    let store = store(&pool).await;
+    let mut device = Device::new();
+    device.push_name = "Ada Lovelace".into();
+    device.login_counter = 3;
+    device.lid_migrated = true;
+    device.nct_salt = Some(vec![5; 32]);
+    device.set_device_props(DevicePropsOverride::new().with_os("Whatomato"));
+    device.client_profile = ClientProfile::android("14");
+    device.nct_salt_sync_seen = true;
+    store.save(&device).await.unwrap();
+
+    let sealed = sqlx::query_scalar!(
+        "SELECT device FROM whatsapp_accounts WHERE id = $1",
+        store.account_id,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap()
+    .unwrap();
+    assert!(!sealed.windows(12).any(|window| window == b"Ada Lovelace"));
+
+    let loaded = store.load().await.unwrap().unwrap();
+    assert_eq!(loaded.push_name, "Ada Lovelace");
+    assert_eq!(encode(&loaded).unwrap(), encode(&device).unwrap());
+    // The runtime-only fields come back as a fresh process sets them
+    assert_eq!(*loaded.device_props, *DEVICE_PROPS);
+    assert_eq!(
+        loaded.client_profile.user_agent_platform,
+        ClientProfile::web().user_agent_platform
+    );
+    assert!(!loaded.nct_salt_sync_seen);
+}
+
+#[sqlx::test]
+async fn create_never_replaces_a_stored_device(pool: PgPool) {
+    let store = store(&pool).await;
+    let mut device = Device::new();
+    device.push_name = "Ada".into();
+    store.save(&device).await.unwrap();
+
+    store.create().await.unwrap();
+    let loaded = store.load().await.unwrap().unwrap();
+    assert_eq!(encode(&loaded).unwrap(), encode(&device).unwrap());
+}
+
+#[sqlx::test]
+async fn device_writes_fail_once_the_account_is_gone(pool: PgPool) {
+    let store = store(&pool).await;
+    store.create().await.unwrap();
+    let device = store.load().await.unwrap().unwrap();
+    sqlx::query!(
+        "DELETE FROM whatsapp_accounts WHERE id = $1",
+        store.account_id
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert!(matches!(
+        store.save(&device).await,
+        Err(StoreError::DeviceNotFound(_))
+    ));
+    assert!(matches!(
+        store.create().await,
+        Err(StoreError::DeviceNotFound(_))
+    ));
+    assert!(!store.exists().await.unwrap());
+    assert!(store.load().await.unwrap().is_none());
+}
+
+#[sqlx::test]
+async fn a_device_opens_only_for_its_own_account(pool: PgPool) {
+    let ada = store(&pool).await;
+    let grace = store(&pool).await;
+    ada.create().await.unwrap();
+    sqlx::query!(
+        "UPDATE whatsapp_accounts SET device = (SELECT device FROM whatsapp_accounts WHERE id = $1) \
+         WHERE id = $2",
+        ada.account_id,
+        grace.account_id,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert!(ada.load().await.unwrap().is_some());
+    assert!(grace.exists().await.unwrap());
+    assert!(grace.load().await.is_err());
 }
