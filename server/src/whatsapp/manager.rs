@@ -6,7 +6,8 @@ use std::{
     time::Duration,
 };
 
-use tokio::{task::JoinSet, time::timeout};
+use sqlx::{Connection, PgConnection};
+use tokio::{sync::watch, task::JoinSet, time::timeout};
 use uuid::Uuid;
 
 use super::{
@@ -19,12 +20,18 @@ use crate::db::whatsapp_accounts::{self, Account};
 const BOOT_SPACING: Duration = Duration::from_secs(2);
 /// Each client gets this long to flush and stop when the server shuts down
 const SHUTDOWN_LIMIT: Duration = Duration::from_secs(20);
+/// "whatsapp" in ASCII. Two servers running clients on the same keys would knock each other off, so
+/// only the holder of this advisory lock connects, whichever order a deploy stops and starts them in.
+const LOCK_KEY: i64 = 0x7768_6174_7361_7070;
 
 #[derive(Clone)]
 pub struct WhatsApp {
     context: Context,
     // A std mutex, since it's held only for a map lookup and never across an `.await`
     supervisors: Arc<Mutex<HashMap<Uuid, Handle>>>,
+    may_connect: Arc<watch::Sender<bool>>,
+    /// Holds the lock from boot to shutdown, outside the pool so closing it lets go at once
+    lock: Arc<Mutex<Option<PgConnection>>>,
 }
 
 impl WhatsApp {
@@ -33,10 +40,13 @@ impl WhatsApp {
         Self {
             context,
             supervisors: Arc::default(),
+            may_connect: Arc::new(watch::channel(false).0),
+            lock: Arc::default(),
         }
     }
 
-    /// Starts a supervisor for every account. Linked, unpaused ones connect `BOOT_SPACING` apart.
+    /// Starts a supervisor for every account, then takes the lock in the background. Once it holds
+    /// it, linked, unpaused accounts connect `BOOT_SPACING` apart.
     ///
     /// # Errors
     /// The accounts couldn't be read.
@@ -53,6 +63,7 @@ impl WhatsApp {
                 Some(account.id),
                 status,
                 start_in,
+                self.may_connect.subscribe(),
             );
             handles.push((account.user_id, handle));
             if connects {
@@ -60,6 +71,39 @@ impl WhatsApp {
             }
         }
         self.lock().extend(handles);
+
+        let manager = self.clone();
+        tokio::spawn(async move {
+            match manager.take_lock().await {
+                Ok(()) => {
+                    manager.may_connect.send_replace(true);
+                }
+                Err(error) => {
+                    tracing::error!(
+                        "couldn't take the WhatsApp lock, so no account connects: {error}"
+                    );
+                }
+            }
+        });
+        Ok(())
+    }
+
+    /// Waits while another server, the one a deploy is replacing, still runs the clients
+    async fn take_lock(&self) -> sqlx::Result<()> {
+        let mut connection =
+            PgConnection::connect_with(&self.context.pool.connect_options()).await?;
+        let free: bool = sqlx::query_scalar("SELECT pg_try_advisory_lock($1)")
+            .bind(LOCK_KEY)
+            .fetch_one(&mut connection)
+            .await?;
+        if !free {
+            tracing::info!("another server runs the WhatsApp clients; waiting for it to stop");
+            sqlx::query("SELECT pg_advisory_lock($1)")
+                .bind(LOCK_KEY)
+                .execute(&mut connection)
+                .await?;
+        }
+        *self.held_lock() = Some(connection);
         Ok(())
     }
 
@@ -83,12 +127,14 @@ impl WhatsApp {
                     None,
                     Status::NotLinked,
                     Duration::ZERO,
+                    self.may_connect.subscribe(),
                 )
             })
             .clone()
     }
 
-    /// Stops every client, each within `SHUTDOWN_LIMIT`, keeping the links for the next start
+    /// Stops every client, each within `SHUTDOWN_LIMIT`, keeping the links for the next start, then
+    /// lets go of the lock for the server that replaces this one
     pub async fn shutdown(&self) {
         let handles: Vec<Handle> = self.lock().drain().map(|(_, handle)| handle).collect();
         let mut stops = JoinSet::new();
@@ -96,6 +142,15 @@ impl WhatsApp {
             stops.spawn(async move { timeout(SHUTDOWN_LIMIT, handle.shutdown()).await });
         }
         stops.join_all().await;
+
+        let held = self.held_lock().take();
+        if let Some(connection) = held {
+            let _ = connection.close().await;
+        }
+    }
+
+    fn held_lock(&self) -> MutexGuard<'_, Option<PgConnection>> {
+        self.lock.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<Uuid, Handle>> {
@@ -207,6 +262,29 @@ mod tests {
         );
         assert_eq!(whatsapp.status(stranger), Status::NotLinked);
         whatsapp.shutdown().await;
+    }
+
+    /// Whether `whatsapp` lets clients start within a second
+    async fn opens(whatsapp: &WhatsApp) -> bool {
+        let mut may_connect = whatsapp.may_connect.subscribe();
+        timeout(Duration::from_secs(1), may_connect.wait_for(|open| *open))
+            .await
+            .is_ok_and(|waited| waited.is_ok())
+    }
+
+    #[sqlx::test]
+    async fn a_second_server_connects_only_once_the_first_lets_go(pool: PgPool) {
+        let first = manager(&pool);
+        first.boot().await.unwrap();
+        assert!(opens(&first).await);
+
+        let second = manager(&pool);
+        second.boot().await.unwrap();
+        assert!(!opens(&second).await);
+
+        first.shutdown().await;
+        assert!(opens(&second).await);
+        second.shutdown().await;
     }
 
     #[sqlx::test]

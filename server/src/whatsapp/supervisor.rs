@@ -176,8 +176,10 @@ impl Handle {
     }
 }
 
-/// Starts the supervisor for `user_id`'s account, if any, which is in `status`. A linked account
-/// that isn't paused connects after `start_in`, so a boot can space out its connections.
+/// Starts the supervisor for `user_id`'s account, if any, which is in `status`.
+///
+/// A linked account that isn't paused connects after `start_in`, so a boot can space out its
+/// connections. No client starts before `may_connect` turns true.
 #[must_use]
 pub fn spawn(
     context: Context,
@@ -185,6 +187,7 @@ pub fn spawn(
     account_id: Option<Uuid>,
     status: Status,
     start_in: Duration,
+    may_connect: watch::Receiver<bool>,
 ) -> Handle {
     let restart_at =
         matches!(status, Status::Reconnecting { .. }).then(|| Instant::now() + start_in);
@@ -200,6 +203,7 @@ pub fn spawn(
             commands,
             events_tx,
             events,
+            may_connect,
             client: None,
             generation: 0,
             restarts: 0,
@@ -224,6 +228,8 @@ struct Supervisor {
     // Unbounded: a callback blocked on a full channel could stall the client the loop waits on
     events_tx: mpsc::UnboundedSender<(u64, Event)>,
     events: mpsc::UnboundedReceiver<(u64, Event)>,
+    /// Turns true once this server holds the lock that keeps other servers' clients off these keys
+    may_connect: watch::Receiver<bool>,
     client: Option<Running>,
     /// Counts the clients started, so events from an older one are ignored
     generation: u64,
@@ -449,6 +455,10 @@ impl Supervisor {
         // Two clients on one store would knock each other off and corrupt its Signal state
         self.stop_client().await;
         self.restart_at = None;
+        self.may_connect
+            .wait_for(|open| *open)
+            .await
+            .map_err(|_| anyhow!("WhatsApp is shutting down"))?;
         let account_id = if let Some(account_id) = self.account_id {
             account_id
         } else {
