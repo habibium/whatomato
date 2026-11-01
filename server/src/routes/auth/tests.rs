@@ -24,6 +24,7 @@ use crate::{
     email::{Email, Mailer},
     rate_limit::RateLimits,
     state::AppState,
+    whatsapp::{manager::WhatsApp, supervisor::Context},
 };
 
 mod passkeys;
@@ -75,13 +76,18 @@ impl TestApp {
 
     fn with_pwned_passwords(pool: PgPool, app_url: &str, pwned_passwords: PwnedPasswords) -> Self {
         let outbox = Arc::default();
+        let cipher = Cipher::new(&[0; 32]);
         let state = AppState {
             pool: pool.clone(),
             mailer: Mailer::Outbox(Arc::clone(&outbox)),
             app_url: Arc::new(Url::parse(app_url).unwrap()),
             rate_limits: RateLimits::default(),
             pwned_passwords,
-            cipher: Cipher::new(&[0; 32]),
+            cipher: cipher.clone(),
+            whatsapp: WhatsApp::new(Context {
+                pool: pool.clone(),
+                cipher,
+            }),
         };
         let (router, _) = crate::router();
 

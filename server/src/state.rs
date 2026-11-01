@@ -3,7 +3,10 @@ use std::sync::Arc;
 use sqlx::PgPool;
 use url::Url;
 
-use crate::{auth::pwned::PwnedPasswords, crypto::Cipher, email::Mailer, rate_limit::RateLimits};
+use crate::{
+    auth::pwned::PwnedPasswords, crypto::Cipher, email::Mailer, rate_limit::RateLimits,
+    whatsapp::manager::WhatsApp,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -13,6 +16,7 @@ pub struct AppState {
     pub rate_limits: RateLimits,
     pub pwned_passwords: PwnedPasswords,
     pub cipher: Cipher,
+    pub whatsapp: WhatsApp,
 }
 
 impl AppState {

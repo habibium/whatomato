@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_accounts (user_id, phone_number, linked_at, paused_at) VALUES ($1, '15550001', now(), now()), ($2, NULL, NULL, NULL)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f4e630ba6459be176f589a3e17283dea27eb8b9b1d7f99df431b8558d5865f20"
+}

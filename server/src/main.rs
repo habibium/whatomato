@@ -10,8 +10,12 @@ use axum::{
     response::Response,
 };
 use server::{
-    ClientIpHeader, PwnedPasswords, RateLimits, config::Config, crypto::Cipher, email::Mailer,
+    ClientIpHeader, PwnedPasswords, RateLimits,
+    config::Config,
+    crypto::Cipher,
+    email::Mailer,
     state::AppState,
+    whatsapp::{manager::WhatsApp, supervisor::Context},
 };
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
@@ -52,13 +56,20 @@ async fn main() -> anyhow::Result<()> {
         async move { mailer.check().await }
     });
     tracing::info!("links in emails point at {}", config.app_url);
+    let cipher = Cipher::new(&config.encryption_key);
+    let whatsapp = WhatsApp::new(Context {
+        pool: pool.clone(),
+        cipher: cipher.clone(),
+    });
+    whatsapp.boot().await?;
     let state = AppState {
         pool: pool.clone(),
         mailer,
         app_url: Arc::new(config.app_url),
         rate_limits: RateLimits::default(),
         pwned_passwords: PwnedPasswords::hibp()?,
-        cipher: Cipher::new(&config.encryption_key),
+        cipher,
+        whatsapp: whatsapp.clone(),
     };
 
     let (router, api) = server::router();
@@ -134,6 +145,8 @@ async fn main() -> anyhow::Result<()> {
     .with_graceful_shutdown(shutdown_signal())
     .await?;
 
+    // Clients flush their keys to the database, so they stop before the pool closes
+    whatsapp.shutdown().await;
     pool.close().await;
     tracing::info!("server stopped");
     Ok(())

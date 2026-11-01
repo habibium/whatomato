@@ -4,6 +4,7 @@ pub mod sessions;
 pub mod tokens;
 pub mod two_factor;
 pub mod users;
+pub mod whatsapp_accounts;
 
 use std::time::Duration;
 
