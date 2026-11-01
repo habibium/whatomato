@@ -1,7 +1,10 @@
 //! One task per user's WhatsApp account. It runs the account's client, feeds the client's events
 //! and the user's commands through [`status::next`], and carries out the effects in order.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, PoisonError, RwLock},
+    time::Duration,
+};
 
 use anyhow::anyhow;
 use chrono::{TimeDelta, Utc};
@@ -15,6 +18,7 @@ use url::Url;
 use uuid::Uuid;
 use whatsapp_rust::{
     CacheConfig, MsgSecretPolicy, PresencePolicy,
+    http::{HttpClient, UreqHttpClient},
     pair_code::PairCodeOptions,
     prelude::{
         Bot, BotHandle, Client, DeregistrationOutcome, Event as LibraryEvent, EventKind, Jid, wa,
@@ -73,6 +77,24 @@ pub struct Context {
     pub cipher: Cipher,
     pub mailer: Mailer,
     pub app_url: Arc<Url>,
+    pub(super) http: Arc<dyn HttpClient>,
+    /// The WhatsApp Web version fetched for every client, the last one that worked; until the
+    /// first fetch, each client fetches its own
+    pub(super) version: Arc<RwLock<Option<(u32, u32, u32)>>>,
+}
+
+impl Context {
+    #[must_use]
+    pub fn new(pool: PgPool, cipher: Cipher, mailer: Mailer, app_url: Arc<Url>) -> Self {
+        Self {
+            pool,
+            cipher,
+            mailer,
+            app_url,
+            http: Arc::new(UreqHttpClient::new()),
+            version: Arc::default(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -506,6 +528,7 @@ impl Supervisor {
             .with_presence_policy(PresencePolicy::Manual)
             .skip_history_sync()
             .with_cache_config(cache)
+            .with_http_client_arc(Arc::clone(&self.context.http))
             .on_event_for(&WATCHED, move |event, _client| {
                 let events = events.clone();
                 async move {
@@ -517,6 +540,14 @@ impl Supervisor {
             });
         if let Some(number) = self.pairing_number() {
             builder = builder.with_pair_code(pair_code_options(&number));
+        }
+        let version = *self
+            .context
+            .version
+            .read()
+            .unwrap_or_else(PoisonError::into_inner);
+        if let Some(version) = version {
+            builder = builder.with_version(version);
         }
         self.client = Some(Running::new(builder.build().await?.spawn()));
         Ok(())

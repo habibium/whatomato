@@ -9,6 +9,7 @@ use std::{
 use sqlx::{Connection, PgConnection};
 use tokio::{sync::watch, task::JoinSet, time::timeout};
 use uuid::Uuid;
+use whatsapp_rust::version;
 
 use super::{
     status::{Status, StopReason},
@@ -20,6 +21,8 @@ use crate::db::whatsapp_accounts::{self, Account};
 const BOOT_SPACING: Duration = Duration::from_secs(2);
 /// Each client gets this long to flush and stop when the server shuts down
 const SHUTDOWN_LIMIT: Duration = Duration::from_secs(20);
+const VERSION_EVERY: Duration = Duration::from_hours(24);
+const VERSION_RETRY: Duration = Duration::from_hours(1);
 /// "whatsapp" in ASCII. Two servers running clients on the same keys would knock each other off, so
 /// only the holder of this advisory lock connects, whichever order a deploy stops and starts them in.
 const LOCK_KEY: i64 = 0x7768_6174_7361_7070;
@@ -86,6 +89,32 @@ impl WhatsApp {
             }
         });
         Ok(())
+    }
+
+    /// Fetches the WhatsApp Web version once a day for every client. One failed fetch would
+    /// otherwise stop each client whose own cached version had expired from connecting.
+    pub fn refresh_version_daily(&self) {
+        let context = self.context.clone();
+        tokio::spawn(async move {
+            loop {
+                let wait = match version::fetch_latest_app_version(&context.http).await {
+                    Ok(latest) => {
+                        *context
+                            .version
+                            .write()
+                            .unwrap_or_else(PoisonError::into_inner) = Some(latest);
+                        VERSION_EVERY
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            "couldn't fetch the WhatsApp Web version; keeping the last: {error:#}"
+                        );
+                        VERSION_RETRY
+                    }
+                };
+                tokio::time::sleep(wait).await;
+            }
+        });
     }
 
     /// Waits while another server, the one a deploy is replacing, still runs the clients
@@ -192,12 +221,12 @@ mod tests {
     // No test here links or resumes an account, since that would open a real WhatsApp connection
 
     fn manager(pool: &PgPool) -> WhatsApp {
-        WhatsApp::new(Context {
-            pool: pool.clone(),
-            cipher: Cipher::new(&[7; 32]),
-            mailer: Mailer::Outbox(Arc::default()),
-            app_url: Arc::new(Url::parse("http://localhost:5173").unwrap()),
-        })
+        WhatsApp::new(Context::new(
+            pool.clone(),
+            Cipher::new(&[7; 32]),
+            Mailer::Outbox(Arc::default()),
+            Arc::new(Url::parse("http://localhost:5173").unwrap()),
+        ))
     }
 
     async fn user(pool: &PgPool) -> Uuid {

@@ -58,13 +58,14 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("links in emails point at {}", config.app_url);
     let cipher = Cipher::new(&config.encryption_key);
     let app_url = Arc::new(config.app_url);
-    let whatsapp = WhatsApp::new(Context {
-        pool: pool.clone(),
-        cipher: cipher.clone(),
-        mailer: mailer.clone(),
-        app_url: Arc::clone(&app_url),
-    });
+    let whatsapp = WhatsApp::new(Context::new(
+        pool.clone(),
+        cipher.clone(),
+        mailer.clone(),
+        Arc::clone(&app_url),
+    ));
     whatsapp.boot().await?;
+    whatsapp.refresh_version_daily();
     let state = AppState {
         pool: pool.clone(),
         mailer,

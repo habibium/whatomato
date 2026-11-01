@@ -86,12 +86,7 @@ impl TestApp {
             rate_limits: RateLimits::default(),
             pwned_passwords,
             cipher: cipher.clone(),
-            whatsapp: WhatsApp::new(Context {
-                pool: pool.clone(),
-                cipher,
-                mailer,
-                app_url,
-            }),
+            whatsapp: WhatsApp::new(Context::new(pool.clone(), cipher, mailer, app_url)),
         };
         let (router, _) = crate::router();
 
