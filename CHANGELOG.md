@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.0-alpha.7] - 2026-11-01
+
+### Features
+
+- **server:** Keep whatsapp-rust's app-state, protocol and secret state in Postgres (1399407)
+- Rename the project to Whatomato, with its logo (dac176e)
+
+### Bug Fixes
+
+- **deps:** Update rustls, rustls-webpki, webpki-roots, ctutils and tokio (0fc0e04)
 ## [0.1.0-alpha.6] - 2026-10-31
 
 ### Features
