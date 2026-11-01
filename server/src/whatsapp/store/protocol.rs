@@ -139,8 +139,7 @@ impl ProtocolStore for PgStore {
         if entries.is_empty() {
             return Ok(());
         }
-        let entries: Vec<&LidPnMappingEntry> =
-            last_per_key(entries.iter(), |entry| entry.lid.as_str()).collect();
+        let entries = merge_lid_repeats(entries);
         let lids: Vec<&str> = entries.iter().map(|entry| entry.lid.as_str()).collect();
         let phone_numbers: Vec<&str> = entries
             .iter()
@@ -365,7 +364,8 @@ impl ProtocolStore for PgStore {
             found.insert(row.jid, entry);
         }
 
-        Ok(jids.iter().map(|jid| found.remove(jid)).collect())
+        // `get`, not `remove`: a JID asked for twice gets its entry in both places
+        Ok(jids.iter().map(|jid| found.get(jid).cloned()).collect())
     }
 
     async fn put_tc_token(&self, jid: &str, entry: &TcTokenEntry) -> Result<()> {
@@ -574,6 +574,26 @@ impl PgStore {
         let mut payload = self.open(SENT_MESSAGES, &composite(&[chat_jid, message_id]), sealed)?;
         Ok(std::mem::take(&mut *payload))
     }
+}
+
+/// One entry per LID, as SQLite's one-by-one upserts would leave it: the last entry, keeping the
+/// first one's `created_at`
+fn merge_lid_repeats(entries: &[LidPnMappingEntry]) -> Vec<LidPnMappingEntry> {
+    let mut merged: Vec<LidPnMappingEntry> = Vec::with_capacity(entries.len());
+    let mut positions: HashMap<&str, usize> = HashMap::new();
+    for entry in entries {
+        if let Some(&position) = positions.get(entry.lid.as_str()) {
+            let created_at = merged[position].created_at;
+            merged[position] = LidPnMappingEntry {
+                created_at,
+                ..entry.clone()
+            };
+        } else {
+            positions.insert(&entry.lid, merged.len());
+            merged.push(entry.clone());
+        }
+    }
+    merged
 }
 
 /// Postgres refuses an upsert that touches one row twice, so a repeated key keeps only its last

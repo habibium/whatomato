@@ -310,12 +310,15 @@ async fn privacy_tokens_expire_only_once_both_halves_are_stale(pool: PgPool) {
             "live-token@lid".into(),
             "gone@lid".into(),
             "live-sender@lid".into(),
+            "live-token@lid".into(),
         ])
         .await
         .unwrap();
     assert_eq!(found[0].as_ref().unwrap().token_timestamp, 200);
     assert!(found[1].is_none());
     assert_eq!(found[2].as_ref().unwrap().sender_timestamp, Some(200));
+    // A JID asked for twice gets its entry both times
+    assert_eq!(found[3].as_ref().unwrap().token_timestamp, 200);
 
     store.delete_tc_token("live-token@lid").await.unwrap();
     assert!(
@@ -410,7 +413,20 @@ async fn lid_mappings_keep_their_first_sighting_and_find_the_newest_lid(pool: Pg
         "200"
     );
     assert!(store.get_pn_mapping("15550002").await.unwrap().is_none());
-    assert_eq!(store.get_all_lid_mappings().await.unwrap().len(), 2);
+
+    // A new LID twice in one batch ends as SQLite's one-by-one upserts leave it
+    store
+        .put_lid_mappings(&[
+            mapping("300", "15550004", 50),
+            mapping("300", "15550005", 60),
+        ])
+        .await
+        .unwrap();
+    let repeated = store.get_lid_mapping("300").await.unwrap().unwrap();
+    assert_eq!(repeated.phone_number, "15550005");
+    assert_eq!(repeated.created_at, 50);
+    assert_eq!(repeated.updated_at, 60);
+    assert_eq!(store.get_all_lid_mappings().await.unwrap().len(), 3);
 }
 
 #[sqlx::test]
