@@ -10,7 +10,8 @@ dev:
 check: check-rust check-web
 
 check-rust:
-    cargo clippy --workspace --all-targets -- -D warnings
+    # stable, like CI and the Docker build: nightly clippy accepts code that stable rejects
+    cargo +stable clippy --workspace --all-targets -- -D warnings
     cargo run -q --bin openapi -- --check
     cargo test --workspace
 
