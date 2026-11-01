@@ -11,4 +11,6 @@ command = ["sh", "-c", "cargo run --bin openapi && exec cargo run --bin server"]
 need_stdout = true
 background = false
 on_change_strategy = "kill_then_restart"
+# bacon's default is SIGKILL, which skips the server's graceful shutdown
+kill = ["kill", "-s", "INT"]
 scroll_anchor = "auto"

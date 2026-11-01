@@ -53,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
     });
     tracing::info!("links in emails point at {}", config.app_url);
     let state = AppState {
-        pool,
+        pool: pool.clone(),
         mailer,
         app_url: Arc::new(config.app_url),
         rate_limits: RateLimits::default(),
@@ -131,7 +131,36 @@ async fn main() -> anyhow::Result<()> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
+    .with_graceful_shutdown(shutdown_signal())
     .await?;
 
+    pool.close().await;
+    tracing::info!("server stopped");
     Ok(())
+}
+
+/// Resolves on Ctrl-C, or on the SIGTERM that `docker stop` sends. As PID 1 in the container the
+/// server gets no default SIGTERM handling, so without this Docker kills it once its timeout runs out.
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install the Ctrl-C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install the SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => {},
+        () = terminate => {},
+    }
+    tracing::info!("shutting down, letting in-flight requests finish");
 }
