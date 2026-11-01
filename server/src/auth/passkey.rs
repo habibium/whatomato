@@ -22,7 +22,7 @@ const RP_NAME: &str = "Whatomato";
 /// the app to another host strands the passkeys registered on the old one.
 ///
 /// # Errors
-/// `APP_URL`'s host is an IP address, which WebAuthn does not accept as an RP ID.
+/// `APP_URL`'s host is an IP address, which passkeys can't use as an RP ID.
 pub fn relying_party(app_url: &Url) -> anyhow::Result<Webauthn> {
     let rp_id = app_url
         .domain()
