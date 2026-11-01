@@ -8,6 +8,7 @@ use chrono::{TimeDelta, Utc};
 use sqlx::PgPool;
 use tokio::{
     sync::{mpsc, oneshot, watch},
+    task::AbortHandle,
     time::{Instant, sleep_until, timeout},
 };
 use url::Url;
@@ -41,6 +42,12 @@ const MAX_RESTART_DELAY: Duration = Duration::from_mins(10);
 /// For listing groups and sending through a connected client
 const REQUEST_LIMIT: Duration = Duration::from_secs(30);
 const TEST_MESSAGE: &str = "Whatomato test: your WhatsApp is linked. You can delete this.";
+/// Upstream's `manual_presence` example found a daily window this long clears the stale activity and
+/// expiry warning a never-online device shows on the phone; it's empirical, not a WhatsApp rule
+const PRESENCE_PULSE: Duration = Duration::from_secs(45);
+const PRESENCE_EVERY: Duration = Duration::from_hours(24);
+/// The first pulse after connecting comes this long at most, spread by user
+const FIRST_PULSE_WITHIN: Duration = Duration::from_hours(6);
 
 const WATCHED: [EventKind; 14] = [
     EventKind::PairingQrCode,
@@ -241,6 +248,7 @@ struct Supervisor {
 struct Running {
     handle: BotHandle,
     client: Arc<Client>,
+    presence: Option<AbortOnDrop>,
 }
 
 impl Running {
@@ -248,7 +256,17 @@ impl Running {
         Self {
             client: handle.client(),
             handle,
+            presence: None,
         }
+    }
+}
+
+/// Ends a task when its owner goes, as a client's presence pulse must end with the client
+struct AbortOnDrop(AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -294,6 +312,7 @@ impl Supervisor {
                 Wake::Event(generation, event) if generation == self.generation => {
                     if event == Event::Connected {
                         self.restarts = 0;
+                        self.keep_presence_fresh();
                     }
                     let _ = self.handle(event).await;
                 }
@@ -505,9 +524,15 @@ impl Supervisor {
 
     /// Flushes the client's state and waits for it to let go of the store
     async fn stop_client(&mut self) {
-        let Some(Running { handle, client }) = self.client.take() else {
+        let Some(Running {
+            handle,
+            client,
+            presence,
+        }) = self.client.take()
+        else {
             return;
         };
+        drop(presence);
         let released = client.store_release();
         drop(client);
         // Dropping the handle when time runs out aborts the client
@@ -532,9 +557,15 @@ impl Supervisor {
             self.stop_client().await;
             return false;
         }
-        let Some(Running { handle, client }) = self.client.take() else {
+        let Some(Running {
+            handle,
+            client,
+            presence,
+        }) = self.client.take()
+        else {
             return false;
         };
+        drop(presence);
         let released = client.store_release();
         let report = timeout(STOP_LIMIT, client.logout()).await;
         drop(client);
@@ -556,6 +587,28 @@ impl Supervisor {
         timeout(LOGOUT_CONNECT_LIMIT, connected)
             .await
             .unwrap_or(false)
+    }
+
+    /// Starts the client's daily presence pulse, or after a reconnect marks it unavailable again in
+    /// case the drop cut a pulse short
+    fn keep_presence_fresh(&mut self) {
+        let first_in = Duration::from_secs(
+            u64::try_from(self.user_id.as_u128() % u128::from(FIRST_PULSE_WITHIN.as_secs()))
+                .unwrap_or_default(),
+        );
+        let Some(running) = &mut self.client else {
+            return;
+        };
+        let client = Arc::clone(&running.client);
+        if running.presence.is_some() {
+            tokio::spawn(async move {
+                let _ = client.presence().set_unavailable().await;
+            });
+        } else {
+            running.presence = Some(AbortOnDrop(
+                tokio::spawn(pulse_presence(client, first_in)).abort_handle(),
+            ));
+        }
     }
 
     async fn request_pair_code(&self) {
@@ -643,6 +696,20 @@ impl Supervisor {
             };
             let _ = reply.send(sent);
         });
+    }
+}
+
+async fn pulse_presence(client: Arc<Client>, first_in: Duration) {
+    // A pulse cut short by a stop or a crash would leave the account shown online
+    let _ = client.presence().set_unavailable().await;
+    let mut wait = first_in;
+    loop {
+        tokio::time::sleep(wait).await;
+        if client.presence().set_available().await.is_ok() {
+            tokio::time::sleep(PRESENCE_PULSE).await;
+        }
+        let _ = client.presence().set_unavailable().await;
+        wait = PRESENCE_EVERY;
     }
 }
 

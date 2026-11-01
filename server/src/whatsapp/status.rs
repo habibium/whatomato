@@ -234,14 +234,7 @@ fn from_linked(
             vec![Effect::StopClient, Effect::SavePaused],
         )),
         Event::Unlink => Ok(unlinked_from_app()),
-        Event::LoggedOut => Ok((
-            Status::NotLinked,
-            vec![
-                Effect::StopClient,
-                Effect::Forget,
-                Effect::Alert(Alert::UnlinkedFromPhone),
-            ],
-        )),
+        Event::LoggedOut => Ok(logged_out()),
         Event::Replaced => Ok((
             stopped(StopReason::Replaced),
             vec![
@@ -284,9 +277,22 @@ fn from_idle(
             vec![Effect::StartClient, Effect::SaveResumed],
         )),
         Event::Unlink => Ok(unlinked_from_app()),
+        // A logout queued before the client stopped still means its keys are dead
+        Event::LoggedOut => Ok(logged_out()),
         Event::Link(_) | Event::Cancel | Event::Pause => Err(Refused),
         _ => Ok((status.clone(), vec![])),
     }
+}
+
+fn logged_out() -> (Status, Vec<Effect>) {
+    (
+        Status::NotLinked,
+        vec![
+            Effect::StopClient,
+            Effect::Forget,
+            Effect::Alert(Alert::UnlinkedFromPhone),
+        ],
+    )
 }
 
 fn unlinked_from_app() -> (Status, Vec<Effect>) {
@@ -481,16 +487,18 @@ mod tests {
 
     #[test]
     fn a_logout_from_the_phone_forgets_the_keys_once_the_client_stops() {
-        let (status, effects) = run(connected(), [Event::LoggedOut]);
-        assert_eq!(status, Status::NotLinked);
-        assert_eq!(
-            effects,
-            [
-                Effect::StopClient,
-                Effect::Forget,
-                Effect::Alert(Alert::UnlinkedFromPhone)
-            ]
-        );
+        for linked in [connected(), paused(), stopped(StopReason::Refused)] {
+            let (status, effects) = run(linked, [Event::LoggedOut]);
+            assert_eq!(status, Status::NotLinked);
+            assert_eq!(
+                effects,
+                [
+                    Effect::StopClient,
+                    Effect::Forget,
+                    Effect::Alert(Alert::UnlinkedFromPhone)
+                ]
+            );
+        }
     }
 
     #[test]
