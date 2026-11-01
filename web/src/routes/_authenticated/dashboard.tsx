@@ -9,7 +9,9 @@ import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { Divider } from '@astryxdesign/core/Divider'
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList'
+import { MoreMenu } from '@astryxdesign/core/MoreMenu'
 import { HStack } from '@astryxdesign/core/HStack'
+import { Link } from '@astryxdesign/core/Link'
 import { Heading, Text } from '@astryxdesign/core/Text'
 import { Timestamp } from '@astryxdesign/core/Timestamp'
 import { VStack } from '@astryxdesign/core/VStack'
@@ -27,6 +29,20 @@ const COLUMN_WIDTH = 560
 const styles = stylex.create({
   // `ch` resolves against the element's own font size, so it sits on the text itself.
   measure: { maxWidth: '45ch' },
+  // Three header buttons don't fit beside the wordmark on a phone, so below
+  // 640 the account ones fold into a menu and WhatsApp stays in reach.
+  wideOnly: {
+    display: {
+      default: 'none',
+      '@media (min-width: 640px)': 'flex',
+    },
+  },
+  narrowOnly: {
+    display: {
+      default: 'flex',
+      '@media (min-width: 640px)': 'none',
+    },
+  },
 })
 
 function Dashboard() {
@@ -47,9 +63,33 @@ function Dashboard() {
   return (
     <SiteFrame
       action={
-        <HStack gap={2}>
-          <Button label="Security" variant="ghost" href="/settings" />
-          <Button label="Sign out" variant="ghost" clickAction={signOut} />
+        <HStack gap={2} vAlign="center">
+          <Button label="WhatsApp" variant="ghost" href="/whatsapp" />
+          <Button
+            label="Security"
+            variant="ghost"
+            href="/settings"
+            xstyle={styles.wideOnly}
+          />
+          <Button
+            label="Sign out"
+            variant="ghost"
+            clickAction={signOut}
+            xstyle={styles.wideOnly}
+          />
+          <HStack xstyle={styles.narrowOnly}>
+            <MoreMenu
+              label="More"
+              alignment="end"
+              items={[
+                {
+                  label: 'Security',
+                  onClick: () => void navigate({ to: '/settings' }),
+                },
+                { label: 'Sign out', onClick: () => void signOut() },
+              ]}
+            />
+          </HStack>
         </HStack>
       }
     >
@@ -68,9 +108,12 @@ function Dashboard() {
             Link WhatsApp to get started.
           </Heading>
           <Text color="secondary" size="lg" xstyle={styles.measure}>
-            You will scan a QR code with the phone that runs WhatsApp, the same
-            way WhatsApp Web connects. Linking is the next part to ship, and it
-            will appear on this page.
+            You scan a QR code with the phone that runs WhatsApp, the same way
+            WhatsApp Web connects. Start on the{' '}
+            <Link href="/whatsapp" size="lg" hasUnderline>
+              WhatsApp page
+            </Link>
+            .
           </Text>
         </VStack>
 

@@ -27,7 +27,10 @@ export type ConfirmOutcome =
   | 'failed'
   | { kind: 'rate-limited'; retryAfter?: number }
 
-type Problem = Exclude<ConfirmOutcome, 'confirmed' | 'incorrect-password'>
+export type ConfirmProblem = Exclude<
+  ConfirmOutcome,
+  'confirmed' | 'incorrect-password'
+>
 
 /** Reads an openapi-fetch result from an endpoint that re-checks the password. */
 export function toConfirmOutcome(result: {
@@ -52,6 +55,8 @@ interface ConfirmPasswordDialogProps {
   title: string
   description: string
   confirmLabel: string
+  /** `destructive` for a change that can't be undone from here. */
+  confirmVariant?: 'primary' | 'destructive'
   /** Makes the protected change with the password; the dialog closes once it is `confirmed`. */
   onConfirm: (password: string) => Promise<ConfirmOutcome>
 }
@@ -88,10 +93,11 @@ function ConfirmPasswordForm({
   title,
   description,
   confirmLabel,
+  confirmVariant = 'primary',
   onConfirm,
   onClose,
 }: ConfirmPasswordFormProps) {
-  const [problem, setProblem] = useState<Problem | null>(null)
+  const [problem, setProblem] = useState<ConfirmProblem | null>(null)
 
   const form = useForm({
     defaultValues: { password: '' },
@@ -140,19 +146,7 @@ function ConfirmPasswordForm({
         content={
           <LayoutContent>
             <VStack gap={4}>
-              {problem === 'failed' ? (
-                <Banner
-                  status="error"
-                  title="That didn't work."
-                  description="Something went wrong on our side. Try again in a moment."
-                />
-              ) : problem ? (
-                <Banner
-                  status="error"
-                  title={TOO_MANY_ATTEMPTS}
-                  description={tryAgainIn(problem.retryAfter)}
-                />
-              ) : null}
+              {problem ? <ConfirmProblemBanner problem={problem} /> : null}
               <FormLayout defaultOptionality="required">
                 <form.Field name="password">
                   {(field) => (
@@ -187,7 +181,7 @@ function ConfirmPasswordForm({
                   <Button
                     type="submit"
                     label={confirmLabel}
-                    variant="primary"
+                    variant={confirmVariant}
                     isLoading={isSubmitting}
                   />
                 )}
@@ -197,5 +191,21 @@ function ConfirmPasswordForm({
         }
       />
     </form>
+  )
+}
+
+export function ConfirmProblemBanner({ problem }: { problem: ConfirmProblem }) {
+  return problem === 'failed' ? (
+    <Banner
+      status="error"
+      title="That didn't work."
+      description="Something went wrong on our side. Try again in a moment."
+    />
+  ) : (
+    <Banner
+      status="error"
+      title={TOO_MANY_ATTEMPTS}
+      description={tryAgainIn(problem.retryAfter)}
+    />
   )
 }
