@@ -31,9 +31,10 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=server /server /usr/local/bin/server
 COPY --from=web /app/web/dist ./web/dist
+# Libraries stay at warn: the WhatsApp library logs phone numbers and pair codes at info
 ENV PORT=8000 \
     WEB_DIR=/app/web/dist \
-    RUST_LOG=info
+    RUST_LOG=warn,server=info
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

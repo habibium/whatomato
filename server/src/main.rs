@@ -36,8 +36,9 @@ async fn main() -> anyhow::Result<()> {
     // tracing
     tracing_subscriber::registry()
         .with(
+            // Libraries stay at warn: the WhatsApp library logs phone numbers and pair codes at info
             EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,server=debug,tower_http=debug")),
+                .unwrap_or_else(|_| EnvFilter::new("warn,server=debug,tower_http=debug")),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
