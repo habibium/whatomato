@@ -2,6 +2,8 @@
 
 mod app_sync;
 mod device;
+#[cfg(test)]
+mod differential;
 mod msg_secret;
 mod protocol;
 mod signal;

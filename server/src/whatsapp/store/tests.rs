@@ -42,7 +42,7 @@ async fn account(pool: &PgPool) -> Uuid {
     .unwrap()
 }
 
-async fn store(pool: &PgPool) -> PgStore {
+pub(super) async fn store(pool: &PgPool) -> PgStore {
     PgStore::new(pool.clone(), Cipher::new(&KEY), account(pool).await)
 }
 
