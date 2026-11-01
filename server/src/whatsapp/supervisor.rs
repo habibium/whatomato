@@ -10,6 +10,7 @@ use tokio::{
     sync::{mpsc, oneshot, watch},
     time::{Instant, sleep_until, timeout},
 };
+use url::Url;
 use uuid::Uuid;
 use whatsapp_rust::{
     CacheConfig, MsgSecretPolicy, PresencePolicy,
@@ -21,10 +22,11 @@ use whatsapp_rust::{
 };
 
 use super::{
-    status::{self, Code, Effect, Event, Method, Refused, Status},
+    alerts,
+    status::{self, Alert, Code, Effect, Event, Method, Refused, Status, StopReason},
     store::PgStore,
 };
-use crate::{crypto::Cipher, db::whatsapp_accounts};
+use crate::{crypto::Cipher, db::whatsapp_accounts, email::Mailer};
 
 /// Shown on the phone as "Google Chrome (Whatomato)" after QR linking
 const DEVICE_NAME: &str = "Whatomato";
@@ -62,6 +64,8 @@ const WATCHED: [EventKind; 14] = [
 pub struct Context {
     pub pool: PgPool,
     pub cipher: Cipher,
+    pub mailer: Mailer,
+    pub app_url: Arc<Url>,
 }
 
 #[derive(Debug)]
@@ -361,15 +365,19 @@ impl Supervisor {
                         self.log_failed_write("the link", saved);
                     }
                 }
-                Effect::SavePaused | Effect::SaveResumed => {
+                Effect::SavePaused => {
                     if let Some(account_id) = self.account_id {
-                        let paused = effect == Effect::SavePaused;
-                        let saved =
-                            whatsapp_accounts::set_paused(&self.context.pool, account_id, paused)
-                                .await;
+                        let saved = whatsapp_accounts::pause(&self.context.pool, account_id).await;
                         self.log_failed_write("the pause", saved);
                     }
                 }
+                Effect::SaveResumed => {
+                    if let Some(account_id) = self.account_id {
+                        let saved = whatsapp_accounts::resume(&self.context.pool, account_id).await;
+                        self.log_failed_write("the resume", saved);
+                    }
+                }
+                Effect::SaveStopped(reason) => self.save_stop(&reason).await,
                 Effect::Forget => {
                     if let Some(account_id) = self.account_id.take() {
                         let deleted =
@@ -377,12 +385,40 @@ impl Supervisor {
                         self.log_failed_write("the unlink", deleted);
                     }
                 }
-                Effect::Alert(alert) => {
-                    tracing::info!(user_id = %self.user_id, alert = alert_name(&alert), "WhatsApp alert");
-                }
+                Effect::Alert(alert) => self.alert(alert),
             }
         }
         failed.map_or(Ok(told_whatsapp), |error| Err(CommandError::Failed(error)))
+    }
+
+    /// Only a takeover or a ban needs the user, so only they are kept; a deploy may fix the rest
+    async fn save_stop(&self, reason: &StopReason) {
+        let (name, until) = match reason {
+            StopReason::Replaced => ("replaced", None),
+            StopReason::TemporaryBan { until } => ("temporary_ban", Some(*until)),
+            StopReason::Outdated | StopReason::Refused => return,
+        };
+        if let Some(account_id) = self.account_id {
+            let saved =
+                whatsapp_accounts::save_stop(&self.context.pool, account_id, name, until).await;
+            self.log_failed_write("the stop", saved);
+        }
+    }
+
+    /// Emails the owner beside the loop, which a slow mail lookup mustn't hold up
+    fn alert(&self, alert: Alert) {
+        let Context {
+            pool,
+            mailer,
+            app_url,
+            ..
+        } = self.context.clone();
+        let user_id = self.user_id;
+        tokio::spawn(async move {
+            if let Err(error) = alerts::send(&pool, &mailer, &app_url, user_id, alert).await {
+                tracing::error!(%user_id, "couldn't email a WhatsApp alert: {error:#}");
+            }
+        });
     }
 
     fn log_failed_write(&self, what: &str, result: sqlx::Result<()>) {
@@ -652,15 +688,4 @@ fn translate(event: &LibraryEvent) -> Option<Event> {
         },
         _ => return None,
     })
-}
-
-/// For the log line, which mustn't carry the phone number some alerts hold
-const fn alert_name(alert: &status::Alert) -> &'static str {
-    match alert {
-        status::Alert::Linked { .. } => "linked",
-        status::Alert::UnlinkedFromApp => "unlinked from the app",
-        status::Alert::UnlinkedFromPhone => "unlinked from the phone",
-        status::Alert::Replaced => "replaced",
-        status::Alert::TemporaryBan { .. } => "temporary ban",
-    }
 }

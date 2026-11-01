@@ -1,9 +1,9 @@
 use anyhow::Context;
-use chrono::TimeDelta;
+use chrono::{DateTime, DurationRound, TimeDelta, Utc};
 use url::Url;
 
 use super::Email;
-use crate::auth::token::Purpose;
+use crate::{auth::token::Purpose, whatsapp::status::Alert};
 
 const PRODUCT_NAME: &str = "Whatomato";
 
@@ -47,7 +47,7 @@ pub fn reset_password(link: &Url) -> Email {
 
 /// An account change or sign-in the owner should hear about; the email offers the remedy for one
 /// they did not make
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub enum SecurityEvent {
     PasswordChanged,
     TwoFactorEnabled,
@@ -61,11 +61,19 @@ pub enum SecurityEvent {
     RecoveryCodeUsed {
         remaining: i64,
     },
+    WhatsApp(Alert),
+}
+
+impl From<Alert> for SecurityEvent {
+    fn from(alert: Alert) -> Self {
+        Self::WhatsApp(alert)
+    }
 }
 
 const RESET_NOW: &str =
     "If this wasn't you, reset your password now, which signs out every device.";
 const RESET_THEN_NEW_CODES: &str = "If this wasn't you, reset your password now, which signs out every device, then create new recovery codes.";
+const NOTHING_ELSE_TO_DO: &str = "If it was you, there's nothing else to do.";
 
 /// # Errors
 /// `app_url` cannot be a base for links.
@@ -132,6 +140,7 @@ pub fn security_alert(event: SecurityEvent, app_url: &Url) -> anyhow::Result<Ema
             ),
             RESET_THEN_NEW_CODES,
         ),
+        SecurityEvent::WhatsApp(alert) => return whatsapp_alert(alert, app_url),
     };
     let (action, path) = if matches!(event, SecurityEvent::PasskeyAdded) {
         ("Review your passkeys", "/settings")
@@ -148,7 +157,90 @@ pub fn security_alert(event: SecurityEvent, app_url: &Url) -> anyhow::Result<Ema
         body: format!("{what} {remedy}"),
         action,
         link: &link,
-        footer: "If it was you, there's nothing else to do.",
+        footer: NOTHING_ELSE_TO_DO,
+    }))
+}
+
+fn whatsapp_alert(alert: Alert, app_url: &Url) -> anyhow::Result<Email> {
+    // Before the match below, which moves the phone number out of `alert`
+    let (action, path) = match alert {
+        Alert::Linked { .. } | Alert::TemporaryBan { .. } => {
+            ("Review your WhatsApp link", "/whatsapp")
+        }
+        Alert::UnlinkedFromApp => ("Reset your password", "/forgot-password"),
+        Alert::UnlinkedFromPhone | Alert::Replaced => ("Link WhatsApp again", "/whatsapp"),
+    };
+    let footer = match alert {
+        Alert::Linked { .. } | Alert::UnlinkedFromApp | Alert::UnlinkedFromPhone => {
+            NOTHING_ELSE_TO_DO
+        }
+        Alert::Replaced => "Scheduled messages won't send until you link WhatsApp again.",
+        Alert::TemporaryBan { .. } => "Pressing Reconnect sooner won't lift the ban.",
+    };
+
+    let (subject, heading, what, remedy) = match alert {
+        // The library reports the number as digits, without the plus
+        Alert::Linked { phone_number } => (
+            "WhatsApp was linked to your account",
+            "WhatsApp was linked.",
+            format!(
+                "The WhatsApp number +{phone_number} was linked to your {PRODUCT_NAME} account."
+            ),
+            format!(
+                "If this wasn't you, unlink it in {PRODUCT_NAME}, reset your password, and remove the device under Linked devices in WhatsApp on your phone."
+            ),
+        ),
+        Alert::UnlinkedFromApp => (
+            "WhatsApp was unlinked from your account",
+            "WhatsApp was unlinked.",
+            format!(
+                "WhatsApp was unlinked from your {PRODUCT_NAME} account. Scheduled messages won't send until you link it again."
+            ),
+            RESET_NOW.into(),
+        ),
+        Alert::UnlinkedFromPhone => (
+            "WhatsApp was unlinked from your phone",
+            "WhatsApp was unlinked from your phone.",
+            format!(
+                "The {PRODUCT_NAME} device was removed from Linked devices on your phone, or WhatsApp logged it out. Scheduled messages won't send until you link WhatsApp again."
+            ),
+            format!(
+                "If this wasn't you, link WhatsApp again in {PRODUCT_NAME} and check Linked devices for any device you don't recognise."
+            ),
+        ),
+        Alert::Replaced => (
+            "Another session took over your WhatsApp link",
+            "Another session took over your WhatsApp link.",
+            format!(
+                "Another session took over the keys that link {PRODUCT_NAME} to your WhatsApp, so they're in use somewhere else."
+            ),
+            format!(
+                "Unlink WhatsApp in {PRODUCT_NAME} and link it again, which issues new keys, then reset your password."
+            ),
+        ),
+        Alert::TemporaryBan { until } => (
+            "WhatsApp temporarily banned your account",
+            "WhatsApp temporarily banned your account.",
+            format!(
+                "WhatsApp banned your account until {}, so scheduled messages are paused.",
+                in_utc(until)
+            ),
+            format!(
+                "Wait until then: {PRODUCT_NAME} reconnects only when you press Reconnect after that time."
+            ),
+        ),
+    };
+    let link = app_url
+        .join(path)
+        .context("APP_URL cannot be a base for links")?;
+
+    Ok(render(&Layout {
+        subject,
+        heading,
+        body: format!("{what} {remedy}"),
+        action,
+        link: &link,
+        footer,
     }))
 }
 
@@ -236,6 +328,14 @@ fn in_words(duration: TimeDelta) -> String {
     }
 }
 
+/// Rounded up to the minute, so a time to wait for is never stated early
+fn in_utc(time: DateTime<Utc>) -> String {
+    let time = time
+        .duration_round_up(TimeDelta::minutes(1))
+        .unwrap_or(time);
+    time.format("%-d %b %Y, %H:%M UTC").to_string()
+}
+
 /// `APP_URL` is operator input, so the link is escaped before it lands in markup
 fn escape(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
@@ -254,20 +354,39 @@ fn escape(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{DateTime, Utc};
     use url::Url;
 
     use super::{RESET_NOW, SecurityEvent, escape, reset_password, security_alert, verify_email};
+    use crate::whatsapp::status::Alert;
 
-    const EVERY_EVENT: [SecurityEvent; 8] = [
-        SecurityEvent::PasswordChanged,
-        SecurityEvent::TwoFactorEnabled,
-        SecurityEvent::TwoFactorDisabled,
-        SecurityEvent::RecoveryCodesRegenerated,
-        SecurityEvent::PasskeyAdded,
-        SecurityEvent::PasskeyRemoved,
-        SecurityEvent::TooManyWrongCodes,
-        SecurityEvent::RecoveryCodeUsed { remaining: 9 },
-    ];
+    const PHONE: &str = "8801700000000";
+
+    fn every_event() -> [SecurityEvent; 13] {
+        [
+            SecurityEvent::PasswordChanged,
+            SecurityEvent::TwoFactorEnabled,
+            SecurityEvent::TwoFactorDisabled,
+            SecurityEvent::RecoveryCodesRegenerated,
+            SecurityEvent::PasskeyAdded,
+            SecurityEvent::PasskeyRemoved,
+            SecurityEvent::TooManyWrongCodes,
+            SecurityEvent::RecoveryCodeUsed { remaining: 9 },
+            SecurityEvent::WhatsApp(Alert::Linked {
+                phone_number: PHONE.into(),
+            }),
+            SecurityEvent::WhatsApp(Alert::UnlinkedFromApp),
+            SecurityEvent::WhatsApp(Alert::UnlinkedFromPhone),
+            SecurityEvent::WhatsApp(Alert::Replaced),
+            SecurityEvent::WhatsApp(Alert::TemporaryBan {
+                until: utc("2026-11-01T14:00:00Z"),
+            }),
+        ]
+    }
+
+    fn utc(rfc3339: &str) -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339(rfc3339).unwrap().to_utc()
+    }
 
     fn alert_text(event: SecurityEvent) -> String {
         let app_url = Url::parse("https://example.com/").unwrap();
@@ -316,7 +435,11 @@ mod tests {
     fn every_security_alert_renders_both_parts_with_a_remedy() {
         let app_url = Url::parse("https://example.com/").unwrap();
 
-        for event in EVERY_EVENT {
+        for event in every_event() {
+            let could_be_the_owner = !matches!(
+                event,
+                SecurityEvent::WhatsApp(Alert::Replaced | Alert::TemporaryBan { .. })
+            );
             let email = security_alert(event, &app_url).unwrap();
             let paragraphs: Vec<&str> = email.text.trim_end().split("\n\n").collect();
             let [heading, body, action, footer] = paragraphs[..] else {
@@ -324,7 +447,12 @@ mod tests {
             };
             let (_, link) = action.split_once(": ").unwrap();
 
-            assert!(body.contains("If this wasn't you"));
+            assert_eq!(
+                body.contains("If this wasn't you"),
+                could_be_the_owner,
+                "{}",
+                email.subject
+            );
             assert!(
                 email
                     .html
@@ -376,6 +504,86 @@ mod tests {
             (9, "9 recovery codes are left."),
         ] {
             assert!(alert_text(SecurityEvent::RecoveryCodeUsed { remaining }).contains(left));
+        }
+    }
+
+    #[test]
+    fn each_whatsapp_alert_says_what_happened_and_what_to_do() {
+        let app_url = Url::parse("https://example.com/").unwrap();
+        let cases = [
+            (
+                Alert::Linked {
+                    phone_number: PHONE.into(),
+                },
+                "WhatsApp was linked to your account",
+                vec![
+                    "The WhatsApp number +8801700000000 was linked to your",
+                    "If this wasn't you, unlink it in",
+                    "reset your password, and remove the device under Linked devices in WhatsApp on your phone.",
+                    "Review your WhatsApp link: https://example.com/whatsapp",
+                ],
+            ),
+            (
+                Alert::UnlinkedFromApp,
+                "WhatsApp was unlinked from your account",
+                vec![
+                    "Scheduled messages won't send until you link it again.",
+                    RESET_NOW,
+                    "Reset your password: https://example.com/forgot-password",
+                ],
+            ),
+            (
+                Alert::UnlinkedFromPhone,
+                "WhatsApp was unlinked from your phone",
+                vec![
+                    "device was removed from Linked devices on your phone, or WhatsApp logged it out.",
+                    "If this wasn't you, link WhatsApp again in",
+                    "and check Linked devices for any device you don't recognise.",
+                    "Link WhatsApp again: https://example.com/whatsapp",
+                ],
+            ),
+            (
+                Alert::Replaced,
+                "Another session took over your WhatsApp link",
+                vec![
+                    "so they're in use somewhere else.",
+                    "and link it again, which issues new keys, then reset your password.",
+                    "Link WhatsApp again: https://example.com/whatsapp",
+                    "Scheduled messages won't send until you link WhatsApp again.",
+                ],
+            ),
+            (
+                Alert::TemporaryBan {
+                    until: utc("2026-11-01T14:00:00Z"),
+                },
+                "WhatsApp temporarily banned your account",
+                vec![
+                    "WhatsApp banned your account until 1 Nov 2026, 14:00 UTC, so scheduled messages are paused.",
+                    "reconnects only when you press Reconnect after that time.",
+                    "Review your WhatsApp link: https://example.com/whatsapp",
+                    "Pressing Reconnect sooner won't lift the ban.",
+                ],
+            ),
+        ];
+
+        for (alert, subject, phrases) in cases {
+            let email = security_alert(alert.into(), &app_url).unwrap();
+            assert_eq!(email.subject, subject);
+            for phrase in phrases {
+                assert!(email.text.contains(phrase), "{subject}: {phrase}");
+            }
+        }
+    }
+
+    #[test]
+    fn ban_alert_states_its_end_in_utc_never_early() {
+        for until in [
+            "2026-11-01T20:00:00+06:00",
+            "2026-11-01T13:59:01Z",
+            "2026-11-01T14:00:00Z",
+        ] {
+            let text = alert_text(Alert::TemporaryBan { until: utc(until) }.into());
+            assert!(text.contains("until 1 Nov 2026, 14:00 UTC,"), "{until}");
         }
     }
 }

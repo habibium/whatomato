@@ -10,7 +10,7 @@ use tokio::{task::JoinSet, time::timeout};
 use uuid::Uuid;
 
 use super::{
-    status::Status,
+    status::{Status, StopReason},
     supervisor::{self, Context, Handle},
 };
 use crate::db::whatsapp_accounts::{self, Account};
@@ -107,23 +107,32 @@ impl WhatsApp {
 }
 
 fn status_at_boot(account: &Account) -> Status {
-    match &account.phone_number {
-        Some(phone_number) if account.paused => Status::Paused {
-            phone_number: phone_number.clone(),
+    let Some(phone_number) = account.phone_number.clone() else {
+        return Status::NotLinked;
+    };
+    let kept_stop = match (account.stopped_reason.as_deref(), account.stopped_until) {
+        (Some("replaced"), _) => Some(StopReason::Replaced),
+        (Some("temporary_ban"), Some(until)) => Some(StopReason::TemporaryBan { until }),
+        _ => None,
+    };
+    match kept_stop {
+        Some(reason) => Status::Stopped {
+            phone_number,
+            reason,
         },
-        Some(phone_number) => Status::Reconnecting {
-            phone_number: phone_number.clone(),
-        },
-        None => Status::NotLinked,
+        None if account.paused => Status::Paused { phone_number },
+        None => Status::Reconnecting { phone_number },
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use chrono::{TimeZone, Utc};
     use sqlx::PgPool;
+    use url::Url;
 
     use super::*;
-    use crate::{crypto::Cipher, whatsapp::supervisor::CommandError};
+    use crate::{crypto::Cipher, email::Mailer, whatsapp::supervisor::CommandError};
 
     // No test here links or resumes an account, since that would open a real WhatsApp connection
 
@@ -131,6 +140,8 @@ mod tests {
         WhatsApp::new(Context {
             pool: pool.clone(),
             cipher: Cipher::new(&[7; 32]),
+            mailer: Mailer::Outbox(Arc::default()),
+            app_url: Arc::new(Url::parse("http://localhost:5173").unwrap()),
         })
     }
 
@@ -145,14 +156,27 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn boot_restores_each_account_without_connecting_paused_or_unlinked_ones(pool: PgPool) {
-        let (paused, unlinked, stranger) =
-            (user(&pool).await, user(&pool).await, user(&pool).await);
+    async fn boot_restores_every_account_that_needs_no_connection(pool: PgPool) {
+        let (paused, unlinked, replaced, banned, stranger) = (
+            user(&pool).await,
+            user(&pool).await,
+            user(&pool).await,
+            user(&pool).await,
+            user(&pool).await,
+        );
+        let until = Utc.timestamp_opt(1_800_000_000, 0).unwrap();
         sqlx::query!(
-            "INSERT INTO whatsapp_accounts (user_id, phone_number, linked_at, paused_at) \
-             VALUES ($1, '15550001', now(), now()), ($2, NULL, NULL, NULL)",
+            "INSERT INTO whatsapp_accounts \
+             (user_id, phone_number, linked_at, paused_at, stopped_reason, stopped_until) VALUES \
+             ($1, '15550001', now(), now(), NULL, NULL), \
+             ($2, NULL, NULL, NULL, NULL, NULL), \
+             ($3, '15550003', now(), NULL, 'replaced', NULL), \
+             ($4, '15550004', now(), NULL, 'temporary_ban', $5)",
             paused,
             unlinked,
+            replaced,
+            banned,
+            until,
         )
         .execute(&pool)
         .await
@@ -167,8 +191,34 @@ mod tests {
             }
         );
         assert_eq!(whatsapp.status(unlinked), Status::NotLinked);
+        assert_eq!(
+            whatsapp.status(replaced),
+            Status::Stopped {
+                phone_number: "15550003".into(),
+                reason: StopReason::Replaced,
+            }
+        );
+        assert_eq!(
+            whatsapp.status(banned),
+            Status::Stopped {
+                phone_number: "15550004".into(),
+                reason: StopReason::TemporaryBan { until },
+            }
+        );
         assert_eq!(whatsapp.status(stranger), Status::NotLinked);
         whatsapp.shutdown().await;
+    }
+
+    #[sqlx::test]
+    async fn the_database_refuses_a_ban_without_its_end(pool: PgPool) {
+        let owner = user(&pool).await;
+        let refused = sqlx::query!(
+            "INSERT INTO whatsapp_accounts (user_id, stopped_reason) VALUES ($1, 'temporary_ban')",
+            owner,
+        )
+        .execute(&pool)
+        .await;
+        assert!(refused.is_err());
     }
 
     #[sqlx::test]
@@ -191,23 +241,34 @@ mod tests {
     }
 
     #[test]
-    fn a_linked_account_reconnects_at_boot_unless_paused() {
-        let account = |phone_number: Option<&str>, paused| Account {
+    fn a_kept_stop_outranks_a_pause_and_a_linked_account_reconnects() {
+        let account = |paused, stopped_reason: Option<&str>| Account {
             id: Uuid::new_v4(),
             user_id: Uuid::new_v4(),
-            phone_number: phone_number.map(Into::into),
+            phone_number: Some("15550001".into()),
             paused,
+            stopped_reason: stopped_reason.map(Into::into),
+            stopped_until: None,
         };
-        assert_eq!(
-            status_at_boot(&account(Some("15550001"), false)),
-            Status::Reconnecting {
-                phone_number: "15550001".into()
-            }
-        );
         assert!(matches!(
-            status_at_boot(&account(Some("15550001"), true)),
+            status_at_boot(&account(false, None)),
+            Status::Reconnecting { .. }
+        ));
+        assert!(matches!(
+            status_at_boot(&account(true, None)),
             Status::Paused { .. }
         ));
-        assert_eq!(status_at_boot(&account(None, false)), Status::NotLinked);
+        assert!(matches!(
+            status_at_boot(&account(true, Some("replaced"))),
+            Status::Stopped {
+                reason: StopReason::Replaced,
+                ..
+            }
+        ));
+        let unlinked = Account {
+            phone_number: None,
+            ..account(false, None)
+        };
+        assert_eq!(status_at_boot(&unlinked), Status::NotLinked);
     }
 }

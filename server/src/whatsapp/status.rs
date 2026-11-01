@@ -113,6 +113,9 @@ pub enum Effect {
         phone_number: String,
     },
     SavePaused,
+    /// Keep a stop the user has to act on, so a restart doesn't reconnect past it
+    SaveStopped(StopReason),
+    /// Clear a pause or a kept stop
     SaveResumed,
     /// Delete the account row, and with it every key
     Forget,
@@ -241,15 +244,23 @@ fn from_linked(
         )),
         Event::Replaced => Ok((
             stopped(StopReason::Replaced),
-            vec![Effect::StopClient, Effect::Alert(Alert::Replaced)],
-        )),
-        Event::TemporaryBan { until } => Ok((
-            stopped(StopReason::TemporaryBan { until: *until }),
             vec![
                 Effect::StopClient,
-                Effect::Alert(Alert::TemporaryBan { until: *until }),
+                Effect::SaveStopped(StopReason::Replaced),
+                Effect::Alert(Alert::Replaced),
             ],
         )),
+        Event::TemporaryBan { until } => {
+            let reason = StopReason::TemporaryBan { until: *until };
+            Ok((
+                stopped(reason.clone()),
+                vec![
+                    Effect::StopClient,
+                    Effect::SaveStopped(reason),
+                    Effect::Alert(Alert::TemporaryBan { until: *until }),
+                ],
+            ))
+        }
         Event::Outdated => Ok((stopped(StopReason::Outdated), vec![Effect::StopClient])),
         Event::ConnectFailed { retrying: false } => {
             Ok((stopped(StopReason::Refused), vec![Effect::StopClient]))
@@ -266,18 +277,12 @@ fn from_idle(
     event: &Event,
 ) -> Result<(Status, Vec<Effect>), Refused> {
     match event {
-        Event::Resume => {
-            let mut effects = vec![Effect::StartClient];
-            if matches!(status, Status::Paused { .. }) {
-                effects.push(Effect::SaveResumed);
-            }
-            Ok((
-                Status::Reconnecting {
-                    phone_number: phone_number.to_owned(),
-                },
-                effects,
-            ))
-        }
+        Event::Resume => Ok((
+            Status::Reconnecting {
+                phone_number: phone_number.to_owned(),
+            },
+            vec![Effect::StartClient, Effect::SaveResumed],
+        )),
         Event::Unlink => Ok(unlinked_from_app()),
         Event::Link(_) | Event::Cancel | Event::Pause => Err(Refused),
         _ => Ok((status.clone(), vec![])),
@@ -495,13 +500,18 @@ mod tests {
             (
                 Event::Replaced,
                 StopReason::Replaced,
-                vec![Effect::StopClient, Effect::Alert(Alert::Replaced)],
+                vec![
+                    Effect::StopClient,
+                    Effect::SaveStopped(StopReason::Replaced),
+                    Effect::Alert(Alert::Replaced),
+                ],
             ),
             (
                 Event::TemporaryBan { until },
                 StopReason::TemporaryBan { until },
                 vec![
                     Effect::StopClient,
+                    Effect::SaveStopped(StopReason::TemporaryBan { until }),
                     Effect::Alert(Alert::TemporaryBan { until }),
                 ],
             ),
@@ -528,10 +538,10 @@ mod tests {
     }
 
     #[test]
-    fn a_stopped_account_resumes_without_touching_paused_at() {
-        let (status, effects) = run(stopped(StopReason::Refused), [Event::Resume]);
+    fn resuming_a_stopped_account_forgets_the_stop() {
+        let (status, effects) = run(stopped(StopReason::Replaced), [Event::Resume]);
         assert!(matches!(status, Status::Reconnecting { .. }));
-        assert_eq!(effects, [Effect::StartClient]);
+        assert_eq!(effects, [Effect::StartClient, Effect::SaveResumed]);
     }
 
     #[test]

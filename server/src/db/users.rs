@@ -74,6 +74,12 @@ pub async fn lock(db: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<()> {
     Ok(())
 }
 
+pub async fn email(db: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<String> {
+    sqlx::query_scalar!("SELECT email FROM users WHERE id = $1", id)
+        .fetch_one(db)
+        .await
+}
+
 pub async fn password_hash(db: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<String> {
     sqlx::query_scalar!("SELECT password FROM users WHERE id = $1", id)
         .fetch_one(db)

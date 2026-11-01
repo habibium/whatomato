@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_accounts (user_id, stopped_reason) VALUES ($1, 'temporary_ban')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b238dd19f33148e76b714acab812dca1fb00d7d0ff631185247d05b2394363ec"
+}

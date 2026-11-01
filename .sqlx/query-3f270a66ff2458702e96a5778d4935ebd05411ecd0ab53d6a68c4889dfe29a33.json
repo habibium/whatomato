@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id, phone_number, paused_at IS NOT NULL AS \"paused!\" FROM whatsapp_accounts",
+  "query": "SELECT id, user_id, phone_number, paused_at IS NOT NULL AS \"paused!\", stopped_reason, stopped_until\n           FROM whatsapp_accounts",
   "describe": {
     "columns": [
       {
@@ -41,6 +41,28 @@
         "name": "paused!",
         "type_info": "Bool",
         "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "stopped_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "stopped_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "stopped_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "stopped_until"
+          }
+        }
       }
     ],
     "parameters": {
@@ -50,8 +72,10 @@
       false,
       false,
       true,
-      null
+      null,
+      true,
+      true
     ]
   },
-  "hash": "65f06339ae4cfc686ad3a2a61e079e978167b752c70bc0f9254c3e21674b90a9"
+  "hash": "3f270a66ff2458702e96a5778d4935ebd05411ecd0ab53d6a68c4889dfe29a33"
 }

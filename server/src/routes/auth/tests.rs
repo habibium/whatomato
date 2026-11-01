@@ -77,16 +77,20 @@ impl TestApp {
     fn with_pwned_passwords(pool: PgPool, app_url: &str, pwned_passwords: PwnedPasswords) -> Self {
         let outbox = Arc::default();
         let cipher = Cipher::new(&[0; 32]);
+        let mailer = Mailer::Outbox(Arc::clone(&outbox));
+        let app_url = Arc::new(Url::parse(app_url).unwrap());
         let state = AppState {
             pool: pool.clone(),
-            mailer: Mailer::Outbox(Arc::clone(&outbox)),
-            app_url: Arc::new(Url::parse(app_url).unwrap()),
+            mailer: mailer.clone(),
+            app_url: Arc::clone(&app_url),
             rate_limits: RateLimits::default(),
             pwned_passwords,
             cipher: cipher.clone(),
             whatsapp: WhatsApp::new(Context {
                 pool: pool.clone(),
                 cipher,
+                mailer,
+                app_url,
             }),
         };
         let (router, _) = crate::router();
