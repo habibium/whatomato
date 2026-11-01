@@ -1361,6 +1361,400 @@
           }
         }
       }
+    },
+    "/api/whatsapp/groups": {
+      "get": {
+        "summary": "The groups the account is in, to choose where messages go",
+        "operationId": "groups",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GroupResponse"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WhatsApp isn't connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/whatsapp/link": {
+      "post": {
+        "summary": "Start linking WhatsApp",
+        "description": "Checks the password, then starts linking: by QR code, or with `phone_number` by a code typed on\nthat phone. The status then carries the code. Linking stops after 5 minutes, or once the QR codes\nrun out after about 3.",
+        "operationId": "link",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "The password is incorrect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WhatsApp is already linked or linking",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/whatsapp/link/cancel": {
+      "post": {
+        "summary": "Stop linking WhatsApp",
+        "operationId": "cancel_link",
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WhatsApp isn't being linked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/whatsapp/pause": {
+      "post": {
+        "summary": "Disconnect WhatsApp and keep the link",
+        "operationId": "pause",
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WhatsApp isn't connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/whatsapp/resume": {
+      "post": {
+        "summary": "Reconnect WhatsApp after a pause or a stop",
+        "operationId": "resume",
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WhatsApp isn't paused or stopped",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/whatsapp/status": {
+      "get": {
+        "summary": "The account's WhatsApp status",
+        "operationId": "get_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WhatsAppStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/whatsapp/test-message": {
+      "post": {
+        "summary": "Send a test message to the account's own number, to check the link works",
+        "operationId": "send_test_message",
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WhatsApp isn't connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/whatsapp/unlink": {
+      "post": {
+        "summary": "Unlink WhatsApp",
+        "description": "Checks the password, asks WhatsApp to remove the device from the phone, and deletes its keys.\nWhen WhatsApp can't be reached, the device stays under Linked devices on the phone until it's\nremoved there.",
+        "operationId": "unlink",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordConfirmation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unlinked"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The password is incorrect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WhatsApp isn't linked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1469,6 +1863,21 @@
           }
         }
       },
+      "GroupResponse": {
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
       "Health": {
         "type": "object",
         "required": [
@@ -1482,6 +1891,24 @@
           "version": {
             "type": "string",
             "description": "Lets a deploy tell when the new release is the one answering"
+          }
+        }
+      },
+      "LinkRequest": {
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "phone_number": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Link with a code typed on the phone that has this number, instead of a QR code. Digits with\nthe country code; a leading +, spaces and dashes are ignored."
           }
         }
       },
@@ -1725,6 +2152,15 @@
         ],
         "description": "With two-step verification on, the password only starts the sign-in, and\n`POST /signin/two-factor` finishes it"
       },
+      "StoppedBecause": {
+        "type": "string",
+        "enum": [
+          "replaced",
+          "temporary_ban",
+          "outdated",
+          "refused"
+        ]
+      },
       "TwoFactorSetup": {
         "type": "object",
         "description": "What an authenticator app needs to start showing codes for the account",
@@ -1765,6 +2201,18 @@
           }
         }
       },
+      "Unlinked": {
+        "type": "object",
+        "required": [
+          "removed_from_phone"
+        ],
+        "properties": {
+          "removed_from_phone": {
+            "type": "boolean",
+            "description": "False when WhatsApp couldn't be told, so the device still shows under Linked devices on the\nphone until it's removed there"
+          }
+        }
+      },
       "UserResponse": {
         "type": "object",
         "required": [
@@ -1797,6 +2245,170 @@
             "format": "date-time"
           }
         }
+      },
+      "WhatsAppStatus": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "not_linked"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Waiting for the phone. Linking by QR code fills `qr_code`, linking by phone number fills\n`pair_code`, each once the first code arrives.",
+            "required": [
+              "qr_code",
+              "pair_code",
+              "expires_at",
+              "status"
+            ],
+            "properties": {
+              "expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "pair_code": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Typed on the phone under Linked devices, \"Link with phone number instead\""
+              },
+              "qr_code": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "An SVG `data:` URL"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pairing"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Linked; WhatsApp runs its first sync, which can take a few minutes",
+            "required": [
+              "phone_number",
+              "status"
+            ],
+            "properties": {
+              "phone_number": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "syncing"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "phone_number",
+              "status"
+            ],
+            "properties": {
+              "phone_number": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "connected"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "The connection dropped and is being retried",
+            "required": [
+              "phone_number",
+              "status"
+            ],
+            "properties": {
+              "phone_number": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "reconnecting"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "phone_number",
+              "status"
+            ],
+            "properties": {
+              "phone_number": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "paused"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Ended for a reason that needs the user: reconnect or unlink",
+            "required": [
+              "phone_number",
+              "reason",
+              "until",
+              "status"
+            ],
+            "properties": {
+              "phone_number": {
+                "type": "string"
+              },
+              "reason": {
+                "$ref": "#/components/schemas/StoppedBecause"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "stopped"
+                ]
+              },
+              "until": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time",
+                "description": "When a temporary ban ends"
+              }
+            }
+          }
+        ],
+        "description": "The account's link to WhatsApp. While linking, poll it every couple of seconds: the code changes\nevery 20 to 60 seconds."
       }
     }
   }

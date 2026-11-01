@@ -26,6 +26,8 @@ const SWEEP_EVERY: Duration = Duration::from_mins(10);
 const ACCOUNT_BURST: NonZeroU32 = NonZeroU32::new(10).unwrap();
 const ACCOUNT_REFILL: Duration = Duration::from_secs(90);
 const WRONG_CODES_ALERT_EVERY: Duration = Duration::from_hours(6);
+const LINK_BURST: NonZeroU32 = NonZeroU32::new(5).unwrap();
+const LINK_REFILL: Duration = Duration::from_mins(10);
 
 /// Limits writes per client IP to a burst of 20, then one every 6 seconds (10 a minute). Reads
 /// pass untouched: route guards poll the session on every page load.
@@ -116,6 +118,7 @@ pub struct RateLimits {
     signin: Arc<DefaultKeyedRateLimiter<String>>,
     reauth: Arc<DefaultKeyedRateLimiter<Uuid>>,
     wrong_codes_alert: Arc<DefaultKeyedRateLimiter<Uuid>>,
+    whatsapp_link: Arc<DefaultKeyedRateLimiter<Uuid>>,
 }
 
 impl Default for RateLimits {
@@ -130,10 +133,16 @@ impl Default for RateLimits {
             wrong_codes_alert: Arc::new(RateLimiter::keyed(
                 Quota::with_period(WRONG_CODES_ALERT_EVERY).expect("alert period is nonzero"),
             )),
+            whatsapp_link: Arc::new(RateLimiter::keyed(
+                Quota::with_period(LINK_REFILL)
+                    .expect("refill period is nonzero")
+                    .allow_burst(LINK_BURST),
+            )),
         };
         sweep(&limits.signin);
         sweep(&limits.reauth);
         sweep(&limits.wrong_codes_alert);
+        sweep(&limits.whatsapp_link);
 
         limits
     }
@@ -154,6 +163,12 @@ impl RateLimits {
     /// hours, or whoever holds the password could flood the owner's inbox.
     pub(crate) fn wrong_codes_alert(&self, user_id: Uuid) -> bool {
         self.wrong_codes_alert.check_key(&user_id).is_ok()
+    }
+
+    /// Counts an attempt by `user_id` to link WhatsApp: 5, then one every 10 minutes. Each opens a
+    /// connection to WhatsApp, which limits pair codes per number as well.
+    pub(crate) fn whatsapp_link(&self, user_id: Uuid) -> Result<(), AppError> {
+        check(&self.whatsapp_link, &user_id)
     }
 }
 

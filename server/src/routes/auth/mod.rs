@@ -6,7 +6,7 @@ mod dto;
 mod handlers;
 mod passkeys;
 #[cfg(test)]
-mod tests;
+pub mod tests;
 mod two_factor;
 
 pub fn router() -> OpenApiRouter<AppState> {

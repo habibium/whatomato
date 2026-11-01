@@ -32,20 +32,20 @@ mod pwned;
 mod rate_limit;
 mod two_factor;
 
-const PASSWORD: &str = "correct horse";
+pub const PASSWORD: &str = "correct horse";
 const INVALID_LINK: &str = "This link is invalid or has expired";
 
 #[derive(Clone)]
-struct TestApp {
+pub struct TestApp {
     router: Router,
     pool: PgPool,
     outbox: Arc<Mutex<Vec<(String, Email)>>>,
 }
 
-struct TestResponse {
-    status: StatusCode,
+pub struct TestResponse {
+    pub status: StatusCode,
     headers: HeaderMap,
-    body: Value,
+    pub body: Value,
 }
 
 impl TestResponse {
@@ -66,7 +66,7 @@ impl TestResponse {
 }
 
 impl TestApp {
-    fn new(pool: PgPool) -> Self {
+    pub fn new(pool: PgPool) -> Self {
         Self::with_app_url(pool, "http://localhost:5173")
     }
 
@@ -131,7 +131,7 @@ impl TestApp {
         self.send(request).await
     }
 
-    async fn send(&self, request: Request<Body>) -> TestResponse {
+    pub async fn send(&self, request: Request<Body>) -> TestResponse {
         let response = self.router.clone().oneshot(request).await.unwrap();
         let status = response.status();
         let headers = response.headers().clone();
@@ -158,7 +158,7 @@ impl TestApp {
     }
 
     /// A verified account and the cookie of a session signed in to it
-    async fn signed_in(&self, email: &str) -> (Uuid, String) {
+    pub async fn signed_in(&self, email: &str) -> (Uuid, String) {
         let user_id = self.verified_user(email).await;
         let session = self.signin(email, PASSWORD).await.cookie("session");
         (user_id, session)

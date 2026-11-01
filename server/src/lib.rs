@@ -37,6 +37,10 @@ pub fn router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
                     "/auth",
                     routes::auth::router().layer(rate_limit::client_ip_layer()),
                 )
+                .nest(
+                    "/whatsapp",
+                    routes::whatsapp::router().layer(rate_limit::client_ip_layer()),
+                )
                 // on the nested router so unknown /api paths 404 instead of falling
                 // through to the SPA fallback in main.rs
                 .fallback(routes::not_found)

@@ -67,9 +67,9 @@ fn context(user_id: Uuid) -> Vec<u8> {
     [b"totp:".as_slice(), user_id.as_bytes()].concat()
 }
 
-/// The otpauth URL as an SVG `data:` URL. Drawn here, so the key never reaches a QR service.
-pub fn qr_code(otpauth_url: &str) -> anyhow::Result<String> {
-    let svg = QrCode::new(otpauth_url)?
+/// `text` as an SVG `data:` URL. Drawn here, so the secret it carries never reaches a QR service.
+pub fn qr_code(text: &str) -> anyhow::Result<String> {
+    let svg = QrCode::new(text)?
         .render::<svg::Color>()
         .min_dimensions(240, 240)
         .build();
