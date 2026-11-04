@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.1.0-alpha.8] - 2026-11-04
+
+### Features
+
+- **server:** Shut down gracefully on SIGTERM and Ctrl-C (7f80424)
+- **server:** Keep Signal keys, sessions and the linked device in Postgres (4630d54)
+- **server:** Model a WhatsApp account's link status and its transitions as a pure function (cb4a65b)
+- **server:** Refresh an expired pair code and back off restarts of a crashed client (6e931f9)
+- **server:** Run each WhatsApp account in a supervisor task, kept in AppState from boot to shutdown (dcb5763)
+- **server:** Email the owner on WhatsApp link changes, and keep a takeover or ban stopped across restarts (159afe0)
+- **server:** The WhatsApp API: status, link, cancel, pause, resume, unlink, groups and a test message (8f95435)
+- **server:** Let only the holder of an advisory lock run WhatsApp clients, so deploys hand over cleanly (a6827f9)
+- **server:** Pulse WhatsApp presence daily, and forget the keys on a logout that arrives while paused (8bc52df)
+- **server:** Fetch the WhatsApp Web version once a day for every client, keeping the last that worked (1fbde62)
+- **web:** The WhatsApp page: link by QR code or phone number, then pause, reconnect, unlink, see groups and send a test message (cdc91b5)
+- Keep paused WhatsApp accounts linked with a weekly reconnect, and say how a link ended (26f6b45)
+
+### Bug Fixes
+
+- **server:** Answer a repeated JID in get_tc_tokens, and keep a new LID's first created_at within a batch (92082e2)
+- Keep library logs at warn by default, since the WhatsApp library logs phone numbers at info (72344ef)
+
+### Documentation
+
+- Cover WhatsApp in the README: what's stored, the ban risk, deploys and restores (0fffda4)
+
+### Maintenance
+
+- **server:** Reword a passkey doc comment that stable clippy flags (d08a39e)
+- Relicense the project under AGPL-3.0-only (75e6072)
+- Run clippy on stable in check-rust, as CI and the image build do (911112a)
+- **server:** Check PgStore against upstream's in-memory store with seeded random operations (be4a6aa)
+- **server:** Keep the WhatsApp spike as an example for checking the library against a real phone (e4322bf)
+- Tell clippy that WhatsApp and WebAuthn are names, not code (fc549eb)
 ## [0.1.0-alpha.7] - 2026-11-01
 
 ### Features
