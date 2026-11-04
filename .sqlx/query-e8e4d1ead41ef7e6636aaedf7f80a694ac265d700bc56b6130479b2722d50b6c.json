@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id, phone_number, paused_at IS NOT NULL AS \"paused!\", stopped_reason, stopped_until\n           FROM whatsapp_accounts",
+  "query": "INSERT INTO whatsapp_accounts (user_id) VALUES ($1)\n           ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id\n           RETURNING id, user_id, phone_number, paused_at IS NOT NULL AS \"paused!\", stopped_reason,\n               stopped_until, keepalive_at",
   "describe": {
     "columns": [
       {
@@ -63,10 +63,23 @@
             "name": "stopped_until"
           }
         }
+      },
+      {
+        "ordinal": 6,
+        "name": "keepalive_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "keepalive_at"
+          }
+        }
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Uuid"
+      ]
     },
     "nullable": [
       false,
@@ -74,8 +87,9 @@
       true,
       null,
       true,
+      true,
       true
     ]
   },
-  "hash": "3f270a66ff2458702e96a5778d4935ebd05411ecd0ab53d6a68c4889dfe29a33"
+  "hash": "e8e4d1ead41ef7e6636aaedf7f80a694ac265d700bc56b6130479b2722d50b6c"
 }

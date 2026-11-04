@@ -12,12 +12,15 @@ pub struct Account {
     pub stopped_reason: Option<String>,
     /// When a temporary ban ends
     pub stopped_until: Option<DateTime<Utc>>,
+    /// When a paused account next connects for a moment
+    pub keepalive_at: Option<DateTime<Utc>>,
 }
 
 pub async fn all(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<Account>> {
     sqlx::query_as!(
         Account,
-        r#"SELECT id, user_id, phone_number, paused_at IS NOT NULL AS "paused!", stopped_reason, stopped_until
+        r#"SELECT id, user_id, phone_number, paused_at IS NOT NULL AS "paused!", stopped_reason,
+               stopped_until, keepalive_at
            FROM whatsapp_accounts"#
     )
     .fetch_all(db)
@@ -32,7 +35,7 @@ pub async fn find_or_create(db: impl PgExecutor<'_>, user_id: Uuid) -> sqlx::Res
         r#"INSERT INTO whatsapp_accounts (user_id) VALUES ($1)
            ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id
            RETURNING id, user_id, phone_number, paused_at IS NOT NULL AS "paused!", stopped_reason,
-               stopped_until"#,
+               stopped_until, keepalive_at"#,
         user_id
     )
     .fetch_one(db)
@@ -46,8 +49,8 @@ pub async fn save_link(
 ) -> sqlx::Result<()> {
     sqlx::query!(
         "UPDATE whatsapp_accounts \
-         SET phone_number = $2, linked_at = now(), paused_at = NULL, stopped_reason = NULL, \
-             stopped_until = NULL, updated_at = now() \
+         SET phone_number = $2, linked_at = now(), paused_at = NULL, keepalive_at = NULL, \
+             stopped_reason = NULL, stopped_until = NULL, updated_at = now() \
          WHERE id = $1",
         account_id,
         phone_number
@@ -58,10 +61,33 @@ pub async fn save_link(
     Ok(())
 }
 
-pub async fn pause(db: impl PgExecutor<'_>, account_id: Uuid) -> sqlx::Result<()> {
+pub async fn pause(
+    db: impl PgExecutor<'_>,
+    account_id: Uuid,
+    keepalive_at: DateTime<Utc>,
+) -> sqlx::Result<()> {
     sqlx::query!(
-        "UPDATE whatsapp_accounts SET paused_at = now(), updated_at = now() WHERE id = $1",
-        account_id
+        "UPDATE whatsapp_accounts \
+         SET paused_at = now(), keepalive_at = $2, updated_at = now() \
+         WHERE id = $1",
+        account_id,
+        keepalive_at
+    )
+    .execute(db)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn save_keepalive(
+    db: impl PgExecutor<'_>,
+    account_id: Uuid,
+    keepalive_at: DateTime<Utc>,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        "UPDATE whatsapp_accounts SET keepalive_at = $2, updated_at = now() WHERE id = $1",
+        account_id,
+        keepalive_at
     )
     .execute(db)
     .await?;
@@ -73,7 +99,8 @@ pub async fn pause(db: impl PgExecutor<'_>, account_id: Uuid) -> sqlx::Result<()
 pub async fn resume(db: impl PgExecutor<'_>, account_id: Uuid) -> sqlx::Result<()> {
     sqlx::query!(
         "UPDATE whatsapp_accounts \
-         SET paused_at = NULL, stopped_reason = NULL, stopped_until = NULL, updated_at = now() \
+         SET paused_at = NULL, keepalive_at = NULL, stopped_reason = NULL, stopped_until = NULL, \
+             updated_at = now() \
          WHERE id = $1",
         account_id
     )

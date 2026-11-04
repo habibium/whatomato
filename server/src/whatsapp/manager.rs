@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use chrono::Utc;
 use sqlx::{Connection, PgConnection};
 use tokio::{sync::watch, task::JoinSet, time::timeout};
 use uuid::Uuid;
@@ -55,17 +56,23 @@ impl WhatsApp {
     /// The accounts couldn't be read.
     pub async fn boot(&self) -> sqlx::Result<()> {
         let accounts = whatsapp_accounts::all(&self.context.pool).await?;
+        let now = Utc::now();
         let mut start_in = Duration::ZERO;
         let mut handles = Vec::with_capacity(accounts.len());
         for account in accounts {
             let status = status_at_boot(&account);
-            let connects = matches!(status, Status::Reconnecting { .. });
+            let connects = match status {
+                Status::Reconnecting { .. } => true,
+                Status::Paused { .. } => account.keepalive_at.is_some_and(|at| at <= now),
+                _ => false,
+            };
             let handle = supervisor::spawn(
                 self.context.clone(),
                 account.user_id,
                 Some(account.id),
                 status,
                 start_in,
+                account.keepalive_at,
                 self.may_connect.subscribe(),
             );
             handles.push((account.user_id, handle));
@@ -156,6 +163,7 @@ impl WhatsApp {
                     None,
                     Status::NotLinked,
                     Duration::ZERO,
+                    None,
                     self.may_connect.subscribe(),
                 )
             })
@@ -211,7 +219,7 @@ fn status_at_boot(account: &Account) -> Status {
 
 #[cfg(test)]
 mod tests {
-    use chrono::{TimeZone, Utc};
+    use chrono::{TimeDelta, TimeZone};
     use sqlx::PgPool;
     use url::Url;
 
@@ -317,6 +325,38 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn only_a_pause_keeps_a_keepalive_date(pool: PgPool) {
+        let owner = user(&pool).await;
+        let account = whatsapp_accounts::find_or_create(&pool, owner)
+            .await
+            .unwrap();
+        let due = Utc.timestamp_opt(1_800_000_000, 0).unwrap();
+        let saved = || async {
+            sqlx::query_scalar!(
+                "SELECT keepalive_at FROM whatsapp_accounts WHERE id = $1",
+                account.id
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        };
+
+        whatsapp_accounts::pause(&pool, account.id, due)
+            .await
+            .unwrap();
+        assert_eq!(saved().await, Some(due));
+
+        let later = due + TimeDelta::days(7);
+        whatsapp_accounts::save_keepalive(&pool, account.id, later)
+            .await
+            .unwrap();
+        assert_eq!(saved().await, Some(later));
+
+        whatsapp_accounts::resume(&pool, account.id).await.unwrap();
+        assert_eq!(saved().await, None);
+    }
+
+    #[sqlx::test]
     async fn the_database_refuses_a_ban_without_its_end(pool: PgPool) {
         let owner = user(&pool).await;
         let refused = sqlx::query!(
@@ -356,6 +396,7 @@ mod tests {
             paused,
             stopped_reason: stopped_reason.map(Into::into),
             stopped_until: None,
+            keepalive_at: None,
         };
         assert!(matches!(
             status_at_boot(&account(false, None)),

@@ -657,6 +657,10 @@ export interface components {
             /** @description Tells the user's passkeys apart; blank or left out, it is "Passkey" */
             name?: string | null;
         };
+        /** @enum {string} */
+        NotLinkedBecause: "expired" | "failed" | "logged_out";
+        /** @enum {string} */
+        PairingMethod: "qr_code" | "phone_number";
         /** @description Options for `navigator.credentials.create()` */
         PasskeyCreationOptions: {
             /** @description For `PublicKeyCredential.parseCreationOptionsFromJSON` */
@@ -775,13 +779,17 @@ export interface components {
          *     every 20 to 60 seconds.
          */
         WhatsAppStatus: {
+            reason: null | components["schemas"]["NotLinkedBecause"];
             /** @enum {string} */
             status: "not_linked";
         } | {
             /** Format: date-time */
             expires_at: string | null;
+            method: components["schemas"]["PairingMethod"];
             /** @description Typed on the phone under Linked devices, "Link with phone number instead" */
             pair_code: string | null;
+            /** @description The number being linked, when linking by phone number */
+            phone_number: string | null;
             /** @description An SVG `data:` URL */
             qr_code: string | null;
             /** @enum {string} */

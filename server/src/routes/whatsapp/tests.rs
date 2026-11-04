@@ -36,7 +36,10 @@ async fn the_status_needs_a_session_and_starts_unlinked(pool: PgPool) {
     let (_, session) = app.signed_in("ada@example.com").await;
     let status = call(&app, Method::GET, "/status", None, Some(&session)).await;
     assert_eq!(status.status, StatusCode::OK);
-    assert_eq!(status.body, json!({ "status": "not_linked" }));
+    assert_eq!(
+        status.body,
+        json!({ "status": "not_linked", "reason": null })
+    );
 }
 
 #[sqlx::test]
@@ -96,7 +99,10 @@ async fn linking_and_unlinking_check_the_password(pool: PgPool) {
     }
 
     let status = call(&app, Method::GET, "/status", None, Some(&session)).await;
-    assert_eq!(status.body, json!({ "status": "not_linked" }));
+    assert_eq!(
+        status.body,
+        json!({ "status": "not_linked", "reason": null })
+    );
 }
 
 #[sqlx::test]

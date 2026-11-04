@@ -34,14 +34,13 @@ import {
   GroupsSection,
   TestMessageSection,
 } from '@/components/whatsapp-connected'
-import { PairingPanel, pairingMethod } from '@/components/whatsapp-pairing'
-import type { LinkMethod } from '@/components/whatsapp-pairing'
+import { PairingPanel } from '@/components/whatsapp-pairing'
 import { PhoneLinkDialog } from '@/components/whatsapp-phone-dialog'
 import type { PhoneLinkOutcome } from '@/components/whatsapp-phone-dialog'
 import { toFieldErrors } from '@/lib/form-errors'
 import { HOME_HREF, setSessionUser } from '@/lib/session'
 import { ApiError, formatPhoneNumber, statusQuery } from '@/lib/whatsapp'
-import type { Linked, WhatsAppStatus } from '@/lib/whatsapp'
+import type { Linked, NotLinked, WhatsAppStatus } from '@/lib/whatsapp'
 
 export const Route = createFileRoute('/_authenticated/whatsapp')({
   component: WhatsAppPage,
@@ -107,16 +106,7 @@ const COMMAND_FAILED: Record<Command, string> = {
   cancel: "Couldn't stop linking.",
 }
 
-type Notice =
-  | 'unlinked'
-  | 'still-on-phone'
-  | 'pairing-ended'
-  | 'unlinked-elsewhere'
-
-interface LinkRequest {
-  method: LinkMethod
-  phoneNumber: string | null
-}
+type Notice = 'unlinked' | 'still-on-phone'
 
 function WhatsAppPage() {
   const queryClient = useQueryClient()
@@ -124,11 +114,9 @@ function WhatsAppPage() {
   const announce = useAnnounce()
   const query = useQuery(statusQuery)
   const [dialog, setDialog] = useState<'qr' | 'phone' | 'unlink' | null>(null)
-  const [request, setRequest] = useState<LinkRequest | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
+  const [isEndDismissed, setIsEndDismissed] = useState(false)
   const [failed, setFailed] = useState<Command | null>(null)
-  // A change this tab asked for, so its effect isn't reported as coming from elsewhere
-  const expecting = useRef<'cancel' | 'unlink' | null>(null)
   const seen = useRef<WhatsAppStatus['status'] | null>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
 
@@ -147,11 +135,9 @@ function WhatsAppPage() {
 
   const status = query.data?.status
   const clockOffset = query.data?.clockOffset ?? 0
-  const method =
-    status?.status === 'pairing'
-      ? pairingMethod(status, request?.method ?? null)
-      : null
-  const copy = status ? describe(status, method) : null
+  const copy = status ? describe(status) : null
+  const linkEnded =
+    status?.status === 'not_linked' && !isEndDismissed ? status.reason : null
 
   useEffect(() => {
     if (!status || !copy) return
@@ -159,14 +145,7 @@ function WhatsAppPage() {
     seen.current = status.status
     if (before === null || before === status.status) return
 
-    if (status.status === 'not_linked') {
-      if (before === 'pairing' && expecting.current !== 'cancel') {
-        setNotice('pairing-ended')
-      } else if (before !== 'pairing' && expecting.current !== 'unlink') {
-        setNotice('unlinked-elsewhere')
-      }
-    }
-    expecting.current = null
+    setIsEndDismissed(false)
     setFailed(null)
     // Focus fell to the body with the view it was in; landing on the new
     // heading reads it out, so it is announced only when focus is elsewhere
@@ -180,7 +159,6 @@ function WhatsAppPage() {
 
   const run = async (command: Command) => {
     setFailed(null)
-    if (command === 'cancel') expecting.current = 'cancel'
     try {
       const { response } = await COMMANDS[command]()
       // 409: the status moved on by itself, which the refresh shows
@@ -188,7 +166,6 @@ function WhatsAppPage() {
         throw new ApiError(response.status)
       }
     } catch {
-      expecting.current = null
       setFailed(command)
     }
     await refresh()
@@ -200,10 +177,7 @@ function WhatsAppPage() {
         ? { password, phone_number: phoneNumber }
         : { password },
     })
-    if (result.response.ok) {
-      setRequest({ method: phoneNumber ? 'phone' : 'qr', phoneNumber })
-      setNotice(null)
-    }
+    if (result.response.ok) setNotice(null)
     // 409: another tab got there first, and the refresh shows how far it got
     if (result.response.ok || result.response.status === 409) {
       await refresh()
@@ -230,26 +204,17 @@ function WhatsAppPage() {
   }
 
   const unlink = async (password: string): Promise<ConfirmOutcome> => {
-    expecting.current = 'unlink'
-    try {
-      const result = await api.POST('/api/whatsapp/unlink', {
-        body: { password },
-      })
-      if (result.data) {
-        setNotice(
-          result.data.removed_from_phone ? 'unlinked' : 'still-on-phone',
-        )
-      }
-      if (result.data || result.response.status === 409) {
-        await refresh()
-        return 'confirmed'
-      }
-      expecting.current = null
-      return toConfirmOutcome(result)
-    } catch (error) {
-      expecting.current = null
-      throw error
+    const result = await api.POST('/api/whatsapp/unlink', {
+      body: { password },
+    })
+    if (result.data) {
+      setNotice(result.data.removed_from_phone ? 'unlinked' : 'still-on-phone')
     }
+    if (result.data || result.response.status === 409) {
+      await refresh()
+      return 'confirmed'
+    }
+    return toConfirmOutcome(result)
   }
 
   return (
@@ -257,6 +222,13 @@ function WhatsAppPage() {
       action={<Button label="Dashboard" variant="ghost" href={HOME_HREF} />}
     >
       <VStack gap={8} maxWidth={COLUMN_WIDTH} paddingBlock={10}>
+        {linkEnded ? (
+          <LinkEndedBanner
+            key={linkEnded}
+            reason={linkEnded}
+            onDismiss={() => setIsEndDismissed(true)}
+          />
+        ) : null}
         {notice ? (
           <NoticeBanner
             key={notice}
@@ -307,11 +279,7 @@ function WhatsAppPage() {
                 {status.status === 'pairing' ? (
                   <PairingPanel
                     pairing={status}
-                    method={method}
                     clockOffset={clockOffset}
-                    phoneNumber={
-                      method === 'phone' ? (request?.phoneNumber ?? null) : null
-                    }
                     onCancel={() => run('cancel')}
                   />
                 ) : (
@@ -395,7 +363,7 @@ interface PageCopy {
   lede: ReactNode
 }
 
-function describe(status: WhatsAppStatus, method: LinkMethod | null): PageCopy {
+function describe(status: WhatsAppStatus): PageCopy {
   switch (status.status) {
     case 'not_linked':
       return {
@@ -403,20 +371,15 @@ function describe(status: WhatsAppStatus, method: LinkMethod | null): PageCopy {
         lede: 'Once it’s linked, scheduled messages go out from your own number, as if you’d sent them from your phone.',
       }
     case 'pairing':
-      return method === 'qr'
+      return status.method === 'qr_code'
         ? {
             title: 'Scan the code with your phone.',
             lede: 'Use the phone that has the WhatsApp account you want to send from.',
           }
-        : method === 'phone'
-          ? {
-              title: 'Enter the code on your phone.',
-              lede: 'WhatsApp asks for it when you link a device with a phone number instead of a QR code.',
-            }
-          : {
-              title: 'Linking your WhatsApp.',
-              lede: 'Whatomato is getting a code from WhatsApp, which takes a few seconds.',
-            }
+        : {
+            title: 'Enter the code on your phone.',
+            lede: 'WhatsApp asks for it when you link a device with a phone number instead of a QR code.',
+          }
     case 'syncing':
       return {
         title: 'WhatsApp is linked.',
@@ -435,7 +398,7 @@ function describe(status: WhatsAppStatus, method: LinkMethod | null): PageCopy {
     case 'paused':
       return {
         title: 'WhatsApp is paused.',
-        lede: 'Whatomato is disconnected but still linked, so reconnecting needs no new code. Nothing is sent meanwhile, and WhatsApp logs out a device that stays offline too long.',
+        lede: 'Whatomato is disconnected but still linked, so reconnecting needs no new code. Nothing is sent meanwhile. Once a week it connects for two minutes, because WhatsApp logs out a device that stays offline too long.',
       }
     case 'stopped':
       switch (status.reason) {
@@ -693,7 +656,18 @@ function NoticeBanner({
           onDismiss={onDismiss}
         />
       )
-    case 'pairing-ended':
+  }
+}
+
+function LinkEndedBanner({
+  reason,
+  onDismiss,
+}: {
+  reason: NonNullable<NotLinked['reason']>
+  onDismiss: () => void
+}) {
+  switch (reason) {
+    case 'expired':
       return (
         <Banner
           status="info"
@@ -703,7 +677,17 @@ function NoticeBanner({
           onDismiss={onDismiss}
         />
       )
-    case 'unlinked-elsewhere':
+    case 'failed':
+      return (
+        <Banner
+          status="warning"
+          title="Linking didn’t finish."
+          description="WhatsApp ended it before your phone linked. Start again for a new code."
+          isDismissable
+          onDismiss={onDismiss}
+        />
+      )
+    case 'logged_out':
       return (
         <Banner
           status="warning"

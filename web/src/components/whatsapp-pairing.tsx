@@ -28,8 +28,6 @@ import { Check, Copy } from 'lucide-react'
 import type { Pairing } from '@/lib/whatsapp'
 import { formatPairCode, formatPhoneNumber } from '@/lib/whatsapp'
 
-export type LinkMethod = 'qr' | 'phone'
-
 /** The size the server draws WhatsApp's codes at, so each 4px module lands on whole pixels. */
 const QR_PX = 276
 
@@ -149,30 +147,15 @@ const styles = stylex.create({
   },
 })
 
-/** How this pairing works, from its code; before the first code, from what this tab asked for. */
-export function pairingMethod(
-  pairing: Pairing,
-  requested: LinkMethod | null,
-): LinkMethod | null {
-  if (pairing.qr_code) return 'qr'
-  if (pairing.pair_code) return 'phone'
-  return requested
-}
-
 interface PairingPanelProps {
   pairing: Pairing
-  method: LinkMethod | null
   clockOffset: number
-  /** The digits this tab linked with; after a reload it isn't known. */
-  phoneNumber: string | null
   onCancel: () => Promise<void>
 }
 
 export function PairingPanel({
   pairing,
-  method,
   clockOffset,
-  phoneNumber,
   onCancel,
 }: PairingPanelProps) {
   const secondsLeft = useSecondsLeft(pairing.expires_at, clockOffset)
@@ -184,33 +167,19 @@ export function PairingPanel({
     </HStack>
   )
 
-  if (method === 'qr') {
-    return (
-      <QrPairing
-        qrCode={isLive ? pairing.qr_code : null}
-        secondsLeft={secondsLeft}
-        cancel={cancel}
-      />
-    )
-  }
-  if (method === 'phone') {
-    return (
-      <CodePairing
-        code={isLive ? pairing.pair_code : null}
-        secondsLeft={secondsLeft}
-        phoneNumber={phoneNumber}
-        cancel={cancel}
-      />
-    )
-  }
-  return (
-    <VStack gap={6} hAlign="start">
-      <HStack gap={3} vAlign="center">
-        <Spinner size="md" />
-        <Text color="secondary">Getting a code from WhatsApp…</Text>
-      </HStack>
-      {cancel}
-    </VStack>
+  return pairing.method === 'qr_code' ? (
+    <QrPairing
+      qrCode={isLive ? pairing.qr_code : null}
+      secondsLeft={secondsLeft}
+      cancel={cancel}
+    />
+  ) : (
+    <CodePairing
+      code={isLive ? pairing.pair_code : null}
+      secondsLeft={secondsLeft}
+      phoneNumber={pairing.phone_number}
+      cancel={cancel}
+    />
   )
 }
 

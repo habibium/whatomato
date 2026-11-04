@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::anyhow;
-use chrono::{TimeDelta, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use sqlx::PgPool;
 use tokio::{
     sync::{mpsc, oneshot, watch},
@@ -52,6 +52,12 @@ const PRESENCE_PULSE: Duration = Duration::from_secs(45);
 const PRESENCE_EVERY: Duration = Duration::from_hours(24);
 /// The first pulse after connecting comes this long at most, spread by user
 const FIRST_PULSE_WITHIN: Duration = Duration::from_hours(6);
+/// WhatsApp logs out a device offline for about 30 days, by secondary sources; its help pages don't
+/// pin the number down, so a paused account shows up well before that
+const KEEPALIVE_EVERY: Duration = Duration::from_hours(7 * 24);
+const KEEPALIVE_RETRY: Duration = Duration::from_hours(1);
+/// Long enough to connect, take in what queued up and finish a presence pulse
+const KEEPALIVE_WINDOW: Duration = Duration::from_mins(2);
 
 const WATCHED: [EventKind; 14] = [
     EventKind::PairingQrCode,
@@ -208,7 +214,8 @@ impl Handle {
 /// Starts the supervisor for `user_id`'s account, if any, which is in `status`.
 ///
 /// A linked account that isn't paused connects after `start_in`, so a boot can space out its
-/// connections. No client starts before `may_connect` turns true.
+/// connections, and a paused one runs its keepalive at `keepalive_at`, `start_in` at the soonest.
+/// No client starts before `may_connect` turns true.
 #[must_use]
 pub fn spawn(
     context: Context,
@@ -216,10 +223,17 @@ pub fn spawn(
     account_id: Option<Uuid>,
     status: Status,
     start_in: Duration,
+    keepalive_at: Option<DateTime<Utc>>,
     may_connect: watch::Receiver<bool>,
 ) -> Handle {
     let restart_at =
         matches!(status, Status::Reconnecting { .. }).then(|| Instant::now() + start_in);
+    let keepalive_at = keepalive_at
+        .filter(|_| matches!(status, Status::Paused { .. }))
+        .map(|at| {
+            let wait = (at - Utc::now()).to_std().unwrap_or_default();
+            Instant::now() + wait.max(start_in)
+        });
     let (commands_tx, commands) = mpsc::channel(16);
     let (status_tx, status_rx) = watch::channel(status);
     let (events_tx, events) = mpsc::unbounded_channel();
@@ -238,6 +252,9 @@ pub fn spawn(
             restarts: 0,
             restart_at,
             pairing_deadline: None,
+            keepalive_at,
+            keepalive_ends: None,
+            keepalive_connected: false,
         }
         .run(),
     );
@@ -265,6 +282,10 @@ struct Supervisor {
     restarts: u32,
     restart_at: Option<Instant>,
     pairing_deadline: Option<Instant>,
+    keepalive_at: Option<Instant>,
+    /// When the keepalive's client stops, while one runs
+    keepalive_ends: Option<Instant>,
+    keepalive_connected: bool,
 }
 
 struct Running {
@@ -298,6 +319,8 @@ enum Wake {
     ClientEnded,
     Restart,
     PairingTimedOut,
+    KeepaliveDue,
+    KeepaliveEnded,
     HandlesDropped,
 }
 
@@ -312,6 +335,8 @@ impl Supervisor {
                 () = finished(&mut self.client) => Wake::ClientEnded,
                 () = at(self.restart_at) => Wake::Restart,
                 () = at(self.pairing_deadline) => Wake::PairingTimedOut,
+                () = at(self.keepalive_at) => Wake::KeepaliveDue,
+                () = at(self.keepalive_ends) => Wake::KeepaliveEnded,
             };
             match wake {
                 Wake::Command(Command::Change(event, reply)) => {
@@ -334,6 +359,7 @@ impl Supervisor {
                 Wake::Event(generation, event) if generation == self.generation => {
                     if event == Event::Connected {
                         self.restarts = 0;
+                        self.keepalive_connected = true;
                         self.keep_presence_fresh();
                     }
                     let _ = self.handle(event).await;
@@ -354,6 +380,11 @@ impl Supervisor {
                     self.pairing_deadline = None;
                     let _ = self.handle(Event::PairingTimedOut).await;
                 }
+                Wake::KeepaliveDue => {
+                    self.keepalive_at = None;
+                    let _ = self.handle(Event::KeepaliveDue).await;
+                }
+                Wake::KeepaliveEnded => self.end_keepalive().await,
             }
         }
     }
@@ -380,6 +411,10 @@ impl Supervisor {
         if !matches!(next, Status::Reconnecting { .. }) {
             self.restart_at = None;
         }
+        if !matches!(next, Status::Paused { .. }) {
+            self.keepalive_at = None;
+            self.keepalive_ends = None;
+        }
         self.status.send_replace(next);
     }
 
@@ -398,6 +433,7 @@ impl Supervisor {
                     }
                 }
                 Effect::RestartClient => self.schedule_restart(),
+                Effect::StartKeepalive => self.start_keepalive().await,
                 Effect::StopClient => self.stop_client().await,
                 Effect::LogOut => told_whatsapp = self.log_out().await,
                 Effect::RequestPairCode => self.request_pair_code().await,
@@ -413,8 +449,14 @@ impl Supervisor {
                     }
                 }
                 Effect::SavePaused => {
+                    self.keepalive_at = Some(Instant::now() + KEEPALIVE_EVERY);
                     if let Some(account_id) = self.account_id {
-                        let saved = whatsapp_accounts::pause(&self.context.pool, account_id).await;
+                        let saved = whatsapp_accounts::pause(
+                            &self.context.pool,
+                            account_id,
+                            next_keepalive(),
+                        )
+                        .await;
                         self.log_failed_write("the pause", saved);
                     }
                 }
@@ -436,6 +478,35 @@ impl Supervisor {
             }
         }
         failed.map_or(Ok(told_whatsapp), |error| Err(CommandError::Failed(error)))
+    }
+
+    async fn start_keepalive(&mut self) {
+        self.keepalive_connected = false;
+        match self.start_client().await {
+            Ok(()) => self.keepalive_ends = Some(Instant::now() + KEEPALIVE_WINDOW),
+            Err(error) => {
+                tracing::warn!(user_id = %self.user_id, "WhatsApp keepalive failed to start: {error:#}");
+                self.keepalive_at = Some(Instant::now() + KEEPALIVE_RETRY);
+            }
+        }
+    }
+
+    /// Only a connection counts, so one that never came up tries again soon
+    async fn end_keepalive(&mut self) {
+        self.keepalive_ends = None;
+        self.stop_client().await;
+        if !self.keepalive_connected {
+            tracing::warn!(user_id = %self.user_id, "WhatsApp keepalive didn't connect");
+            self.keepalive_at = Some(Instant::now() + KEEPALIVE_RETRY);
+            return;
+        }
+        self.keepalive_at = Some(Instant::now() + KEEPALIVE_EVERY);
+        if let Some(account_id) = self.account_id {
+            let saved =
+                whatsapp_accounts::save_keepalive(&self.context.pool, account_id, next_keepalive())
+                    .await;
+            self.log_failed_write("the keepalive", saved);
+        }
     }
 
     /// Only a takeover or a ban needs the user, so only they are kept; a deploy may fix the rest
@@ -623,10 +694,15 @@ impl Supervisor {
     /// Starts the client's daily presence pulse, or after a reconnect marks it unavailable again in
     /// case the drop cut a pulse short
     fn keep_presence_fresh(&mut self) {
-        let first_in = Duration::from_secs(
-            u64::try_from(self.user_id.as_u128() % u128::from(FIRST_PULSE_WITHIN.as_secs()))
-                .unwrap_or_default(),
-        );
+        // A keepalive's client doesn't last until a spread-out pulse
+        let first_in = if matches!(*self.status.borrow(), Status::Paused { .. }) {
+            Duration::ZERO
+        } else {
+            Duration::from_secs(
+                u64::try_from(self.user_id.as_u128() % u128::from(FIRST_PULSE_WITHIN.as_secs()))
+                    .unwrap_or_default(),
+            )
+        };
         let Some(running) = &mut self.client else {
             return;
         };
@@ -742,6 +818,10 @@ async fn pulse_presence(client: Arc<Client>, first_in: Duration) {
         let _ = client.presence().set_unavailable().await;
         wait = PRESENCE_EVERY;
     }
+}
+
+fn next_keepalive() -> DateTime<Utc> {
+    Utc::now() + TimeDelta::from_std(KEEPALIVE_EVERY).unwrap_or_default()
 }
 
 async fn finished(client: &mut Option<Running>) {

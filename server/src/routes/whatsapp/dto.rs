@@ -6,7 +6,7 @@ use validator::{Validate, ValidationError};
 use crate::{
     auth::two_factor::qr_code,
     whatsapp::{
-        status::{Method, Status, StopReason},
+        status::{LinkEnded, Method, Status, StopReason},
         supervisor::Group,
     },
 };
@@ -16,10 +16,18 @@ use crate::{
 #[derive(Serialize, ToSchema)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub(super) enum WhatsAppStatus {
-    NotLinked,
+    NotLinked {
+        /// Why the last link or linking attempt ended, unless the user ended it. Lost on a restart.
+        #[schema(required = true)]
+        reason: Option<NotLinkedBecause>,
+    },
     /// Waiting for the phone. Linking by QR code fills `qr_code`, linking by phone number fills
     /// `pair_code`, each once the first code arrives.
     Pairing {
+        method: PairingMethod,
+        /// The number being linked, when linking by phone number
+        #[schema(required = true)]
+        phone_number: Option<String>,
         /// An SVG `data:` URL
         #[schema(required = true)]
         qr_code: Option<String>,
@@ -55,6 +63,24 @@ pub(super) enum WhatsAppStatus {
 
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
+pub(super) enum NotLinkedBecause {
+    /// Linking ran out of codes or time before the phone answered
+    Expired,
+    /// WhatsApp didn't finish linking
+    Failed,
+    /// The device was removed from the phone, or WhatsApp logged it out
+    LoggedOut,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(super) enum PairingMethod {
+    QrCode,
+    PhoneNumber,
+}
+
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum StoppedBecause {
     /// Another session took over the device's keys
     Replaced,
@@ -68,18 +94,31 @@ pub(super) enum StoppedBecause {
 impl WhatsAppStatus {
     pub(super) fn new(status: Status) -> anyhow::Result<Self> {
         Ok(match status {
-            Status::NotLinked => Self::NotLinked,
+            Status::NotLinked => Self::NotLinked { reason: None },
+            Status::LinkEnded(ended) => Self::NotLinked {
+                reason: Some(match ended {
+                    LinkEnded::Expired => NotLinkedBecause::Expired,
+                    LinkEnded::Failed => NotLinkedBecause::Failed,
+                    LinkEnded::LoggedOut => NotLinkedBecause::LoggedOut,
+                }),
+            },
             Status::Pairing(pairing) => {
-                let (qr_code, pair_code, expires_at) = match (pairing.method, pairing.code) {
-                    (Method::Qr, Some(code)) => {
-                        (Some(qr_code(&code.value)?), None, Some(code.expires_at))
+                let expires_at = pairing.code.as_ref().map(|code| code.expires_at);
+                let code = pairing.code.map(|code| code.value);
+                let (method, phone_number, qr_code, pair_code) = match pairing.method {
+                    Method::Qr => (
+                        PairingMethod::QrCode,
+                        None,
+                        code.as_deref().map(qr_code).transpose()?,
+                        None,
+                    ),
+                    Method::PhoneNumber(number) => {
+                        (PairingMethod::PhoneNumber, Some(number), None, code)
                     }
-                    (Method::PhoneNumber(_), Some(code)) => {
-                        (None, Some(code.value), Some(code.expires_at))
-                    }
-                    (_, None) => (None, None, None),
                 };
                 Self::Pairing {
+                    method,
+                    phone_number,
                     qr_code,
                     pair_code,
                     expires_at,
@@ -184,7 +223,11 @@ mod tests {
     fn statuses_serialize_as_a_tagged_union() {
         assert_eq!(
             json_of(Status::NotLinked),
-            json!({ "status": "not_linked" })
+            json!({ "status": "not_linked", "reason": null })
+        );
+        assert_eq!(
+            json_of(Status::LinkEnded(LinkEnded::LoggedOut)),
+            json!({ "status": "not_linked", "reason": "logged_out" })
         );
         assert_eq!(
             json_of(Status::Paused {
@@ -234,6 +277,8 @@ mod tests {
         }));
         assert_eq!(by_number["pair_code"], "ABCD1234");
         assert_eq!(by_number["qr_code"], Value::Null);
+        assert_eq!(by_number["method"], "phone_number");
+        assert_eq!(by_number["phone_number"], "15550001");
 
         let waiting = json_of(Status::Pairing(Pairing {
             method: Method::Qr,
@@ -241,7 +286,14 @@ mod tests {
         }));
         assert_eq!(
             waiting,
-            json!({ "status": "pairing", "qr_code": null, "pair_code": null, "expires_at": null })
+            json!({
+                "status": "pairing",
+                "method": "qr_code",
+                "phone_number": null,
+                "qr_code": null,
+                "pair_code": null,
+                "expires_at": null,
+            })
         );
     }
 

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT keepalive_at FROM whatsapp_accounts WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "keepalive_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "keepalive_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "124d7031074a3a608decda2031d0aae8616d994b3f7e91fabb2cab5f3a350695"
+}

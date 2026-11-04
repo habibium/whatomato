@@ -7,6 +7,8 @@ use chrono::{DateTime, Utc};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Status {
     NotLinked,
+    /// Not linked, and the user should hear why. Lasts until the next link or restart.
+    LinkEnded(LinkEnded),
     Pairing(Pairing),
     /// The phone has linked us; the library runs its first sync before `Connected`
     Syncing {
@@ -27,6 +29,16 @@ pub enum Status {
         phone_number: String,
         reason: StopReason,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkEnded {
+    /// Linking ran out of codes or time before the phone answered
+    Expired,
+    /// WhatsApp or the client gave up on linking
+    Failed,
+    /// The device was removed from the phone, or WhatsApp logged it out
+    LoggedOut,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,6 +106,8 @@ pub enum Event {
     },
     // From the supervisor itself
     PairingTimedOut,
+    /// A paused account is due its brief reconnect
+    KeepaliveDue,
     /// The client stopped without being asked to
     ClientEnded,
 }
@@ -105,6 +119,8 @@ pub enum Effect {
     StartClient,
     /// Like `StartClient`, after a pause that grows with each restart in a row
     RestartClient,
+    /// Run a client for a moment, so WhatsApp doesn't log out a device it hasn't seen in a while
+    StartKeepalive,
     StopClient,
     RequestPairCode,
     /// Ask WhatsApp to remove the device, then stop the client
@@ -144,7 +160,7 @@ pub struct Refused;
 /// [`Refused`] for a user command the current status doesn't allow.
 pub fn next(status: &Status, event: Event) -> Result<(Status, Vec<Effect>), Refused> {
     match status {
-        Status::NotLinked => from_not_linked(event),
+        Status::NotLinked | Status::LinkEnded(_) => from_not_linked(status, event),
         Status::Pairing(pairing) => from_pairing(pairing, event),
         Status::Syncing { phone_number }
         | Status::Connected { phone_number }
@@ -155,20 +171,20 @@ pub fn next(status: &Status, event: Event) -> Result<(Status, Vec<Effect>), Refu
     }
 }
 
-fn from_not_linked(event: Event) -> Result<(Status, Vec<Effect>), Refused> {
+fn from_not_linked(status: &Status, event: Event) -> Result<(Status, Vec<Effect>), Refused> {
     match event {
         Event::Link(method) => Ok((
             Status::Pairing(Pairing { method, code: None }),
             vec![Effect::StartClient],
         )),
         Event::Cancel | Event::Pause | Event::Resume | Event::Unlink => Err(Refused),
-        _ => Ok((Status::NotLinked, vec![])),
+        _ => Ok((status.clone(), vec![])),
     }
 }
 
 fn from_pairing(pairing: &Pairing, event: Event) -> Result<(Status, Vec<Effect>), Refused> {
     let unchanged = || Ok((Status::Pairing(pairing.clone()), vec![]));
-    let given_up = || Ok((Status::NotLinked, vec![Effect::StopClient]));
+    let ended = |status| Ok((status, vec![Effect::StopClient]));
     match (event, &pairing.method) {
         // The library hands out QR codes even while a phone number's code is outstanding
         (Event::QrCode(code), Method::Qr) | (Event::PairCode(code), Method::PhoneNumber(_)) => {
@@ -181,10 +197,11 @@ fn from_pairing(pairing: &Pairing, event: Event) -> Result<(Status, Vec<Effect>)
             ))
         }
         // With a code outstanding the client stays up after the QR codes run out
-        (Event::QrCodesExhausted, Method::Qr)
-        | (Event::Cancel | Event::Unlink | Event::PairFailed | Event::PairingTimedOut, _) => {
-            given_up()
+        (Event::QrCodesExhausted, Method::Qr) | (Event::PairingTimedOut, _) => {
+            ended(Status::LinkEnded(LinkEnded::Expired))
         }
+        (Event::PairFailed, _) => ended(Status::LinkEnded(LinkEnded::Failed)),
+        (Event::Cancel | Event::Unlink, _) => ended(Status::NotLinked),
         (Event::PairCodeExpired, Method::PhoneNumber(_)) => Ok((
             Status::Pairing(Pairing {
                 method: pairing.method.clone(),
@@ -192,7 +209,11 @@ fn from_pairing(pairing: &Pairing, event: Event) -> Result<(Status, Vec<Effect>)
             }),
             vec![Effect::RequestPairCode],
         )),
-        (Event::ClientEnded, _) => Ok((Status::NotLinked, vec![])),
+        // The library shuts down right after a QR round's last event, so its end can arrive first
+        (Event::ClientEnded, _) if pairing.code.is_some() => {
+            Ok((Status::LinkEnded(LinkEnded::Expired), vec![]))
+        }
+        (Event::ClientEnded, _) => Ok((Status::LinkEnded(LinkEnded::Failed), vec![])),
         (Event::Paired { phone_number }, _) => Ok((
             Status::Syncing {
                 phone_number: phone_number.clone(),
@@ -235,25 +256,8 @@ fn from_linked(
         )),
         Event::Unlink => Ok(unlinked_from_app()),
         Event::LoggedOut => Ok(logged_out()),
-        Event::Replaced => Ok((
-            stopped(StopReason::Replaced),
-            vec![
-                Effect::StopClient,
-                Effect::SaveStopped(StopReason::Replaced),
-                Effect::Alert(Alert::Replaced),
-            ],
-        )),
-        Event::TemporaryBan { until } => {
-            let reason = StopReason::TemporaryBan { until: *until };
-            Ok((
-                stopped(reason.clone()),
-                vec![
-                    Effect::StopClient,
-                    Effect::SaveStopped(reason),
-                    Effect::Alert(Alert::TemporaryBan { until: *until }),
-                ],
-            ))
-        }
+        Event::Replaced => Ok(replaced(phone_number)),
+        Event::TemporaryBan { until } => Ok(banned(phone_number, *until)),
         Event::Outdated => Ok((stopped(StopReason::Outdated), vec![Effect::StopClient])),
         Event::ConnectFailed { retrying: false } => {
             Ok((stopped(StopReason::Refused), vec![Effect::StopClient]))
@@ -263,12 +267,13 @@ fn from_linked(
     }
 }
 
-/// Paused or stopped: no client runs, so only the user can move it
+/// Paused or stopped: no client runs, bar a paused account's keepalive
 fn from_idle(
     status: &Status,
     phone_number: &str,
     event: &Event,
 ) -> Result<(Status, Vec<Effect>), Refused> {
+    let paused = matches!(status, Status::Paused { .. });
     match event {
         Event::Resume => Ok((
             Status::Reconnecting {
@@ -279,14 +284,47 @@ fn from_idle(
         Event::Unlink => Ok(unlinked_from_app()),
         // A logout queued before the client stopped still means its keys are dead
         Event::LoggedOut => Ok(logged_out()),
+        Event::KeepaliveDue if paused => Ok((status.clone(), vec![Effect::StartKeepalive])),
+        // The other failures stay paused: the keepalive just tries again later
+        Event::Replaced if paused => Ok(replaced(phone_number.to_owned())),
+        Event::TemporaryBan { until } if paused => Ok(banned(phone_number.to_owned(), *until)),
         Event::Link(_) | Event::Cancel | Event::Pause => Err(Refused),
         _ => Ok((status.clone(), vec![])),
     }
 }
 
+fn replaced(phone_number: String) -> (Status, Vec<Effect>) {
+    (
+        Status::Stopped {
+            phone_number,
+            reason: StopReason::Replaced,
+        },
+        vec![
+            Effect::StopClient,
+            Effect::SaveStopped(StopReason::Replaced),
+            Effect::Alert(Alert::Replaced),
+        ],
+    )
+}
+
+fn banned(phone_number: String, until: DateTime<Utc>) -> (Status, Vec<Effect>) {
+    let reason = StopReason::TemporaryBan { until };
+    (
+        Status::Stopped {
+            phone_number,
+            reason: reason.clone(),
+        },
+        vec![
+            Effect::StopClient,
+            Effect::SaveStopped(reason),
+            Effect::Alert(Alert::TemporaryBan { until }),
+        ],
+    )
+}
+
 fn logged_out() -> (Status, Vec<Effect>) {
     (
-        Status::NotLinked,
+        Status::LinkEnded(LinkEnded::LoggedOut),
         vec![
             Effect::StopClient,
             Effect::Forget,
@@ -427,8 +465,9 @@ mod tests {
 
     #[test]
     fn running_out_of_qr_codes_ends_qr_pairing_only() {
+        let expired = Status::LinkEnded(LinkEnded::Expired);
         let (status, effects) = run(pairing(Method::Qr), [Event::QrCodesExhausted]);
-        assert_eq!(status, Status::NotLinked);
+        assert_eq!(status, expired);
         assert_eq!(effects, [Effect::StopClient]);
 
         let by_number = pairing(Method::PhoneNumber(PHONE.to_owned()));
@@ -437,8 +476,75 @@ mod tests {
             by_number
         );
         let (status, effects) = run(by_number, [Event::PairingTimedOut]);
-        assert_eq!(status, Status::NotLinked);
+        assert_eq!(status, expired);
         assert_eq!(effects, [Effect::StopClient]);
+    }
+
+    #[test]
+    fn linking_says_why_it_ended_unless_the_user_ended_it() {
+        let failed = Status::LinkEnded(LinkEnded::Failed);
+        assert_eq!(run(pairing(Method::Qr), [Event::PairFailed]).0, failed);
+        assert_eq!(run(pairing(Method::Qr), [Event::ClientEnded]).0, failed);
+        let with_code = run(pairing(Method::Qr), [Event::QrCode(code("qr-1"))]).0;
+        assert_eq!(
+            run(with_code, [Event::ClientEnded]).0,
+            Status::LinkEnded(LinkEnded::Expired)
+        );
+        assert_eq!(
+            run(pairing(Method::Qr), [Event::Cancel]).0,
+            Status::NotLinked
+        );
+    }
+
+    #[test]
+    fn the_reason_outlasts_the_client_and_ends_with_the_next_link() {
+        let ended = Status::LinkEnded(LinkEnded::Expired);
+        assert_eq!(run(ended.clone(), [Event::ClientEnded]).0, ended);
+        assert_eq!(run(ended, [Event::Link(Method::Qr)]).0, pairing(Method::Qr));
+    }
+
+    #[test]
+    fn only_a_paused_account_runs_a_keepalive() {
+        let (status, effects) = run(paused(), [Event::KeepaliveDue]);
+        assert_eq!(status, paused());
+        assert_eq!(effects, [Effect::StartKeepalive]);
+
+        for other in [
+            Status::NotLinked,
+            connected(),
+            stopped(StopReason::Replaced),
+        ] {
+            assert_eq!(next(&other, Event::KeepaliveDue), Ok((other, vec![])));
+        }
+    }
+
+    #[test]
+    fn a_keepalive_that_finds_the_keys_lost_stops_or_forgets_them() {
+        let until = at(3_600);
+        assert_eq!(
+            run(paused(), [Event::Replaced]).0,
+            stopped(StopReason::Replaced)
+        );
+        assert_eq!(
+            run(paused(), [Event::TemporaryBan { until }]).0,
+            stopped(StopReason::TemporaryBan { until })
+        );
+        assert_eq!(
+            run(paused(), [Event::LoggedOut]).0,
+            Status::LinkEnded(LinkEnded::LoggedOut)
+        );
+    }
+
+    #[test]
+    fn a_keepalive_that_fails_stays_paused() {
+        for event in [
+            Event::Outdated,
+            Event::ConnectFailed { retrying: false },
+            Event::Disconnected,
+            Event::ClientEnded,
+        ] {
+            assert_eq!(next(&paused(), event), Ok((paused(), vec![])));
+        }
     }
 
     #[test]
@@ -489,7 +595,7 @@ mod tests {
     fn a_logout_from_the_phone_forgets_the_keys_once_the_client_stops() {
         for linked in [connected(), paused(), stopped(StopReason::Refused)] {
             let (status, effects) = run(linked, [Event::LoggedOut]);
-            assert_eq!(status, Status::NotLinked);
+            assert_eq!(status, Status::LinkEnded(LinkEnded::LoggedOut));
             assert_eq!(
                 effects,
                 [

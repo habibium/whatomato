@@ -1,4 +1,5 @@
 import { queryOptions } from '@tanstack/react-query'
+import { parsePhoneNumberFromString } from 'libphonenumber-js'
 
 import type { components } from '@/api/schema'
 
@@ -6,6 +7,7 @@ import { api } from '@/api/client'
 
 export type WhatsAppStatus = components['schemas']['WhatsAppStatus']
 export type Pairing = Extract<WhatsAppStatus, { status: 'pairing' }>
+export type NotLinked = Extract<WhatsAppStatus, { status: 'not_linked' }>
 export type Linked = Extract<WhatsAppStatus, { phone_number: string }>
 export type Group = components['schemas']['GroupResponse']
 
@@ -79,7 +81,11 @@ function clockOffset(response: Response) {
 
 /** The API sends the digits with the country code and no plus. */
 export function formatPhoneNumber(digits: string) {
-  return `+${digits}`
+  const international = `+${digits}`
+  return (
+    parsePhoneNumberFromString(international)?.formatInternational() ??
+    international
+  )
 }
 
 /** Split in two, the way WhatsApp lays out the boxes it asks for. */

@@ -1935,6 +1935,21 @@
           }
         }
       },
+      "NotLinkedBecause": {
+        "type": "string",
+        "enum": [
+          "expired",
+          "failed",
+          "logged_out"
+        ]
+      },
+      "PairingMethod": {
+        "type": "string",
+        "enum": [
+          "qr_code",
+          "phone_number"
+        ]
+      },
       "PasskeyCreationOptions": {
         "type": "object",
         "description": "Options for `navigator.credentials.create()`",
@@ -2251,9 +2266,21 @@
           {
             "type": "object",
             "required": [
+              "reason",
               "status"
             ],
             "properties": {
+              "reason": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/NotLinkedBecause",
+                    "description": "Why the last link or linking attempt ended, unless the user ended it. Lost on a restart."
+                  }
+                ]
+              },
               "status": {
                 "type": "string",
                 "enum": [
@@ -2266,6 +2293,8 @@
             "type": "object",
             "description": "Waiting for the phone. Linking by QR code fills `qr_code`, linking by phone number fills\n`pair_code`, each once the first code arrives.",
             "required": [
+              "method",
+              "phone_number",
               "qr_code",
               "pair_code",
               "expires_at",
@@ -2279,12 +2308,22 @@
                 ],
                 "format": "date-time"
               },
+              "method": {
+                "$ref": "#/components/schemas/PairingMethod"
+              },
               "pair_code": {
                 "type": [
                   "string",
                   "null"
                 ],
                 "description": "Typed on the phone under Linked devices, \"Link with phone number instead\""
+              },
+              "phone_number": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The number being linked, when linking by phone number"
               },
               "qr_code": {
                 "type": [
