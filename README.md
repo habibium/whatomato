@@ -70,18 +70,18 @@ Environment variables, or a `.env` file in development (see `.env.example`):
 | `DATABASE_URL`     | required                                                            | Postgres connection string                                                                                                                                                                |
 | `PORT`             | `8000`                                                              | Listen port                                                                                                                                                                               |
 | `WEB_DIR`          | `web/dist`                                                          | Built SPA to serve for non-`/api` paths                                                                                                                                                   |
-| `RUST_LOG`         | `info,server=debug,…`                                               | tracing filter                                                                                                                                                                            |
+| `RUST_LOG`         | `warn,server=info` in the image; `warn,server=debug,…` in development | tracing filter. Keep libraries at `warn`: the WhatsApp library logs phone numbers and pair codes at `info`                                                                               |
 | `APP_URL`          | required in release builds; `http://localhost:5173` in debug builds | Public URL of the app. Links in emails point here, and an `https` URL makes the cookies `Secure`                                                                                          |
 | `SMTP_URL`         | required when `APP_URL` is `https`                                  | SMTP server for verification and password reset emails, e.g. `smtps://user:password@host:465`                                                                                             |
 | `EMAIL_FROM`       | required with SMTP                                                  | Sender, e.g. `Whatomato <no-reply@example.com>`                                                                                                                                           |
-| `ENCRYPTION_KEY`   | required in release builds; a fixed development key in debug builds | Encrypts secrets kept in the database, such as authenticator app keys: 32 random bytes in base64, from `openssl rand -base64 32`                                                          |
+| `ENCRYPTION_KEY`   | required in release builds; a fixed development key in debug builds | Encrypts secrets kept in the database, such as authenticator app keys and WhatsApp device keys: 32 random bytes in base64, from `openssl rand -base64 32`                                 |
 | `CLIENT_IP_HEADER` | unset                                                               | Header a trusted proxy sets to the client's address, e.g. `CF-Connecting-IP` behind Cloudflare. Unset, rate limits key on the peer address. `X-Forwarded-For` and `Forwarded` are refused |
 
 Migrations in `server/migrations` are embedded in the binary and applied at startup.
 
 Without `SMTP_URL` the server writes each email, link included, to its log, which is enough for development and refused for an `https` `APP_URL`, since anyone who can read the log could use the links. Percent-encode special characters in the SMTP password (`@` becomes `%40`). `smtps://` connects on port 465 with TLS from the start; for port 587 use `smtp://user:password@host:587?tls=required`.
 
-Keep `ENCRYPTION_KEY` apart from the database and its backups: together they reveal every secret it protects. Replacing or losing it stops every authenticator app set up so far from working, and those users have to sign in with a recovery code and set two-step verification up again.
+Keep `ENCRYPTION_KEY` apart from the database and its backups: together they reveal every secret it protects. Replacing or losing it stops every authenticator app set up so far from working, and those users have to sign in with a recovery code and set two-step verification up again. It also cuts off every linked WhatsApp account: see [After losing the key or restoring a backup](#after-losing-the-key-or-restoring-a-backup).
 
 ## Accounts
 
@@ -95,8 +95,59 @@ Two-step verification is optional and works with any authenticator app (TOTP: SH
 
 Passkeys are added under Security settings, after the password is entered again, and sign in without an email address or password: from the "Sign in with a passkey" button, or from the browser's autofill on the email field. A passkey always verifies its user with a PIN or biometrics, so a passkey sign-in needs no other step. Each passkey is bound to the host of `APP_URL`, its relying party ID, so moving the app to another host leaves existing passkeys unusable. Removing one asks for the password too, and either change emails the owner. A registration or sign-in challenge stays on the server for five minutes, named by an `HttpOnly` cookie, and works once.
 
+## WhatsApp
+
+Each user links one WhatsApp account as a linked device, from the WhatsApp page, by scanning a QR code or by typing a code on the phone. The server then holds a connection for that account around the clock and reconnects it after a restart, so messages can go out with no browser open. Linking and unlinking ask for the password again, and a user can start 5 links, then one every 10 minutes.
+
+> [!WARNING]
+> WhatsApp doesn't officially allow third-party clients. It can ban a number that uses one, for a while or for good, and sending the same text to many people or messaging people who don't have your number makes that likelier. Link a number you can afford to lose.
+
+Whatomato talks to WhatsApp through the [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) library, as a linked device of the user's own account. It isn't the WhatsApp Business API.
+
+### What's stored
+
+Postgres holds what a linked device has to keep to stay linked and to encrypt messages:
+
+- the device's identity and the Signal keys and sessions for the people and groups it talks to;
+- the app state keys and versions WhatsApp syncs between devices;
+- recent sent messages, which WhatsApp can ask a device to send again when a recipient failed to decrypt them;
+- the linked number, and when it was linked, paused or stopped.
+
+Everything secret is encrypted with `ENCRYPTION_KEY` (XChaCha20-Poly1305), bound to its account, table and key, so a database dump alone is useless. Lookup keys, timestamps and flags stay in the clear. Whatomato doesn't download chat history or store the messages it receives.
+
+Unlinking asks WhatsApp to remove the device, then deletes the account's row and, through the cascade, every key. When WhatsApp can't be reached the keys go anyway, and the page tells the user to remove the device from their phone. A link, an unlink, a removal from the phone, another session taking over the keys and a temporary ban each email the owner.
+
+### Staying linked
+
+Disconnecting pauses the account and keeps the link, across restarts too. WhatsApp logs out a linked device that stays offline too long, so a paused account connects for about two minutes once a week. It sends nothing, and if WhatsApp can't be reached it tries again an hour later. An account stopped by a takeover or a ban stays offline until its owner reconnects it, and WhatsApp may log out those devices in the end. WhatsApp also logs out every linked device when the phone itself stays unused for about two weeks, which nothing here can prevent.
+
+A connected account shows as online for 45 seconds once a day, which keeps the phone from flagging the device as inactive. The rest of the time it stays unavailable, so the phone keeps getting notifications.
+
+### Running it
+
+Only one server may run a given account's client: two on the same keys knock each other off and can corrupt them. So a server connects no account until it holds a Postgres advisory lock, which it lets go after stopping its clients, and either order of starting and stopping works during a deploy.
+
+Give the container at least 30 seconds to stop (`docker stop --time 30`, `stop_grace_period` in Compose or Swarm), because each client flushes its keys on the way down and Docker's default of 10 can cut that short.
+
+### After losing the key or restoring a backup
+
+Linked devices can't survive either of these, so users have to link again:
+
+- **A lost or replaced `ENCRYPTION_KEY`:** the keys can't be opened any more.
+- **A database restored from a backup:** the Signal keys in it have moved on since the backup, and reusing them can break decryption and reuse message keys.
+
+Stop the server, then delete the accounts, which takes every key with them:
+
+```sql
+DELETE FROM whatsapp_accounts;
+```
+
+Start the server, tell users to link again, and have them remove the old device under Linked devices on the phone.
+
+Never start a server on a copy of the database while the original runs, such as for a restore drill, unless the copy has had that `DELETE`: the advisory lock only covers one database, so the copy would connect with the same keys and take the accounts over.
+
 ## License
 
-Whatomato is licensed under the GNU Affero General Public License, version 3 only ([`AGPL-3.0-only`](LICENSE)). Anyone who runs a modified version as a network service must offer its users the source of that version.
+Whatomato is licensed under the GNU Affero General Public License, version 3 only ([`AGPL-3.0-only`](LICENSE)). Anyone who runs a modified version as a network service must offer its users the source of that version. The image links `wacore-libsignal`, part of whatsapp-rust, whose sources are `AGPL-3.0-only` despite its MIT package metadata ([upstream issue](https://github.com/oxidezap/whatsapp-rust/issues/1828)); this project's own license covers that.
 
 The tests ported from [whatsapp-rust](https://github.com/oxidezap/whatsapp-rust) keep its MIT license; see [`LICENSES/whatsapp-rust-MIT.txt`](LICENSES/whatsapp-rust-MIT.txt).
