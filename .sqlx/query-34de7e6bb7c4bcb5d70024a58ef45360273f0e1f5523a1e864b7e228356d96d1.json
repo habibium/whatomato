@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_identities (account_id, address, key) VALUES ($1, '1@s.whatsapp.net', $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "34de7e6bb7c4bcb5d70024a58ef45360273f0e1f5523a1e864b7e228356d96d1"
+}

@@ -1,18 +1,13 @@
-node_modules/
-dist/
-coverage/
-.turbo/
-*.tsbuildinfo
+**/node_modules/
+**/coverage/
 
-# Environment
+.turbo
+
+dist
+
 .env
-.env.*
-!.env.example
 
-# Logs
-*.log
-logs/
 
-# OS / editor
-.DS_Store
-*.local
+# Added by cargo
+
+/target

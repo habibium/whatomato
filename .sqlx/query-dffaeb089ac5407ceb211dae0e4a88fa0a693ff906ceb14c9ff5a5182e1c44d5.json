@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT lid, phone_number, created_at, updated_at, learning_source FROM whatsapp_lid_mappings WHERE account_id = $1 AND lid = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lid",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_lid_mappings",
+            "name": "lid"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "phone_number",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_lid_mappings",
+            "name": "phone_number"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_lid_mappings",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "updated_at",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_lid_mappings",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "learning_source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_lid_mappings",
+            "name": "learning_source"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "dffaeb089ac5407ceb211dae0e4a88fa0a693ff906ceb14c9ff5a5182e1c44d5"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_tc_tokens (account_id, jid, token, token_timestamp, sender_timestamp) VALUES ($1, $2, $3, $4, NULL) ON CONFLICT (account_id, jid) DO UPDATE SET token = EXCLUDED.token, token_timestamp = EXCLUDED.token_timestamp WHERE whatsapp_tc_tokens.token IS NULL OR EXCLUDED.token_timestamp >= whatsapp_tc_tokens.token_timestamp",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "306d2dc89b2149bb68450058d82da72bf412452aeec6ce8f6764d57548716308"
+}

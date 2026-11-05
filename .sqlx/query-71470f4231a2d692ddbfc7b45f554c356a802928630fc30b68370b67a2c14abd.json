@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_sessions (account_id, address, record) SELECT $2, address, record FROM whatsapp_sessions WHERE account_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "71470f4231a2d692ddbfc7b45f554c356a802928630fc30b68370b67a2c14abd"
+}

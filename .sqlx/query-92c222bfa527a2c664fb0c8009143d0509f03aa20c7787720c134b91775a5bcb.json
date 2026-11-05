@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO deliveries (user_id, scheduled_message_id, recipient_type, recipient, body) VALUES ($1, $2, 'contact', '15550001234', 'Hello')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "92c222bfa527a2c664fb0c8009143d0509f03aa20c7787720c134b91775a5bcb"
+}

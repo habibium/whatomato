@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM whatsapp_sent_messages WHERE account_id = $1 AND chat_jid = $2 AND message_id = $3 RETURNING payload",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "payload",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_sent_messages",
+            "name": "payload"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a8c89734771cfe989f4cb34926f44056c103e204ee593d17b6892466bd70024c"
+}

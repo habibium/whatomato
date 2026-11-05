@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_msg_secrets (account_id, chat, sender, msg_id, secret, expires_at, message_ts) VALUES ($1, 'c', 's', 'short', $2, 0, 0)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d3a992edf220586ad4908a6ae5a0fcf7abba74bacf4f613fa937049484d9a795"
+}

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT device FROM whatsapp_accounts WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "device",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "device"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "7e2f7e6f70913e152f6d60f7facd3443ea8dc954307bbe8c223a3f4b4a20c28b"
+}

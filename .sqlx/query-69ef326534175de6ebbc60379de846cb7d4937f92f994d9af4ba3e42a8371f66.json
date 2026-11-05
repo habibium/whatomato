@@ -1,0 +1,93 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, user_id, phone_number, paused_at IS NOT NULL AS \"paused!\", stopped_reason,\n               stopped_until, keepalive_at\n           FROM whatsapp_accounts",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "phone_number",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "phone_number"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "paused!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "stopped_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "stopped_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "stopped_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "stopped_until"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "keepalive_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "keepalive_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "69ef326534175de6ebbc60379de846cb7d4937f92f994d9af4ba3e42a8371f66"
+}

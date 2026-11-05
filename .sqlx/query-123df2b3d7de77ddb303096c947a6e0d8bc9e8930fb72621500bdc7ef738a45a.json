@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE deliveries SET status = 'sending', attempts = attempts + 1\n           WHERE id IN (\n               SELECT DISTINCT ON (user_id) id FROM deliveries\n               WHERE status = 'pending' AND next_attempt_at <= now() AND user_id <> ALL($1)\n               ORDER BY user_id, next_attempt_at, created_at\n           )\n           RETURNING id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               body, attempts",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "recipient_type: RecipientType",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "recipient_type"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "recipient",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "recipient"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "body",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "attempts",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "attempts"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "123df2b3d7de77ddb303096c947a6e0d8bc9e8930fb72621500bdc7ef738a45a"
+}

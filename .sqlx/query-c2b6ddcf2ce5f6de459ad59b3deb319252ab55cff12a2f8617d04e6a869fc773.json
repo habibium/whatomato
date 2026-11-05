@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_sender_key_devices (account_id, group_jid, device_jid, has_key) SELECT $1, $2, device_jid, has_key FROM UNNEST($3::TEXT[], $4::BOOL[]) AS d (device_jid, has_key) ON CONFLICT (account_id, group_jid, device_jid) DO UPDATE SET has_key = EXCLUDED.has_key",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "TextArray",
+        "BoolArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c2b6ddcf2ce5f6de459ad59b3deb319252ab55cff12a2f8617d04e6a869fc773"
+}

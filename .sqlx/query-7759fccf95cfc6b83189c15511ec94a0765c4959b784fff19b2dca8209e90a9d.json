@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE deliveries SET status = 'pending', next_attempt_at = $2, error = $3 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7759fccf95cfc6b83189c15511ec94a0765c4959b784fff19b2dca8209e90a9d"
+}

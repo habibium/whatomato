@@ -1,48 +1,42 @@
-# syntax=docker/dockerfile:1.7
-#
-# Multi-stage build:
-#   1. `builder` — installs deps via pnpm (corepack) and builds server + web
-#   2. `runner`  — Node-only runtime image with the built artifacts
-
-# ── Builder ─────────────────────────────────────────────────────────
-FROM node:24-alpine AS builder
-WORKDIR /app
-
-# Toolchain required by native postinstall scripts (ssh2, sharp, etc.).
-RUN apk add --no-cache python3 make g++ libc6-compat \
-    && corepack enable
-
-# Cache the install layer separately from source.
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
-COPY apps/server/package.json ./apps/server/
-COPY apps/web/package.json ./apps/web/
-COPY packages/shared/package.json ./packages/shared/
+FROM node:24-alpine AS web
+WORKDIR /app/web
+RUN npm install -g pnpm
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
+COPY openapi.json /app/openapi.json
+COPY web ./
+RUN pnpm build
 
-# Bring in sources and build every workspace.
-COPY . .
-RUN pnpm run build
+FROM rust:1-slim-bookworm AS server
+WORKDIR /app
+# webauthn-rs links against the system OpenSSL
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+ENV SQLX_OFFLINE=true
+COPY Cargo.toml Cargo.lock ./
+COPY .sqlx ./.sqlx
+COPY server ./server
+# cache mounts keep the registry and target dir between builds; the binary is copied out because mounts vanish
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/app/target \
+    cargo build --release -p server --bin server && cp target/release/server /server
 
-# ── Runner ──────────────────────────────────────────────────────────
-FROM node:24-alpine AS runner
-WORKDIR /app/apps/server
-
-ENV NODE_ENV=production \
-    PORT=3000 \
-    WEB_DIST_DIR=/app/apps/web/dist
-
-# Preserve the workspace layout so pnpm's symlinked deps resolve.
-COPY --from=builder /app/node_modules /app/node_modules
-COPY --from=builder /app/package.json /app/package.json
-COPY --from=builder /app/apps/server/package.json ./package.json
-COPY --from=builder /app/apps/server/node_modules ./node_modules
-COPY --from=builder /app/apps/server/dist ./dist
-COPY --from=builder /app/apps/server/drizzle ./drizzle
-COPY --from=builder /app/apps/web/dist /app/apps/web/dist
-
-EXPOSE 3000
-
-HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1
-
-CMD ["node", "dist/index.js"]
+FROM debian:bookworm-slim
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl libssl3 \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 1001 app
+WORKDIR /app
+COPY --from=server /server /usr/local/bin/server
+COPY --from=web /app/web/dist ./web/dist
+# Libraries stay at warn: the WhatsApp library logs phone numbers and pair codes at info
+ENV PORT=8000 \
+    WEB_DIR=/app/web/dist \
+    RUST_LOG=warn,server=info
+USER app
+EXPOSE 8000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -fsS http://localhost:8000/api/health || exit 1
+CMD ["server"]

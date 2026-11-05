@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_signed_prekeys (account_id, id, record) VALUES ($1, $2, $3) ON CONFLICT (account_id, id) DO UPDATE SET record = EXCLUDED.record",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e4c7d89f6ccb0e79191bb2cf7dc160580cddb83aa920f3584b50f25598136f06"
+}

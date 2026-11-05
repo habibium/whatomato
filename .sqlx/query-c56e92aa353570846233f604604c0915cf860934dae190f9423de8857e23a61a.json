@@ -1,0 +1,209 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at, cron,\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at\n           FROM scheduled_messages WHERE id = $1 AND user_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "recipient_type: RecipientType",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "recipient_type"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "recipient",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "recipient"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "recipient_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "recipient_name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "body",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "body"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "schedule_kind: ScheduleKind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "schedule_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "run_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "run_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "cron",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "cron"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "timezone",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "timezone"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "template_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "template_id"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "next_run_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "next_run_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "last_run_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "last_run_at"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "c56e92aa353570846233f604604c0915cf860934dae190f9423de8857e23a61a"
+}

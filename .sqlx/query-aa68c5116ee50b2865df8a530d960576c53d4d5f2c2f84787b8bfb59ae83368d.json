@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE whatsapp_accounts SET device = (SELECT device FROM whatsapp_accounts WHERE id = $1) WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aa68c5116ee50b2865df8a530d960576c53d4d5f2c2f84787b8bfb59ae83368d"
+}

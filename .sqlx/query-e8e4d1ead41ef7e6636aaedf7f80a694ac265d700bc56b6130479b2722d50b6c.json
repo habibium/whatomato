@@ -1,0 +1,95 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_accounts (user_id) VALUES ($1)\n           ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id\n           RETURNING id, user_id, phone_number, paused_at IS NOT NULL AS \"paused!\", stopped_reason,\n               stopped_until, keepalive_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "user_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "phone_number",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "phone_number"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "paused!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "stopped_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "stopped_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "stopped_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "stopped_until"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "keepalive_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "keepalive_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e8e4d1ead41ef7e6636aaedf7f80a694ac265d700bc56b6130479b2722d50b6c"
+}

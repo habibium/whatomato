@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT user_jid, record FROM whatsapp_device_lists WHERE account_id = $1 AND user_jid = ANY($2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_jid",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_device_lists",
+            "name": "user_jid"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "record",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_device_lists",
+            "name": "record"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0ec035573401f519579719ae3b4067596147233ba50def590c2d049569ae5d92"
+}

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT jid FROM whatsapp_tc_tokens WHERE account_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "jid",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_tc_tokens",
+            "name": "jid"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1a772be4842f9b00ce25ed35c26f45d087c16079c313521961672a5a41108ba4"
+}

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT state FROM whatsapp_app_state_versions WHERE account_id = $1 AND name = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "state",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_app_state_versions",
+            "name": "state"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b69555a436ea17747c1622cb3ceefe7d6d9b4d2f0eca8056e80554cf7028139e"
+}
