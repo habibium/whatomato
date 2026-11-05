@@ -14,6 +14,7 @@ use server::{
     config::Config,
     crypto::Cipher,
     email::Mailer,
+    scheduler::Scheduler,
     state::AppState,
     whatsapp::{manager::WhatsApp, supervisor::Context},
 };
@@ -33,15 +34,7 @@ use utoipa_scalar::{Scalar, Servable as ScalarServable};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // tracing
-    tracing_subscriber::registry()
-        .with(
-            // Libraries stay at warn: the WhatsApp library logs phone numbers and pair codes at info
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("warn,server=debug,tower_http=debug")),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    init_tracing();
 
     // .env is a dev convenience; production supplies real environment variables
     dotenvy::dotenv().ok();
@@ -67,6 +60,7 @@ async fn main() -> anyhow::Result<()> {
     ));
     whatsapp.boot().await?;
     whatsapp.refresh_version_daily();
+    let scheduler = Scheduler::spawn(pool.clone(), whatsapp.clone());
     let state = AppState {
         pool: pool.clone(),
         mailer,
@@ -150,11 +144,24 @@ async fn main() -> anyhow::Result<()> {
     .with_graceful_shutdown(shutdown_signal())
     .await?;
 
-    // Clients flush their keys to the database, so they stop before the pool closes
+    // Sends finish on their clients, and clients flush their keys to the database, so they stop in
+    // this order before the pool closes
+    scheduler.shutdown().await;
     whatsapp.shutdown().await;
     pool.close().await;
     tracing::info!("server stopped");
     Ok(())
+}
+
+fn init_tracing() {
+    tracing_subscriber::registry()
+        .with(
+            // Libraries stay at warn: the WhatsApp library logs phone numbers and pair codes at info
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("warn,server=debug,tower_http=debug")),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
 }
 
 /// Resolves on Ctrl-C, or on the SIGTERM that `docker stop` sends. As PID 1 in the container the

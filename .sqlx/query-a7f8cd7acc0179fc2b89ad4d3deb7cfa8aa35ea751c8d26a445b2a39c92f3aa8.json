@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE deliveries SET attempts = 5 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a7f8cd7acc0179fc2b89ad4d3deb7cfa8aa35ea751c8d26a445b2a39c92f3aa8"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE deliveries SET status = 'failed', error = $1 WHERE status = 'sending'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "078fa0719f0f9d4d580e06b1ce61cc9ed1bac2d71bebfe871684324daf65f044"
+}

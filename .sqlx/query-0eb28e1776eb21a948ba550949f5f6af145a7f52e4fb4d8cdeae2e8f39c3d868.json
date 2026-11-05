@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, schedule_kind, run_at, timezone, next_run_at) VALUES ($1, 'contact', '15550001', 'hello', 'once', $2, 'UTC', $2) RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0eb28e1776eb21a948ba550949f5f6af145a7f52e4fb4d8cdeae2e8f39c3d868"
+}

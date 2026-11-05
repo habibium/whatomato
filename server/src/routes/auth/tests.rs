@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use axum::{
     Router,
     body::{Body, to_bytes},
-    http::{HeaderMap, Request, StatusCode, header},
+    http::{HeaderMap, Method, Request, StatusCode, header},
 };
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -38,7 +38,7 @@ const INVALID_LINK: &str = "This link is invalid or has expired";
 #[derive(Clone)]
 pub struct TestApp {
     router: Router,
-    pool: PgPool,
+    pub pool: PgPool,
     outbox: Arc<Mutex<Vec<(String, Email)>>>,
 }
 
@@ -124,6 +124,25 @@ impl TestApp {
             .body(Body::empty())
             .unwrap();
         self.send(request).await
+    }
+
+    /// A JSON request under `/api`, signed in when given a session cookie
+    pub async fn call(
+        &self,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+        cookie: Option<&str>,
+    ) -> TestResponse {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(format!("/api{path}"))
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(cookie) = cookie {
+            request = request.header(header::COOKIE, cookie);
+        }
+        let body = body.map_or_else(Body::empty, |body| Body::from(body.to_string()));
+        self.send(request.body(body).unwrap()).await
     }
 
     pub async fn send(&self, request: Request<Body>) -> TestResponse {

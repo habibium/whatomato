@@ -2,7 +2,8 @@
 //! and the user's commands through [`status::next`], and carries out the effects in order.
 
 use std::{
-    sync::{Arc, PoisonError, RwLock},
+    collections::HashMap,
+    sync::{Arc, Mutex, PoisonError, RwLock},
     time::Duration,
 };
 
@@ -17,13 +18,13 @@ use tokio::{
 use url::Url;
 use uuid::Uuid;
 use whatsapp_rust::{
-    CacheConfig, MsgSecretPolicy, PresencePolicy,
+    CacheConfig, MsgSecretPolicy, PresencePolicy, SendError, SendOptions, SendRequest,
     http::{HttpClient, UreqHttpClient},
     pair_code::PairCodeOptions,
     prelude::{
         Bot, BotHandle, Client, DeregistrationOutcome, Event as LibraryEvent, EventKind, Jid, wa,
     },
-    wacore::store::DevicePropsOverride,
+    wacore::{proto_helpers::MessageBuilderExt, store::DevicePropsOverride},
 };
 
 use super::{
@@ -45,6 +46,8 @@ const FIRST_RESTART_DELAY: Duration = Duration::from_secs(5);
 const MAX_RESTART_DELAY: Duration = Duration::from_mins(10);
 /// For listing groups and sending through a connected client
 const REQUEST_LIMIT: Duration = Duration::from_secs(30);
+/// From handing a message to the library to WhatsApp acknowledging it
+const SEND_LIMIT: Duration = Duration::from_secs(20);
 const TEST_MESSAGE: &str = "Whatomato test: your WhatsApp is linked. You can delete this.";
 /// Upstream's `manual_presence` example found a daily window this long clears the stale activity and
 /// expiry warning a never-online device shows on the phone; it's empirical, not a WhatsApp rule
@@ -59,7 +62,7 @@ const KEEPALIVE_RETRY: Duration = Duration::from_hours(1);
 /// Long enough to connect, take in what queued up and finish a presence pulse
 const KEEPALIVE_WINDOW: Duration = Duration::from_mins(2);
 
-const WATCHED: [EventKind; 14] = [
+const WATCHED: [EventKind; 15] = [
     EventKind::PairingQrCode,
     EventKind::PairingCode,
     EventKind::PairingCodeRefresh,
@@ -74,6 +77,7 @@ const WATCHED: [EventKind; 14] = [
     EventKind::TemporaryBan,
     EventKind::ClientOutdated,
     EventKind::ConnectFailure,
+    EventKind::ServerAck,
 ];
 
 /// What every supervisor shares
@@ -119,6 +123,110 @@ pub struct Group {
     pub name: String,
 }
 
+/// Where a message goes
+#[derive(Debug)]
+pub enum Recipient {
+    /// A phone number's digits
+    Number(String),
+    /// A group's id
+    Group(String),
+}
+
+/// Why a message didn't go out. The text shows in the delivery history, so it never carries the
+/// library's own errors, which name numbers.
+#[derive(Debug, thiserror::Error)]
+pub enum SendFailure {
+    #[error("WhatsApp wasn't connected")]
+    Offline,
+    #[error("WhatsApp couldn't take this message")]
+    Unreachable,
+    #[error("WhatsApp isn't linked")]
+    NotLinked,
+    #[error("WhatsApp is paused")]
+    Paused,
+    #[error("WhatsApp has stopped; reconnect it on the WhatsApp page")]
+    Stopped,
+    #[error("This number isn't on WhatsApp")]
+    NotOnWhatsApp,
+    #[error("WhatsApp rejected this message (error {0})")]
+    Rejected(String),
+    #[error("WhatsApp didn't confirm this message, so it may or may not have gone out")]
+    Unconfirmed,
+    #[error("This message couldn't be sent")]
+    Failed,
+}
+
+impl SendFailure {
+    /// Whether another try could work, and can't repeat a message that went out
+    #[must_use]
+    pub const fn can_retry(&self) -> bool {
+        matches!(self, Self::Offline | Self::Unreachable)
+    }
+
+    /// The refusal for a send the account can't take on: the failures of [`Self::for_status`]
+    #[must_use]
+    pub const fn unavailable(&self) -> &'static str {
+        match self {
+            Self::Paused => "WhatsApp is paused",
+            Self::Stopped => "WhatsApp has stopped; reconnect it on the WhatsApp page",
+            _ => "WhatsApp isn't linked",
+        }
+    }
+
+    /// Why an account in `status` can't send, if it's for the user to fix
+    #[must_use]
+    pub const fn for_status(status: &Status) -> Option<Self> {
+        match status {
+            Status::Connected { .. } | Status::Syncing { .. } | Status::Reconnecting { .. } => None,
+            Status::Paused { .. } => Some(Self::Paused),
+            Status::Stopped { .. } => Some(Self::Stopped),
+            Status::NotLinked | Status::LinkEnded(_) | Status::Pairing(_) => Some(Self::NotLinked),
+        }
+    }
+}
+
+/// Every error here means the message never reached the wire, so trying again can't repeat it
+impl From<SendError> for SendFailure {
+    fn from(error: SendError) -> Self {
+        match error {
+            SendError::Client(_) | SendError::NotLoggedIn => Self::Offline,
+            SendError::Iq(_)
+            | SendError::NoRecipientDevice(_)
+            | SendError::PrimaryDeviceRejected(_) => Self::Unreachable,
+            _ => Self::Failed,
+        }
+    }
+}
+
+/// Sends waiting for WhatsApp's acknowledgement, by message id. `send` returning `Ok` proves nothing:
+/// the library resolves it even for a send WhatsApp goes on to reject.
+#[derive(Clone, Default)]
+struct Acks(Arc<Mutex<HashMap<String, oneshot::Sender<Option<String>>>>>);
+
+impl Acks {
+    /// Resolves with WhatsApp's error code, if it rejected the message
+    fn expect(&self, id: &str) -> oneshot::Receiver<Option<String>> {
+        let (settle, settled) = oneshot::channel();
+        self.lock().insert(id.to_owned(), settle);
+        settled
+    }
+
+    fn settle(&self, id: &str, error: Option<String>) {
+        let waiting = self.lock().remove(id);
+        if let Some(waiting) = waiting {
+            let _ = waiting.send(error);
+        }
+    }
+
+    fn forget(&self, id: &str) {
+        self.lock().remove(id);
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, oneshot::Sender<Option<String>>>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 /// Talks to one account's supervisor; the task ends when it's told to shut down or every clone of
 /// this is dropped
 #[derive(Clone)]
@@ -133,6 +241,7 @@ enum Command {
     Unlink(oneshot::Sender<Result<bool, CommandError>>),
     Groups(oneshot::Sender<Result<Vec<Group>, CommandError>>),
     SendTestMessage(oneshot::Sender<Result<(), CommandError>>),
+    Send(Recipient, String, oneshot::Sender<Result<(), SendFailure>>),
     Shutdown(oneshot::Sender<()>),
 }
 
@@ -187,6 +296,16 @@ impl Handle {
     /// [`CommandError::NotConnected`] unless connected; `Failed` if the send fails.
     pub async fn send_test_message(&self) -> Result<(), CommandError> {
         self.ask(Command::SendTestMessage).await?
+    }
+
+    /// Sends `body`, and answers once WhatsApp has acknowledged it
+    ///
+    /// # Errors
+    /// Why it didn't go out, or may not have.
+    pub async fn send_text(&self, to: Recipient, body: String) -> Result<(), SendFailure> {
+        self.ask(|reply| Command::Send(to, body, reply))
+            .await
+            .map_err(|_| SendFailure::Offline)?
     }
 
     /// Stops the client and ends the task. The link stays for the next start.
@@ -247,6 +366,7 @@ pub fn spawn(
             events_tx,
             events,
             may_connect,
+            acks: Acks::default(),
             client: None,
             generation: 0,
             restarts: 0,
@@ -276,6 +396,7 @@ struct Supervisor {
     events: mpsc::UnboundedReceiver<(u64, Event)>,
     /// Turns true once this server holds the lock that keeps other servers' clients off these keys
     may_connect: watch::Receiver<bool>,
+    acks: Acks,
     client: Option<Running>,
     /// Counts the clients started, so events from an older one are ignored
     generation: u64,
@@ -347,6 +468,7 @@ impl Supervisor {
                 }
                 Wake::Command(Command::Groups(reply)) => self.groups(reply),
                 Wake::Command(Command::SendTestMessage(reply)) => self.send_test_message(reply),
+                Wake::Command(Command::Send(to, body, reply)) => self.send(to, body, reply),
                 Wake::Command(Command::Shutdown(reply)) => {
                     self.stop_client().await;
                     let _ = reply.send(());
@@ -582,6 +704,7 @@ impl Supervisor {
         self.generation += 1;
         let generation = self.generation;
         let events = self.events_tx.clone();
+        let acks = self.acks.clone();
 
         let mut cache = CacheConfig::default();
         cache.msg_secret_policy = MsgSecretPolicy::Disabled;
@@ -602,8 +725,14 @@ impl Supervisor {
             .with_http_client_arc(Arc::clone(&self.context.http))
             .on_event_for(&WATCHED, move |event, _client| {
                 let events = events.clone();
+                let acks = acks.clone();
                 async move {
-                    if let Some(event) = translate(&event) {
+                    if let LibraryEvent::ServerAck(ack) = &*event {
+                        // Receipts and calls are acknowledged too, under their own ids
+                        if ack.class.as_deref() == Some("message") {
+                            acks.settle(&ack.id, ack.error.clone());
+                        }
+                    } else if let Some(event) = translate(&event) {
                         // Fails only once the supervisor has ended, when nobody needs the event
                         let _ = events.send((generation, event));
                     }
@@ -804,6 +933,66 @@ impl Supervisor {
             let _ = reply.send(sent);
         });
     }
+
+    fn send(&self, to: Recipient, body: String, reply: oneshot::Sender<Result<(), SendFailure>>) {
+        let Ok(client) = self.connected_client() else {
+            let failure =
+                SendFailure::for_status(&self.status.borrow()).unwrap_or(SendFailure::Offline);
+            let _ = reply.send(Err(failure));
+            return;
+        };
+        let acks = self.acks.clone();
+        tokio::spawn(async move {
+            let _ = reply.send(send_and_confirm(client, acks, to, body).await);
+        });
+    }
+}
+
+async fn send_and_confirm(
+    client: Arc<Client>,
+    acks: Acks,
+    to: Recipient,
+    body: String,
+) -> Result<(), SendFailure> {
+    let jid = match to {
+        Recipient::Number(number) => registered(&client, number).await?,
+        Recipient::Group(id) => id.parse::<Jid>().map_err(|_| SendFailure::Failed)?,
+    };
+
+    // Set up before sending, since the acknowledgement can beat `send`'s return
+    let id = client.generate_message_id();
+    let acknowledged = acks.expect(id.as_str());
+    let key = id.as_str().to_owned();
+    let request = SendRequest::new(&jid, wa::Message::text(body))
+        .with_options(SendOptions::default().with_message_id(id));
+    let outcome = timeout(SEND_LIMIT, async {
+        client.send(request).await?;
+        Ok::<_, SendFailure>(acknowledged.await)
+    })
+    .await;
+    acks.forget(&key);
+
+    match outcome {
+        Ok(Ok(Ok(None))) => Ok(()),
+        Ok(Ok(Ok(Some(code)))) => Err(SendFailure::Rejected(code)),
+        Ok(Err(failure)) => Err(failure),
+        Ok(Ok(Err(_))) | Err(_) => Err(SendFailure::Unconfirmed),
+    }
+}
+
+/// The address WhatsApp has for `number`. Without this check a send to a number that isn't on
+/// WhatsApp looks like it worked.
+async fn registered(client: &Client, number: String) -> Result<Jid, SendFailure> {
+    let asked = [Jid::pn(number)];
+    let answers = timeout(REQUEST_LIMIT, client.contacts().is_on_whatsapp(&asked))
+        .await
+        .map_err(|_| SendFailure::Unreachable)?
+        .map_err(|_| SendFailure::Unreachable)?;
+    answers
+        .into_iter()
+        .find(|answer| answer.is_registered)
+        .map(|answer| answer.jid)
+        .ok_or(SendFailure::NotOnWhatsApp)
 }
 
 async fn pulse_presence(client: Arc<Client>, first_in: Duration) {

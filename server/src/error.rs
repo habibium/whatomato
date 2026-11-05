@@ -2,7 +2,7 @@ use std::{collections::HashMap, time::Duration};
 
 use axum::{
     Json,
-    extract::rejection::JsonRejection,
+    extract::rejection::{JsonRejection, QueryRejection},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -61,6 +61,9 @@ pub enum AppError {
 
     #[error("{}", .0.body_text())]
     Json(#[from] JsonRejection),
+
+    #[error("{}", .0.body_text())]
+    Query(#[from] QueryRejection),
 
     #[error(transparent)]
     Db(#[from] sqlx::Error),
@@ -138,7 +141,7 @@ impl IntoResponse for AppError {
 
             Self::Conflict(_) => (StatusCode::CONFLICT, self.to_string(), None),
 
-            Self::InvalidToken | Self::PasskeyRejected | Self::Json(_) => {
+            Self::InvalidToken | Self::PasskeyRejected | Self::Json(_) | Self::Query(_) => {
                 (StatusCode::BAD_REQUEST, self.to_string(), None)
             }
 

@@ -14,7 +14,7 @@ use whatsapp_rust::version;
 
 use super::{
     status::{Status, StopReason},
-    supervisor::{self, Context, Handle},
+    supervisor::{self, Context, Handle, Recipient, SendFailure},
 };
 use crate::db::whatsapp_accounts::{self, Account};
 
@@ -149,6 +149,28 @@ impl WhatsApp {
         self.lock()
             .get(&user_id)
             .map_or(Status::NotLinked, Handle::status)
+    }
+
+    /// Resolves once this server holds the lock, so only one server sends at a time
+    pub async fn may_send(&self) {
+        let _ = self.may_connect.subscribe().wait_for(|open| *open).await;
+    }
+
+    /// Sends `body` from `user_id`'s account, and answers once WhatsApp has acknowledged it
+    ///
+    /// # Errors
+    /// Why it didn't go out, or may not have.
+    pub async fn send_text(
+        &self,
+        user_id: Uuid,
+        to: Recipient,
+        body: String,
+    ) -> Result<(), SendFailure> {
+        let handle = self.lock().get(&user_id).cloned();
+        match handle {
+            Some(handle) => handle.send_text(to, body).await,
+            None => Err(SendFailure::NotLinked),
+        }
     }
 
     /// `user_id`'s supervisor, started on first use

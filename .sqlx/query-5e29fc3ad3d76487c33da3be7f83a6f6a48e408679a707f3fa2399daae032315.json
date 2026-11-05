@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO deliveries (user_id, recipient_type, recipient, body, status, created_at) VALUES ($1, 'contact', '15550001', $2, $3, now() - make_interval(mins => 0, secs => $4))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Float8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5e29fc3ad3d76487c33da3be7f83a6f6a48e408679a707f3fa2399daae032315"
+}

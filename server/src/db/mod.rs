@@ -1,5 +1,8 @@
+pub mod deliveries;
+pub mod message_templates;
 pub mod passkey_ceremonies;
 pub mod passkeys;
+pub mod scheduled_messages;
 pub mod sessions;
 pub mod tokens;
 pub mod two_factor;
