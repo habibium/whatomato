@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.0-alpha.9] - 2026-11-05
+
+### Features
+
+- The scheduler: scheduled messages, templates, delivery history and send now (8c1fd5b)
+- **web:** Messages, templates and history pages, with a shared header (4b09b8d)
+
+### Documentation
+
+- Say how scheduling behaves, and that message text is stored unencrypted (553f252)
 ## [0.1.0-alpha.8] - 2026-11-04
 
 ### Features
