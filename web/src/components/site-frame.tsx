@@ -51,11 +51,17 @@ const styles = stylex.create({
 
 interface SiteFrameProps {
   action?: ReactNode
+  /** Where the wordmark leads. */
+  homeHref?: string
   children: ReactNode
 }
 
 /** One chrome for every page: wordmark, a single header action, quiet footer. */
-export function SiteFrame({ action, children }: SiteFrameProps) {
+export function SiteFrame({
+  action,
+  homeHref = '/',
+  children,
+}: SiteFrameProps) {
   return (
     <Layout
       height="auto"
@@ -70,7 +76,7 @@ export function SiteFrame({ action, children }: SiteFrameProps) {
             vAlign="center"
             xstyle={styles.headerRow}
           >
-            <Link href="/" color="primary" xstyle={styles.brand}>
+            <Link href={homeHref} color="primary" xstyle={styles.brand}>
               <Wordmark />
             </Link>
             {action}

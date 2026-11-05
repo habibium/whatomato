@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import * as stylex from '@stylexjs/stylex'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { Divider } from '@astryxdesign/core/Divider'
@@ -24,22 +24,28 @@ import {
 } from '@astryxdesign/core/theme/tokens.stylex'
 
 import { api } from '@/api/client'
+import { AppFrame } from '@/components/app-frame'
 import {
   ConfirmPasswordDialog,
   toConfirmOutcome,
 } from '@/components/confirm-password-dialog'
 import type { ConfirmOutcome } from '@/components/confirm-password-dialog'
-import { SiteFrame } from '@/components/site-frame'
 import {
   GroupsSection,
   TestMessageSection,
 } from '@/components/whatsapp-connected'
+import { OfflineBanner } from '@/components/offline-banner'
 import { PairingPanel } from '@/components/whatsapp-pairing'
 import { PhoneLinkDialog } from '@/components/whatsapp-phone-dialog'
 import type { PhoneLinkOutcome } from '@/components/whatsapp-phone-dialog'
 import { toFieldErrors } from '@/lib/form-errors'
-import { HOME_HREF, setSessionUser } from '@/lib/session'
-import { ApiError, formatPhoneNumber, statusQuery } from '@/lib/whatsapp'
+import { useSessionExpiry } from '@/lib/use-session-expiry'
+import {
+  ApiError,
+  CONNECTION_DOTS,
+  formatPhoneNumber,
+  statusQuery,
+} from '@/lib/whatsapp'
 import type { Linked, NotLinked, WhatsAppStatus } from '@/lib/whatsapp'
 
 export const Route = createFileRoute('/_authenticated/whatsapp')({
@@ -110,7 +116,6 @@ type Notice = 'unlinked' | 'still-on-phone'
 
 function WhatsAppPage() {
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
   const announce = useAnnounce()
   const query = useQuery(statusQuery)
   const [dialog, setDialog] = useState<'qr' | 'phone' | 'unlink' | null>(null)
@@ -125,13 +130,7 @@ function WhatsAppPage() {
     [queryClient],
   )
 
-  const isSignedOut =
-    query.error instanceof ApiError && query.error.status === 401
-  useEffect(() => {
-    if (!isSignedOut) return
-    setSessionUser(queryClient, null)
-    void navigate({ to: '/signin', search: { redirect: '/whatsapp' } })
-  }, [isSignedOut, navigate, queryClient])
+  const isSignedOut = useSessionExpiry(query.error, '/whatsapp')
 
   const status = query.data?.status
   const clockOffset = query.data?.clockOffset ?? 0
@@ -218,9 +217,7 @@ function WhatsAppPage() {
   }
 
   return (
-    <SiteFrame
-      action={<Button label="Dashboard" variant="ghost" href={HOME_HREF} />}
-    >
+    <AppFrame>
       <VStack gap={8} maxWidth={COLUMN_WIDTH} paddingBlock={10}>
         {linkEnded ? (
           <LinkEndedBanner
@@ -236,13 +233,7 @@ function WhatsAppPage() {
             onDismiss={() => setNotice(null)}
           />
         ) : null}
-        {query.isRefetchError && !isSignedOut ? (
-          <Banner
-            status="warning"
-            title="Can't reach Whatomato right now."
-            description="What you see here may be out of date. It updates again once the connection is back."
-          />
-        ) : null}
+        {query.isRefetchError && !isSignedOut ? <OfflineBanner /> : null}
 
         {status && copy ? (
           <VStack key={status.status} gap={8} xstyle={styles.enter}>
@@ -354,7 +345,7 @@ function WhatsAppPage() {
         confirmVariant="destructive"
         onConfirm={unlink}
       />
-    </SiteFrame>
+    </AppFrame>
   )
 }
 
@@ -588,16 +579,8 @@ function Facts() {
   )
 }
 
-const DOTS = {
-  syncing: { label: 'Syncing', variant: 'accent', isPulsing: true },
-  connected: { label: 'Connected', variant: 'success', isPulsing: false },
-  reconnecting: { label: 'Reconnecting', variant: 'warning', isPulsing: true },
-  paused: { label: 'Paused', variant: 'neutral', isPulsing: false },
-  stopped: { label: 'Stopped', variant: 'error', isPulsing: false },
-} as const
-
 function LinkDetails({ status }: { status: Linked }) {
-  const dot = DOTS[status.status]
+  const dot = CONNECTION_DOTS[status.status]
   return (
     <VStack gap={1.5}>
       <Text size="2xl" hasTabularNumbers>

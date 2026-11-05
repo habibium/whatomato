@@ -16,16 +16,10 @@ import type {
 import { PasswordField } from '@/components/password-field'
 import { PhoneNumberField } from '@/components/phone-number-field'
 import { toStatusMessage } from '@/lib/form-errors'
+import { NUMBER_HINT, digitsOf, isPhoneNumber } from '@/lib/whatsapp'
 
-const NUMBER_HINT = 'Enter the whole number, with the country code'
-
-// The server's rule: formatting characters only, and 8 to 15 digits (E.164)
 const schema = z.object({
-  phone_number: z
-    .string()
-    .trim()
-    .regex(/^\+?[\d\s()-]*$/, NUMBER_HINT)
-    .refine((value) => /^\d{8,15}$/.test(digitsOf(value)), NUMBER_HINT),
+  phone_number: z.string().trim().refine(isPhoneNumber, NUMBER_HINT),
   password: z.string().min(1, 'Enter your password'),
 })
 
@@ -183,8 +177,4 @@ function PhoneLinkForm({ onConfirm, onClose }: PhoneLinkFormProps) {
       />
     </form>
   )
-}
-
-function digitsOf(value: string) {
-  return value.replace(/\D/g, '')
 }

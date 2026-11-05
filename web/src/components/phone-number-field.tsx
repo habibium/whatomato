@@ -47,6 +47,7 @@ const styles = stylex.create({
 
 interface PhoneNumberFieldProps {
   label: string
+  isLabelHidden?: boolean
   placeholder?: string
   value: string
   onChange: (value: string) => void
@@ -59,6 +60,7 @@ interface PhoneNumberFieldProps {
 
 export function PhoneNumberField({
   label,
+  isLabelHidden = false,
   placeholder,
   value,
   onChange,
@@ -81,7 +83,13 @@ export function PhoneNumberField({
   })
 
   return (
-    <Field label={label} inputID={inputID} isRequired status={status}>
+    <Field
+      label={label}
+      isLabelHidden={isLabelHidden}
+      inputID={inputID}
+      isRequired
+      status={status}
+    >
       <div
         ref={shellRef}
         onClick={onClick}

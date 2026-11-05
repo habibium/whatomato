@@ -6,7 +6,7 @@ import type { components } from '@/api/schema'
 export type User = components['schemas']['UserResponse']
 type Session = components['schemas']['SessionResponse']
 
-export const HOME_HREF = '/dashboard'
+export const HOME_HREF = '/messages'
 export const SIGNIN_HREF = '/signin'
 export const SIGNUP_HREF = '/signup'
 

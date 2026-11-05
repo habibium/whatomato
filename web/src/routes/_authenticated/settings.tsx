@@ -1,14 +1,14 @@
 import * as stylex from '@stylexjs/stylex'
 import { createFileRoute } from '@tanstack/react-router'
-import { Button } from '@astryxdesign/core/Button'
 import { Divider } from '@astryxdesign/core/Divider'
+import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList'
 import { Heading, Text } from '@astryxdesign/core/Text'
+import { Timestamp } from '@astryxdesign/core/Timestamp'
 import { VStack } from '@astryxdesign/core/VStack'
 
+import { AppFrame } from '@/components/app-frame'
 import { PasskeysSection } from '@/components/passkeys-section'
-import { SiteFrame } from '@/components/site-frame'
 import { TwoFactorSection } from '@/components/two-factor-section'
-import { HOME_HREF } from '@/lib/session'
 
 export const Route = createFileRoute('/_authenticated/settings')({
   component: Settings,
@@ -21,10 +21,10 @@ const styles = stylex.create({
 })
 
 function Settings() {
+  const { user } = Route.useRouteContext()
+
   return (
-    <SiteFrame
-      action={<Button label="Dashboard" variant="ghost" href={HOME_HREF} />}
-    >
+    <AppFrame>
       <VStack gap={8} maxWidth={COLUMN_WIDTH} paddingBlock={10}>
         <VStack gap={3}>
           <Heading level={1} type="display-3" textWrap="balance">
@@ -38,12 +38,43 @@ function Settings() {
 
         <Divider />
 
+        <MetadataList
+          title={<Heading level={2}>Your account</Heading>}
+          label={{ position: 'start', width: 160 }}
+        >
+          <MetadataListItem label="Email">
+            <Text>{user.email}</Text>
+          </MetadataListItem>
+          <MetadataListItem label="Verified">
+            {user.verified_at ? (
+              <Timestamp
+                value={user.verified_at}
+                format="date_long"
+                type="body"
+                color="primary"
+              />
+            ) : (
+              <Text color="secondary">Not yet</Text>
+            )}
+          </MetadataListItem>
+          <MetadataListItem label="Member since">
+            <Timestamp
+              value={user.created_at}
+              format="date_long"
+              type="body"
+              color="primary"
+            />
+          </MetadataListItem>
+        </MetadataList>
+
+        <Divider />
+
         <TwoFactorSection />
 
         <Divider />
 
         <PasskeysSection />
       </VStack>
-    </SiteFrame>
+    </AppFrame>
   )
 }
