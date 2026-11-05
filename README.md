@@ -113,7 +113,9 @@ Postgres holds what a linked device has to keep to stay linked and to encrypt me
 - recent sent messages, which WhatsApp can ask a device to send again when a recipient failed to decrypt them;
 - the linked number, and when it was linked, paused or stopped.
 
-Everything secret is encrypted with `ENCRYPTION_KEY` (XChaCha20-Poly1305), bound to its account, table and key, so a database dump alone is useless. Lookup keys, timestamps and flags stay in the clear. Whatomato doesn't download chat history or store the messages it receives.
+Everything secret is encrypted with `ENCRYPTION_KEY` (XChaCha20-Poly1305), bound to its account, table and key, so a database dump alone can't take over a device. Lookup keys, timestamps and flags stay in the clear. Whatomato doesn't download chat history or store the messages it receives.
+
+What a user writes is not encrypted: templates, scheduled messages and the delivery history keep the message text and the recipient in plain columns, so a database dump does show those. Deleting a schedule keeps its history.
 
 Unlinking asks WhatsApp to remove the device, then deletes the account's row and, through the cascade, every key. When WhatsApp can't be reached the keys go anyway, and the page tells the user to remove the device from their phone. A link, an unlink, a removal from the phone, another session taking over the keys and a temporary ban each email the owner.
 
@@ -123,9 +125,15 @@ Disconnecting pauses the account and keeps the link, across restarts too. WhatsA
 
 A connected account shows as online for 45 seconds once a day, which keeps the phone from flagging the device as inactive. The rest of the time it stays unavailable, so the phone keeps getting notifications.
 
+### Scheduling
+
+A message goes out once at a set time, or repeatedly on a five-field cron schedule read in the time zone it was created in. Minutes are the finest unit, and each account sends at most one message every 3 seconds, however many are due, since sending like a machine is one way to get banned. A server that was down sends what it missed once when it's back, and a repeating message then moves on to its next time.
+
+A delivery reads as sent once WhatsApp acknowledges it, which doesn't prove it reached the phone. A contact is checked first, so a number that isn't on WhatsApp fails instead of appearing to work. While WhatsApp is reconnecting a send waits and tries again for about half an hour. It fails straight away when the account is paused, stopped or unlinked, because only its owner can fix that. Anything that may already have gone out, such as a send the server restarted during or one WhatsApp never confirmed, fails with a message saying so rather than risking a second copy.
+
 ### Running it
 
-Only one server may run a given account's client: two on the same keys knock each other off and can corrupt them. So a server connects no account until it holds a Postgres advisory lock, which it lets go after stopping its clients, and either order of starting and stopping works during a deploy.
+Only one server may run a given account's client: two on the same keys knock each other off and can corrupt them. So a server connects no account and sends nothing until it holds a Postgres advisory lock, which it lets go after stopping its clients, and either order of starting and stopping works during a deploy.
 
 Give the container at least 30 seconds to stop (`docker stop --time 30`, `stop_grace_period` in Compose or Swarm), because each client flushes its keys on the way down and Docker's default of 10 can cut that short.
 
