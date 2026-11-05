@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.0] - 2026-11-05
+
+### Features
+
+- Replace the TypeScript app with the Rust rewrite (ec586d4)
 ## [0.1.0-alpha.9] - 2026-11-05
 
 ### Features
