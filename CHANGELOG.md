@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1] - 2026-11-07
+
+### Features
+
+- **web:** A product shell with a side nav, and every screen reworked to read as finished (0e6db5c)
+- **email:** Show the Whatomato logo in every email (a0906de)
+- Contacts from the phone, picked and shown by name, with their pictures (3fd1874)
 ## [0.1.0] - 2026-11-05
 
 ### Features
