@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.2] - 2026-11-07
+
+### Features
+
+- Variables like {{first_name}} and {{date}} in messages, suggested as you type, highlighted, and filled in as each goes out (62965b7)
 ## [0.1.1] - 2026-11-07
 
 ### Features
