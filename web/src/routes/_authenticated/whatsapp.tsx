@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import * as stylex from '@stylexjs/stylex'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
-import { Divider } from '@astryxdesign/core/Divider'
 import { Grid } from '@astryxdesign/core/Grid'
 import { HStack } from '@astryxdesign/core/HStack'
 import { useAnnounce } from '@astryxdesign/core/hooks'
@@ -20,7 +19,9 @@ import {
   colorVars,
   durationVars,
   easeVars,
+  radiusVars,
   spacingVars,
+  typeScaleVars,
 } from '@astryxdesign/core/theme/tokens.stylex'
 
 import { api } from '@/api/client'
@@ -35,6 +36,7 @@ import {
   TestMessageSection,
 } from '@/components/whatsapp-connected'
 import { OfflineBanner } from '@/components/offline-banner'
+import { PageHeading } from '@/components/page-heading'
 import { PairingPanel } from '@/components/whatsapp-pairing'
 import { PhoneLinkDialog } from '@/components/whatsapp-phone-dialog'
 import type { PhoneLinkOutcome } from '@/components/whatsapp-phone-dialog'
@@ -52,15 +54,31 @@ export const Route = createFileRoute('/_authenticated/whatsapp')({
   component: WhatsAppPage,
 })
 
-const COLUMN_WIDTH = 560
-
 const enter = stylex.keyframes({
   from: { opacity: 0, transform: 'translateY(6px)' },
   to: { opacity: 1, transform: 'translateY(0)' },
 })
 
 const styles = stylex.create({
-  measure: { maxWidth: '45ch' },
+  measure: { maxWidth: '60ch' },
+  // The status and its actions on the left; what to know, or the groups, beside it
+  columns: {
+    alignItems: 'start',
+    gridTemplateColumns: {
+      default: 'minmax(0, 1fr)',
+      '@media (min-width: 1100px)': 'minmax(0, 1fr) minmax(0, 22rem)',
+    },
+  },
+  panel: {
+    borderColor: colorVars['--color-border'],
+    borderRadius: radiusVars['--radius-container'],
+    borderStyle: 'solid',
+    borderWidth: borderVars['--border-width'],
+    padding: {
+      default: spacingVars['--spacing-4'],
+      '@media (min-width: 640px)': spacingVars['--spacing-6'],
+    },
+  },
   // Focused only from code, as a place to land; it isn't a control
   focusTarget: { outline: 'none' },
   // Each status gets a fresh view; easing it in shows the page changed by itself
@@ -73,22 +91,14 @@ const styles = stylex.create({
     },
     animationTimingFunction: easeVars['--ease-standard'],
   },
-  fact: {
-    borderTopColor: colorVars['--color-border'],
-    borderTopStyle: 'solid',
-    borderTopWidth: {
-      default: borderVars['--border-width'],
-      ':first-child': 0,
-    },
-    gridTemplateColumns: {
-      default: 'minmax(0, 1fr)',
-      '@media (min-width: 640px)': '160px minmax(0, 1fr)',
-    },
-    paddingBlockEnd: spacingVars['--spacing-4'],
-    paddingBlockStart: {
-      default: spacingVars['--spacing-4'],
-      ':first-child': 0,
-    },
+  number: {
+    fontSize: typeScaleVars['--text-heading-1-size'],
+    fontVariantNumeric: 'tabular-nums',
+    lineHeight: typeScaleVars['--text-heading-1-leading'],
+  },
+  asideTitle: {
+    fontSize: typeScaleVars['--text-heading-3-size'],
+    lineHeight: typeScaleVars['--text-heading-3-leading'],
   },
   narrowOnly: {
     display: {
@@ -216,9 +226,15 @@ function WhatsAppPage() {
     return toConfirmOutcome(result)
   }
 
+  const isConnected = status?.status === 'connected'
+
   return (
     <AppFrame>
-      <VStack gap={8} maxWidth={COLUMN_WIDTH} paddingBlock={10}>
+      <VStack gap={6}>
+        <PageHeading
+          title="WhatsApp"
+          lede="The account Whatomato sends from, and how it’s connected."
+        />
         {linkEnded ? (
           <LinkEndedBanner
             key={linkEnded}
@@ -236,53 +252,55 @@ function WhatsAppPage() {
         {query.isRefetchError && !isSignedOut ? <OfflineBanner /> : null}
 
         {status && copy ? (
-          <VStack key={status.status} gap={8} xstyle={styles.enter}>
-            <VStack gap={6}>
-              <VStack gap={3}>
-                <Heading
-                  ref={headingRef}
-                  tabIndex={-1}
-                  level={1}
-                  type="display-3"
-                  textWrap="balance"
-                  xstyle={styles.focusTarget}
-                >
-                  {copy.title}
-                </Heading>
-                <Text color="secondary" size="lg" xstyle={styles.measure}>
-                  {copy.lede}
-                </Text>
-              </VStack>
-              {status.status === 'not_linked' ? (
-                <LinkChoices
-                  onLinkByQr={() => setDialog('qr')}
-                  onLinkByPhone={() => setDialog('phone')}
-                />
-              ) : null}
-            </VStack>
-
-            <Divider />
-
-            {status.status === 'not_linked' ? (
-              <Facts />
-            ) : (
-              <VStack gap={5}>
-                {status.status === 'pairing' ? (
+          <Grid columnGap={8} rowGap={6} xstyle={styles.columns}>
+            <VStack key={status.status} gap={6} xstyle={styles.enter}>
+              <VStack gap={5} xstyle={styles.panel}>
+                {status.status !== 'not_linked' &&
+                status.status !== 'pairing' ? (
+                  <VStack gap={3}>
+                    <LinkDetails
+                      status={status}
+                      title={copy.title}
+                      headingRef={headingRef}
+                    />
+                    <Text color="secondary" xstyle={styles.measure}>
+                      {copy.lede}
+                    </Text>
+                  </VStack>
+                ) : (
+                  <VStack gap={2}>
+                    <Heading
+                      ref={headingRef}
+                      tabIndex={-1}
+                      level={2}
+                      textWrap="balance"
+                      xstyle={styles.focusTarget}
+                    >
+                      {copy.title}
+                    </Heading>
+                    <Text color="secondary" xstyle={styles.measure}>
+                      {copy.lede}
+                    </Text>
+                  </VStack>
+                )}
+                {status.status === 'not_linked' ? (
+                  <LinkChoices
+                    onLinkByQr={() => setDialog('qr')}
+                    onLinkByPhone={() => setDialog('phone')}
+                  />
+                ) : status.status === 'pairing' ? (
                   <PairingPanel
                     pairing={status}
                     clockOffset={clockOffset}
                     onCancel={() => run('cancel')}
                   />
                 ) : (
-                  <>
-                    <LinkDetails status={status} />
-                    <LinkActions
-                      status={status}
-                      clockOffset={clockOffset}
-                      onUnlink={() => setDialog('unlink')}
-                      onCommand={run}
-                    />
-                  </>
+                  <LinkActions
+                    status={status}
+                    clockOffset={clockOffset}
+                    onUnlink={() => setDialog('unlink')}
+                    onCommand={run}
+                  />
                 )}
                 {failed ? (
                   <Banner
@@ -292,17 +310,17 @@ function WhatsAppPage() {
                   />
                 ) : null}
               </VStack>
-            )}
+              {isConnected ? (
+                <VStack xstyle={styles.panel}>
+                  <TestMessageSection onStale={refresh} />
+                </VStack>
+              ) : null}
+            </VStack>
 
-            {status.status === 'connected' ? (
-              <>
-                <Divider />
-                <TestMessageSection onStale={refresh} />
-                <Divider />
-                <GroupsSection onStale={refresh} />
-              </>
-            ) : null}
-          </VStack>
+            <VStack as="aside" gap={6}>
+              {isConnected ? <GroupsSection onStale={refresh} /> : <Facts />}
+            </VStack>
+          </Grid>
         ) : query.isPending ? (
           <LoadingHero />
         ) : isSignedOut ? null : (
@@ -358,49 +376,49 @@ function describe(status: WhatsAppStatus): PageCopy {
   switch (status.status) {
     case 'not_linked':
       return {
-        title: 'Link your WhatsApp.',
+        title: 'Not linked yet',
         lede: 'Once it’s linked, scheduled messages go out from your own number, as if you’d sent them from your phone.',
       }
     case 'pairing':
       return status.method === 'qr_code'
         ? {
-            title: 'Scan the code with your phone.',
+            title: 'Scan the code with your phone',
             lede: 'Use the phone that has the WhatsApp account you want to send from.',
           }
         : {
-            title: 'Enter the code on your phone.',
+            title: 'Enter the code on your phone',
             lede: 'WhatsApp asks for it when you link a device with a phone number instead of a QR code.',
           }
     case 'syncing':
       return {
-        title: 'WhatsApp is linked.',
+        title: 'WhatsApp is linked',
         lede: 'It’s syncing with Whatomato for the first time, which can take a few minutes. You can leave this page while it does.',
       }
     case 'connected':
       return {
-        title: 'WhatsApp is connected.',
+        title: 'WhatsApp is connected',
         lede: 'Scheduled messages go out from your number, as if you’d sent them from your phone.',
       }
     case 'reconnecting':
       return {
-        title: 'Reconnecting to WhatsApp.',
+        title: 'Reconnecting to WhatsApp',
         lede: 'The connection dropped, and Whatomato is reconnecting on its own. There’s nothing you need to do.',
       }
     case 'paused':
       return {
-        title: 'WhatsApp is paused.',
+        title: 'WhatsApp is paused',
         lede: 'Whatomato is disconnected but still linked, so reconnecting needs no new code. Nothing is sent meanwhile. Once a week it connects for two minutes, because WhatsApp logs out a device that stays offline too long.',
       }
     case 'stopped':
       switch (status.reason) {
         case 'replaced':
           return {
-            title: 'Another session took over.',
+            title: 'Another session took over',
             lede: 'Something else connected with the keys that link Whatomato to your WhatsApp. Unlink, then link again for new keys.',
           }
         case 'temporary_ban':
           return {
-            title: 'WhatsApp has banned this number for now.',
+            title: 'WhatsApp has banned this number for now',
             lede: status.until ? (
               <>
                 The ban lasts until <BanEnd until={status.until} />. Reconnect
@@ -412,12 +430,12 @@ function describe(status: WhatsAppStatus): PageCopy {
           }
         case 'outdated':
           return {
-            title: 'Whatomato needs an update.',
+            title: 'Whatomato needs an update',
             lede: 'WhatsApp stopped accepting the version Whatomato connects with. It needs an update on our side, so try reconnecting later.',
           }
         case 'refused':
           return {
-            title: 'WhatsApp refused the connection.',
+            title: 'WhatsApp refused the connection',
             lede: 'It didn’t say why. Try reconnecting; if it keeps happening, unlink and link again.',
           }
       }
@@ -566,36 +584,51 @@ const FACTS = [
 
 function Facts() {
   return (
-    <VStack>
-      {FACTS.map((fact) => (
-        <Grid key={fact.term} columnGap={4} rowGap={1} xstyle={styles.fact}>
-          <Text type="label">{fact.term}</Text>
-          <Text color="secondary" xstyle={styles.measure}>
-            {fact.body}
-          </Text>
-        </Grid>
-      ))}
+    <VStack as="section" aria-labelledby="facts" gap={4}>
+      <Heading id="facts" level={2} xstyle={styles.asideTitle}>
+        Before you link
+      </Heading>
+      <VStack as="ul" gap={4}>
+        {FACTS.map((fact) => (
+          <VStack as="li" key={fact.term} gap={1}>
+            <Text weight="semibold">{fact.term}</Text>
+            <Text color="secondary">{fact.body}</Text>
+          </VStack>
+        ))}
+      </VStack>
     </VStack>
   )
 }
 
-function LinkDetails({ status }: { status: Linked }) {
+interface LinkDetailsProps {
+  status: Linked
+  /** What the status means, beside its dot: "WhatsApp is paused", "Another session took over". */
+  title: string
+  headingRef: RefObject<HTMLHeadingElement | null>
+}
+
+function LinkDetails({ status, title, headingRef }: LinkDetailsProps) {
   const dot = CONNECTION_DOTS[status.status]
   return (
     <VStack gap={1.5}>
-      <Text size="2xl" hasTabularNumbers>
+      <Heading
+        ref={headingRef}
+        tabIndex={-1}
+        level={2}
+        xstyle={[styles.number, styles.focusTarget]}
+      >
         <VisuallyHidden>Linked number </VisuallyHidden>
         {formatPhoneNumber(status.phone_number)}
-      </Text>
+      </Heading>
       <HStack gap={2} vAlign="center">
-        {/* The word beside it says the same, so the dot itself stays quiet */}
+        {/* The words beside it say the same, so the dot itself stays quiet */}
         <StatusDot
           aria-hidden="true"
           variant={dot.variant}
           label={dot.label}
           isPulsing={dot.isPulsing}
         />
-        <Text color="secondary">{dot.label}</Text>
+        <Text weight="medium">{title}</Text>
       </HStack>
     </VStack>
   )

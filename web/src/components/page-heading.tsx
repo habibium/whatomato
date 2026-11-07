@@ -5,30 +5,28 @@ import { Heading, Text } from '@astryxdesign/core/Text'
 import { VStack } from '@astryxdesign/core/VStack'
 
 const styles = stylex.create({
-  measure: { maxWidth: '60ch' },
+  measure: { maxWidth: '68ch' },
+  text: { minWidth: 0 },
 })
 
 interface PageHeadingProps {
   title: string
-  lede: ReactNode
+  /** One line about the data on this page, never about the interface. */
+  lede?: ReactNode
   actions?: ReactNode
 }
 
+/** The title row: a noun at 24px, the page's finding under it, its actions at the end. */
 export function PageHeading({ title, lede, actions }: PageHeadingProps) {
   return (
-    <HStack gap={6} justify="between" vAlign="end" wrap="wrap">
-      <VStack gap={3}>
-        <Heading level={1} type="display-3" textWrap="balance">
-          {title}
-        </Heading>
-        <Text
-          color="secondary"
-          size="lg"
-          textWrap="pretty"
-          xstyle={styles.measure}
-        >
-          {lede}
-        </Text>
+    <HStack gap={4} justify="between" vAlign="center" wrap="wrap">
+      <VStack gap={1} xstyle={styles.text}>
+        <Heading level={1}>{title}</Heading>
+        {lede ? (
+          <Text color="secondary" textWrap="pretty" xstyle={styles.measure}>
+            {lede}
+          </Text>
+        ) : null}
       </VStack>
       {actions ? (
         <HStack gap={2} wrap="wrap">

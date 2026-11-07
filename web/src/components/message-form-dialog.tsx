@@ -36,7 +36,7 @@ import {
   messagesQuery,
   templatesQuery,
 } from '@/lib/scheduler'
-import type { ScheduledMessage } from '@/lib/scheduler'
+import type { ScheduledMessage, Template } from '@/lib/scheduler'
 import { digitsOf, formatPhoneNumber } from '@/lib/whatsapp'
 import { connectionProblem, toWriteProblem } from '@/lib/write-problem'
 import type { WriteProblem } from '@/lib/write-problem'
@@ -90,7 +90,10 @@ function toLocalInput(date: Date) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
 
-function toValues(message: ScheduledMessage | null): Values {
+function toValues(
+  message: ScheduledMessage | null,
+  template: Template | null,
+): Values {
   return {
     recipient_type: message?.recipient_type ?? 'contact',
     recipient:
@@ -98,8 +101,8 @@ function toValues(message: ScheduledMessage | null): Values {
         ? formatPhoneNumber(message.recipient)
         : (message?.recipient ?? ''),
     recipient_name: message?.recipient_name ?? null,
-    template_id: message?.template_id ?? null,
-    body: message?.body ?? '',
+    template_id: message?.template_id ?? template?.id ?? null,
+    body: message?.body ?? template?.body ?? '',
     schedule_kind: message?.schedule_kind ?? 'once',
     run_at: message?.run_at ? toLocalInput(new Date(message.run_at)) : '',
     cron: message?.cron ?? DEFAULT_CRON,
@@ -134,12 +137,15 @@ interface MessageFormDialogProps {
   onOpenChange: (isOpen: boolean) => void
   /** The message to edit; `null` writes a new one. */
   message: ScheduledMessage | null
+  /** A template to start a new message from. */
+  template?: Template | null
 }
 
 export function MessageFormDialog({
   isOpen,
   onOpenChange,
   message,
+  template = null,
 }: MessageFormDialogProps) {
   return (
     <Dialog
@@ -150,7 +156,11 @@ export function MessageFormDialog({
       maxHeight="90dvh"
     >
       {isOpen ? (
-        <MessageForm message={message} onClose={() => onOpenChange(false)} />
+        <MessageForm
+          message={message}
+          template={template}
+          onClose={() => onOpenChange(false)}
+        />
       ) : null}
     </Dialog>
   )
@@ -158,9 +168,11 @@ export function MessageFormDialog({
 
 function MessageForm({
   message,
+  template,
   onClose,
 }: {
   message: ScheduledMessage | null
+  template: Template | null
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -175,7 +187,7 @@ function MessageForm({
     : "Couldn't schedule the message."
 
   const form = useForm({
-    defaultValues: toValues(message),
+    defaultValues: toValues(message, template),
     validators: { onSubmit: schema },
     canSubmitWhenInvalid: true,
     listeners: {
@@ -292,16 +304,16 @@ function MessageForm({
                         size="lg"
                         placeholder="None"
                         hasClear
-                        options={list.map((template) => ({
-                          value: template.id,
-                          label: template.name,
+                        options={list.map((option) => ({
+                          value: option.id,
+                          label: option.name,
                         }))}
                         value={field.state.value}
                         onChange={(id: string | null) => {
                           field.handleChange(id)
-                          const template = list.find((item) => item.id === id)
-                          if (template) {
-                            form.setFieldValue('body', template.body)
+                          const chosen = list.find((item) => item.id === id)
+                          if (chosen) {
+                            form.setFieldValue('body', chosen.body)
                           }
                         }}
                         status={toFieldStatus(field.state.meta)}

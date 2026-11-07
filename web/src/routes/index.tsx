@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import * as stylex from '@stylexjs/stylex'
 import { createFileRoute } from '@tanstack/react-router'
+import { Avatar } from '@astryxdesign/core/Avatar'
 import { Button } from '@astryxdesign/core/Button'
 import { Card } from '@astryxdesign/core/Card'
 import { Divider } from '@astryxdesign/core/Divider'
@@ -21,6 +22,7 @@ import {
 
 import type { TableColumn } from '@astryxdesign/core/Table'
 
+import { MessageBubble } from '@/components/message-bubble'
 import { SiteFrame } from '@/components/site-frame'
 
 export const Route = createFileRoute('/')({ component: Home })
@@ -28,101 +30,97 @@ export const Route = createFileRoute('/')({ component: Home })
 const SIGNUP_HREF = '/signup'
 const SIGNIN_HREF = '/signin'
 
-interface Run extends Record<string, unknown> {
+interface Row extends Record<string, unknown> {
   id: string
-  time: string
-  name: string
-  kind: string
-  qualifier: string
-  state: 'sent' | 'live' | 'queued'
-  status: string
+  when: string
+  to: string
+  detail: string
+  isGroup: boolean
+  repeats: string
 }
 
-const runs: Run[] = [
+// The Messages screen as a new account sees it after a week: sample people, real product wording
+const rows: Row[] = [
   {
     id: 'r1',
-    time: '07:45',
-    name: 'Opening hours',
-    kind: 'Auto-reply',
-    qualifier: 'asks about opening times',
-    state: 'live',
-    status: 'Answering',
+    when: 'Today, 09:45',
+    to: 'Design team',
+    detail: 'Group',
+    isGroup: true,
+    repeats: 'Weekdays at 09:45',
   },
   {
     id: 'r2',
-    time: '09:30',
-    name: 'Thursday class reminder',
-    kind: 'Scheduled',
-    qualifier: '42 contacts',
-    state: 'sent',
-    status: 'Sent',
+    when: 'Today, 17:30',
+    to: 'Karim Haddad',
+    detail: '+44 7700 900789',
+    isGroup: false,
+    repeats: 'Once',
   },
   {
     id: 'r3',
-    time: '12:00',
-    name: 'Today’s menu',
-    kind: 'Broadcast',
-    qualifier: '128 contacts',
-    state: 'sent',
-    status: 'Sent',
+    when: 'Tue, 12:00',
+    to: 'Five-a-side',
+    detail: 'Group',
+    isGroup: true,
+    repeats: 'Tuesdays at 12:00',
   },
   {
     id: 'r4',
-    time: '16:00',
-    name: 'Unpaid invoice nudge',
-    kind: 'Scheduled',
-    qualifier: '6 contacts',
-    state: 'sent',
-    status: 'Sent',
-  },
-  {
-    id: 'r5',
-    time: '18:30',
-    name: 'Closed for the day',
-    kind: 'Auto-reply',
-    qualifier: 'after closing time',
-    state: 'queued',
-    status: 'Queued',
+    when: '28 Nov, 09:00',
+    to: 'Amina Rahman',
+    detail: '+44 7700 900123',
+    isGroup: false,
+    repeats: 'Monthly on the 28th',
   },
 ]
 
-const dotVariants = {
-  sent: 'success',
-  live: 'accent',
-  queued: 'neutral',
-} as const
-
 const capabilities = [
   {
-    term: 'Scheduled messages',
-    body: 'Write a message now and pick the date and time it leaves. Edit or cancel it any time before it sends.',
+    term: 'Once, or on a repeat',
+    body: 'Pick a date and time, or repeat every day, on chosen weekdays, or once a month. Each message keeps the time zone it was written in.',
   },
   {
-    term: 'Auto-replies',
-    body: 'Match an incoming message against rules you write, and answer it the way you would have.',
+    term: 'Contacts and groups',
+    body: 'Send to any number on WhatsApp, or to a group your number is in. A number that isn’t on WhatsApp is caught before anything goes out.',
   },
   {
-    term: 'Broadcasts',
-    body: 'Send one message to a list. It arrives as an ordinary chat, delivered one contact at a time.',
+    term: 'Templates',
+    body: 'Save the text you send often, and start a message from it in one click.',
   },
   {
-    term: 'Delivery log',
-    body: 'See what went out, who received it, and what came back. Every run is recorded.',
+    term: 'History',
+    body: 'Every send is logged with its outcome. Sent means WhatsApp acknowledged it; a failure says why.',
+  },
+]
+
+const limits = [
+  {
+    term: 'It never reads your chats',
+    body: 'Whatomato doesn’t download your chat history or store the messages you receive.',
+  },
+  {
+    term: 'It sends at a human pace',
+    body: 'At most one message every three seconds from your number, which keeps it looking like you.',
+  },
+  {
+    term: 'It never sends twice',
+    body: 'A send that may already have gone out is marked as failed, not tried again.',
   },
 ]
 
 const steps = [
   {
-    term: 'Scan',
-    body: 'Scan a QR code with WhatsApp, exactly as you would to open WhatsApp Web.',
+    term: 'Link',
+    body: 'Scan a QR code with WhatsApp, the same way you open WhatsApp Web. Your phone keeps working as usual.',
   },
   {
     term: 'Write',
-    body: 'Pick a time and a list, or write the rule that should answer for you.',
+    body: 'Choose who it goes to, write the message, and pick when: once, or on a repeat.',
   },
   {
-    term: 'Run',
-    body: 'Leave it running. The log tells you what happened while you were away.',
+    term: 'Leave it',
+    body: 'It goes out on time from your number. History shows what was sent and what wasn’t.',
   },
 ]
 
@@ -142,7 +140,7 @@ const styles = stylex.create({
     columnGap: spacingVars['--spacing-8'],
     gridTemplateColumns: {
       default: 'minmax(0, 1fr)',
-      '@media (min-width: 640px)': '200px minmax(0, 1fr)',
+      '@media (min-width: 640px)': '220px minmax(0, 1fr)',
     },
     paddingBlock: spacingVars['--spacing-5'],
     rowGap: spacingVars['--spacing-2'],
@@ -157,10 +155,8 @@ const styles = stylex.create({
   },
   // `ch` resolves against the element's own font size, so this holds a 40-60
   // character line only while it sits on the text itself, never on a wrapper.
-  measure: { maxWidth: '45ch' },
+  measure: { maxWidth: '48ch' },
   headline: { maxWidth: '32ch' },
-  // One 640px swap, used twice: the header keeps only the destination the hero
-  // is not already offering on screen, and the log swaps in its compact table.
   wideOnly: {
     display: {
       default: 'none',
@@ -192,7 +188,17 @@ const styles = stylex.create({
     },
     letterSpacing: '-0.035em',
     lineHeight: 1.04,
-    maxWidth: '15ch',
+    maxWidth: '14ch',
+  },
+  // The copy beside the preview on a wide page, above it on a narrow one
+  hero: {
+    alignItems: 'center',
+    columnGap: spacingVars['--spacing-10'],
+    gridTemplateColumns: {
+      default: 'minmax(0, 1fr)',
+      '@media (min-width: 1000px)': 'minmax(0, 1fr) minmax(0, 26rem)',
+    },
+    rowGap: spacingVars['--spacing-8'],
   },
   reveal: {
     animationDuration: durationVars['--duration-medium'],
@@ -204,93 +210,74 @@ const styles = stylex.create({
     animationTimingFunction: easeVars['--ease-standard'],
   },
   revealLate: { animationDelay: durationVars['--duration-fast-min'] },
-  // The page's one surface. Card's own background matches the body in dark
-  // mode, so the instrument would disappear into the page without this.
+  // Card's own background matches the body in dark mode, so the preview would
+  // disappear into the page without this.
   panel: { backgroundColor: colorVars['--color-background-surface'] },
+  chatTime: { alignSelf: 'flex-end' },
 })
 
-function RunTime({ run }: { run: Run }) {
-  return (
-    <Text hasTabularNumbers weight="medium">
-      {run.time}
-    </Text>
-  )
-}
-
-// The status word sits next to the dot in both presentations, so the dot itself
-// is decoration and would otherwise be announced twice.
-function RunDot({ run }: { run: Run }) {
-  return (
-    <StatusDot
-      aria-hidden="true"
-      variant={dotVariants[run.state]}
-      label={run.status}
-      isPulsing={run.state === 'live'}
-    />
-  )
-}
-
-const columns: TableColumn<Run>[] = [
+const columns: TableColumn<Row>[] = [
   {
-    key: 'time',
-    header: 'Time',
-    width: pixel(76),
-    renderCell: (run) => <RunTime run={run} />,
-  },
-  {
-    key: 'name',
-    header: 'Automation',
-    width: proportional(1),
-    renderCell: (run) => (
-      <VStack gap={0.5}>
-        <Text weight="medium" display="block">
-          {run.name}
-        </Text>
-        <Text type="supporting" display="block">
-          {run.kind} · {run.qualifier}
-        </Text>
-      </VStack>
+    key: 'when',
+    header: 'Next send',
+    width: pixel(132),
+    renderCell: (row) => (
+      <Text hasTabularNumbers weight="medium" textWrap="nowrap">
+        {row.when}
+      </Text>
     ),
   },
   {
-    key: 'status',
-    header: 'Status',
-    width: pixel(116),
-    align: 'end',
-    renderCell: (run) => (
-      <HStack gap={2} hAlign="end" vAlign="center">
-        <RunDot run={run} />
-        <Text type="supporting" textWrap="nowrap">
-          {run.status}
-        </Text>
+    key: 'to',
+    header: 'To',
+    width: proportional(1),
+    renderCell: (row) => (
+      <HStack gap={3} vAlign="center">
+        <Avatar
+          name={row.to}
+          size="sm"
+          shape={row.isGroup ? 'rounded' : 'circle'}
+          tooltip={false}
+        />
+        <VStack>
+          <Text weight="medium" maxLines={1}>
+            {row.to}
+          </Text>
+          <Text type="supporting" hasTabularNumbers maxLines={1}>
+            {row.detail}
+          </Text>
+        </VStack>
       </HStack>
+    ),
+  },
+  {
+    key: 'repeats',
+    header: 'Repeats',
+    width: proportional(1),
+    renderCell: (row) => (
+      <Text color="secondary" maxLines={1}>
+        {row.repeats}
+      </Text>
     ),
   },
 ]
 
-// Three columns cannot hold a phone width without wrapping every row onto three
-// lines. The status column folds into the dot and the second line, which the
-// qualifier gives up: what ran and how it went outranks how many it reached.
-const compactColumns: TableColumn<Run>[] = [
+const compactColumns: TableColumn<Row>[] = [
   {
-    key: 'time',
-    header: 'Time',
-    width: pixel(72),
-    renderCell: (run) => <RunTime run={run} />,
-  },
-  {
-    key: 'name',
-    header: 'Automation',
+    key: 'to',
+    header: 'Next send',
     width: proportional(1),
-    renderCell: (run) => (
+    renderCell: (row) => (
       <VStack gap={0.5}>
         <HStack gap={3} justify="between" vAlign="center">
-          <Text weight="medium">{run.name}</Text>
-          <RunDot run={run} />
+          <Text weight="medium" maxLines={1}>
+            {row.to}
+          </Text>
+          <Text hasTabularNumbers weight="medium" textWrap="nowrap">
+            {row.when}
+          </Text>
         </HStack>
-        <Text type="supporting" display="block">
-          {run.kind} · {run.status}
-        </Text>
+        <Text type="supporting">{row.repeats}</Text>
       </VStack>
     ),
   },
@@ -325,6 +312,58 @@ function PageSection({ headingId, title, lede, children }: PageSectionProps) {
   )
 }
 
+function DefinitionRows({
+  items,
+}: {
+  items: { term: string; body: string }[]
+}) {
+  return (
+    <VStack gap={0}>
+      {items.map((item) => (
+        <Grid key={item.term} xstyle={styles.defRow}>
+          <Text type="label">{item.term}</Text>
+          <Text color="secondary" xstyle={styles.measure}>
+            {item.body}
+          </Text>
+        </Grid>
+      ))}
+    </VStack>
+  )
+}
+
+/** The message as it lands in the chat, so the page shows the output and not only the tool. */
+function ChatPreview() {
+  const body =
+    'Morning all, stand-up starts in 15 minutes. Post your update here if you can’t join.'
+  return (
+    <Card padding={5} xstyle={styles.panel} data-ui>
+      <VStack gap={4}>
+        <HStack gap={3} vAlign="center">
+          <Avatar
+            name="Design team"
+            size="md"
+            shape="rounded"
+            tooltip={false}
+          />
+          <VStack>
+            <Text weight="medium">Design team</Text>
+            <Text type="supporting">Weekdays at 09:45, from your number</Text>
+          </VStack>
+        </HStack>
+        <Divider isFullBleed />
+        {['Monday', 'Tuesday', 'Wednesday'].map((day) => (
+          <VStack key={day} gap={1}>
+            <MessageBubble body={body} />
+            <Text type="supporting" hasTabularNumbers xstyle={styles.chatTime}>
+              {day}, 09:45
+            </Text>
+          </VStack>
+        ))}
+      </VStack>
+    </Card>
+  )
+}
+
 function Home() {
   return (
     <SiteFrame
@@ -344,87 +383,91 @@ function Home() {
         <VStack
           as="section"
           aria-labelledby="hero-title"
-          gap={8}
           paddingBlockEnd={10}
           paddingBlockStart={10}
         >
-          <VStack gap={5} xstyle={styles.reveal}>
-            <Heading
-              id="hero-title"
-              level={1}
-              type="display-1"
-              xstyle={styles.heroTitle}
-            >
-              Automate WhatsApp. Keep control of it.
-            </Heading>
-            <Text color="secondary" size="lg" xstyle={styles.measure}>
-              Link the account you already use, then schedule messages, answer
-              the questions you always get, and reach a whole contact list one
-              chat at a time.
-            </Text>
-          </VStack>
-          <VStack
-            gap={3}
-            hAlign="start"
-            xstyle={[styles.reveal, styles.revealLate]}
-          >
-            <Button
-              label="Create account"
-              variant="primary"
-              size="lg"
-              href={SIGNUP_HREF}
-            />
-            <Text type="supporting">
-              You connect it by scanning a QR code, the same way WhatsApp Web
-              does.
-            </Text>
-          </VStack>
+          <Grid xstyle={styles.hero}>
+            <VStack gap={8}>
+              <VStack gap={5} xstyle={styles.reveal}>
+                <Heading
+                  id="hero-title"
+                  level={1}
+                  type="display-1"
+                  xstyle={styles.heroTitle}
+                >
+                  Your WhatsApp, on a schedule.
+                </Heading>
+                <Text color="secondary" size="lg" xstyle={styles.measure}>
+                  Whatomato sends WhatsApp messages from your own number at the
+                  time you choose: once, or every week, month or weekday. To
+                  contacts and to groups.
+                </Text>
+              </VStack>
+              <VStack
+                gap={3}
+                hAlign="start"
+                xstyle={[styles.reveal, styles.revealLate]}
+              >
+                <Button
+                  label="Create account"
+                  variant="primary"
+                  size="lg"
+                  href={SIGNUP_HREF}
+                />
+                <Text type="supporting">
+                  Free and open source. You link it by scanning a QR code, the
+                  same way WhatsApp Web does.
+                </Text>
+              </VStack>
+            </VStack>
+            <VStack xstyle={[styles.reveal, styles.revealLate]}>
+              <ChatPreview />
+            </VStack>
+          </Grid>
         </VStack>
 
         <Divider />
 
         <PageSection
-          headingId="live-view"
-          title="Everything it did today, on one line each."
-          lede="Scheduled sends, auto-replies and broadcasts land in the same log, so you can tell at a glance what ran, what is waiting, and what is answering right now."
+          headingId="schedule"
+          title="Everything that goes out next, in order."
+          lede="The Messages screen lists what's due, soonest first, with who it goes to and how often it repeats. Switch one off, edit it, or send something right away."
         >
-          <Card padding={4} elevation="low" xstyle={styles.panel}>
+          <Card padding={4} xstyle={styles.panel} data-ui>
             <HStack justify="between" paddingBlockEnd={3} vAlign="center">
-              <Text type="label">Thursday, 12 March</Text>
+              <Text type="label">Messages</Text>
               <HStack gap={2} vAlign="center">
                 <StatusDot
                   aria-hidden="true"
                   variant="success"
-                  label="Account linked"
-                  isPulsing
+                  label="Connected"
                 />
-                <Text type="supporting">Account linked</Text>
+                <Text type="supporting">WhatsApp connected</Text>
               </HStack>
             </HStack>
             <VStack xstyle={styles.wideOnly}>
               <Divider isFullBleed />
               <Table
-                data={runs}
+                data={rows}
                 columns={columns}
                 idKey="id"
                 density="spacious"
               />
-              <Divider isFullBleed />
             </VStack>
             <VStack xstyle={styles.narrowOnly}>
               <Divider isFullBleed />
               <Table
-                data={runs}
+                data={rows}
                 columns={compactColumns}
                 idKey="id"
                 density="spacious"
               />
-              <Divider isFullBleed />
             </VStack>
+            <Divider isFullBleed />
             <HStack justify="between" paddingBlockStart={3} vAlign="center">
-              <Text type="supporting">5 automations</Text>
+              <Text type="supporting">4 scheduled</Text>
               <Text type="supporting" hasTabularNumbers>
-                Next run 18:30
+                Next to Design team today at 09:45
               </Text>
             </HStack>
           </Card>
@@ -434,19 +477,20 @@ function Home() {
 
         <PageSection
           headingId="capabilities"
-          title="Four things, each done properly."
-          lede="No rule engine to learn and no automation that acts on its own. You describe what should happen; the account stays yours."
+          title="What it does."
+          lede="Scheduling, and the few things around it that make scheduling dependable."
         >
-          <VStack gap={0}>
-            {capabilities.map((capability) => (
-              <Grid key={capability.term} xstyle={styles.defRow}>
-                <Text type="label">{capability.term}</Text>
-                <Text color="secondary" xstyle={styles.measure}>
-                  {capability.body}
-                </Text>
-              </Grid>
-            ))}
-          </VStack>
+          <DefinitionRows items={capabilities} />
+        </PageSection>
+
+        <Divider />
+
+        <PageSection
+          headingId="limits"
+          title="What it won’t do."
+          lede="It sends from your account, so it behaves the way you would."
+        >
+          <DefinitionRows items={limits} />
         </PageSection>
 
         <Divider />
@@ -454,7 +498,7 @@ function Home() {
         <PageSection
           headingId="how-it-works"
           title="Three steps, then it runs without you."
-          lede="Linking takes about a minute. After that the schedule runs on its own, and every send stays yours to change or stop."
+          lede="Linking takes about a minute. After that the schedule runs on its own, and every message stays yours to change or stop."
         >
           <Grid xstyle={styles.stepGrid}>
             {steps.map((step) => (

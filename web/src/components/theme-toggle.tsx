@@ -14,7 +14,7 @@ const OPTIONS = [
   { value: 'system', label: 'System', icon: Monitor },
 ] as const
 
-export function ThemeToggle() {
+export function ThemeToggle({ hasLabels = false }: { hasLabels?: boolean }) {
   const { preference, setPreference } = useColorScheme()
 
   return (
@@ -27,17 +27,26 @@ export function ThemeToggle() {
       }}
       label="Colour scheme"
     >
-      {OPTIONS.map(({ value, label, icon }) => (
+      {OPTIONS.map(({ value, label, icon }) =>
         // Tooltip text and accessible name must match (WCAG label in name).
-        <Tooltip key={value} content={label}>
+        hasLabels ? (
           <SegmentedControlItem
+            key={value}
             value={value}
             label={label}
-            isLabelHidden
             icon={<Icon icon={icon} size="sm" />}
           />
-        </Tooltip>
-      ))}
+        ) : (
+          <Tooltip key={value} content={label}>
+            <SegmentedControlItem
+              value={value}
+              label={label}
+              isLabelHidden
+              icon={<Icon icon={icon} size="sm" />}
+            />
+          </Tooltip>
+        ),
+      )}
     </SegmentedControl>
   )
 }

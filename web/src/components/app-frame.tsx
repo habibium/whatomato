@@ -6,64 +6,91 @@ import {
   useNavigate,
   useRouteContext,
 } from '@tanstack/react-router'
+import { AppShell } from '@astryxdesign/core/AppShell'
+import { Avatar } from '@astryxdesign/core/Avatar'
 import { DropdownMenu } from '@astryxdesign/core/DropdownMenu'
 import { HStack } from '@astryxdesign/core/HStack'
-import { Icon } from '@astryxdesign/core/Icon'
+import { Link } from '@astryxdesign/core/Link'
+import {
+  SideNav,
+  SideNavItem,
+  SideNavSection,
+} from '@astryxdesign/core/SideNav'
 import { StatusDot } from '@astryxdesign/core/StatusDot'
-import { TopNavItem } from '@astryxdesign/core/TopNav'
+import { Text } from '@astryxdesign/core/Text'
+import { VStack } from '@astryxdesign/core/VStack'
 import {
   colorVars,
-  fontWeightVars,
+  radiusVars,
+  spacingVars,
 } from '@astryxdesign/core/theme/tokens.stylex'
+import {
+  CalendarClock,
+  FileText,
+  History,
+  Settings,
+  Smartphone,
+} from 'lucide-react'
 
 import { api } from '@/api/client'
-import { SiteFrame } from '@/components/site-frame'
+import { Wordmark } from '@/components/wordmark'
 import { HOME_HREF, SIGNIN_HREF, setSessionUser } from '@/lib/session'
-import { CONNECTION_DOTS, statusQuery } from '@/lib/whatsapp'
+import { CONNECTION_DOTS, formatPhoneNumber, statusQuery } from '@/lib/whatsapp'
 
-const WHATSAPP_HREF = '/whatsapp'
-
-const PAGES = [
-  { href: '/messages', label: 'Messages' },
-  { href: '/templates', label: 'Templates' },
-  { href: '/history', label: 'History' },
-  { href: WHATSAPP_HREF, label: 'WhatsApp' },
+const WORK = [
+  { href: '/messages', label: 'Messages', icon: CalendarClock },
+  { href: '/templates', label: 'Templates', icon: FileText },
+  { href: '/history', label: 'History', icon: History },
 ] as const
 
-const SETTINGS = { href: '/settings', label: 'Settings' } as const
+// AppShell's own `md` breakpoint, where the side nav folds into a drawer
+const WIDE = '@media (min-width: 768px)'
 
 const styles = stylex.create({
-  // Reads as one more nav item, not as a button beside them
-  account: {
-    color: colorVars['--color-text-secondary'],
-    fontWeight: fontWeightVars['--font-weight-medium'],
-  },
-  accountCurrent: {
-    backgroundColor: colorVars['--color-neutral'],
-    color: colorVars['--color-text-primary'],
-    fontWeight: fontWeightVars['--font-weight-semibold'],
-  },
-  // The wordmark leaves room for one trigger on a phone, so below 640 the whole
-  // nav folds into a menu named after the page you're on.
-  wideOnly: {
-    display: {
-      default: 'none',
-      '@media (min-width: 640px)': 'flex',
+  // The frame is the wash; the work sits on one sheet a tone step lighter. On a phone the sheet is the screen.
+  sheet: {
+    backgroundColor: colorVars['--color-background-surface'],
+    borderColor: {
+      default: 'transparent',
+      [WIDE]: colorVars['--color-border'],
+    },
+    borderRadius: { default: 0, [WIDE]: radiusVars['--radius-container'] },
+    borderStyle: 'solid',
+    borderWidth: { default: 0, [WIDE]: 1 },
+    marginBlock: { default: 0, [WIDE]: spacingVars['--spacing-2'] },
+    marginInlineEnd: { default: 0, [WIDE]: spacingVars['--spacing-2'] },
+    // Below WIDE the shell's own 48px bar sits above the sheet
+    minHeight: {
+      default: `calc(100dvh - ${spacingVars['--spacing-12']})`,
+      [WIDE]: `calc(100dvh - 2 * ${spacingVars['--spacing-2']})`,
     },
   },
-  narrowOnly: {
-    display: {
-      default: 'flex',
-      '@media (min-width: 640px)': 'none',
+  // A cap keeps rows readable on very wide screens
+  content: {
+    marginInline: 'auto',
+    maxWidth: 1200,
+    paddingBlock: {
+      default: spacingVars['--spacing-5'],
+      '@media (min-width: 768px)': spacingVars['--spacing-8'],
     },
+    paddingInline: {
+      default: spacingVars['--spacing-4'],
+      '@media (min-width: 768px)': spacingVars['--spacing-8'],
+    },
+    width: '100%',
   },
+  brand: { textDecoration: 'none' },
+  // A row like the nav items above it, not a centred button
+  account: { justifyContent: 'flex-start', minWidth: 0, width: '100%' },
 })
 
 export function AppFrame({ children }: { children: ReactNode }) {
   return (
-    <SiteFrame homeHref={HOME_HREF} action={<AppNav />}>
-      {children}
-    </SiteFrame>
+    <AppShell variant="wash" height="auto" sideNav={<AppNav />}>
+      <VStack xstyle={styles.sheet}>
+        <VStack xstyle={styles.content}>{children}</VStack>
+      </VStack>
+    </AppShell>
   )
 }
 
@@ -73,7 +100,12 @@ function AppNav() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: whatsapp } = useQuery(statusQuery)
-  const connection = whatsapp ? CONNECTION_DOTS[whatsapp.status.status] : null
+  const status = whatsapp?.status
+  const connection = status ? CONNECTION_DOTS[status.status] : null
+  const linkedNumber =
+    status && 'phone_number' in status && status.phone_number
+      ? formatPhoneNumber(status.phone_number)
+      : null
 
   const signOut = async () => {
     try {
@@ -86,75 +118,78 @@ function AppNav() {
     }
   }
 
-  const toMenuItem = (page: { href: string; label: string }) => ({
-    label: page.label,
-    description: page.href === WHATSAPP_HREF ? connection?.label : undefined,
-    endContent:
-      page.href === pathname ? <Icon icon="check" size="sm" /> : undefined,
-    onClick: () => void navigate({ href: page.href }),
-  })
-  const signOutItem = { label: 'Sign out', onClick: () => void signOut() }
-  const current = [...PAGES, SETTINGS].find((page) => page.href === pathname)
-
   return (
-    <>
-      <HStack
-        as="nav"
-        aria-label="Main"
-        gap={1}
-        vAlign="center"
-        xstyle={styles.wideOnly}
-      >
-        {PAGES.map((page) => (
-          <TopNavItem
+    <SideNav
+      header={
+        <VStack gap={1} paddingBlock={2} paddingInline={2}>
+          <Link href={HOME_HREF} color="primary" xstyle={styles.brand}>
+            <Wordmark />
+          </Link>
+        </VStack>
+      }
+      footer={
+        <VStack paddingInline={2} paddingBlock={2}>
+          <DropdownMenu
+            button={{
+              label: user.email,
+              variant: 'ghost',
+              icon: <Avatar name={user.email} size="xsm" tooltip={false} />,
+              xstyle: styles.account,
+            }}
+            placement="above"
+            alignment="start"
+            items={[
+              {
+                label: 'Settings',
+                onClick: () => void navigate({ href: '/settings' }),
+              },
+              { label: 'Sign out', onClick: () => void signOut() },
+            ]}
+          />
+        </VStack>
+      }
+    >
+      <SideNavSection title="Messages" isHeaderHidden>
+        {WORK.map((page) => (
+          <SideNavItem
             key={page.href}
             label={page.label}
             href={page.href}
+            icon={page.icon}
             isSelected={page.href === pathname}
-            icon={
-              page.href === WHATSAPP_HREF && connection ? (
+          />
+        ))}
+      </SideNavSection>
+      <SideNavSection title="Account">
+        <SideNavItem
+          label="WhatsApp"
+          href="/whatsapp"
+          icon={Smartphone}
+          isSelected={pathname === '/whatsapp'}
+          endContent={
+            connection ? (
+              <HStack gap={1.5} vAlign="center">
                 <StatusDot
                   variant={connection.variant}
                   label={`WhatsApp: ${connection.label}`}
-                  tooltip={connection.label}
                   isPulsing={connection.isPulsing}
                 />
-              ) : undefined
-            }
-          />
-        ))}
-        <DropdownMenu
-          button={{
-            label: 'Account',
-            variant: 'ghost',
-            xstyle:
-              pathname === SETTINGS.href
-                ? styles.accountCurrent
-                : styles.account,
-          }}
-          alignment="end"
-          items={[
-            {
-              type: 'section',
-              title: user.email,
-              items: [toMenuItem(SETTINGS), signOutItem],
-            },
-          ]}
+              </HStack>
+            ) : undefined
+          }
         />
-      </HStack>
-      <HStack xstyle={styles.narrowOnly}>
-        <DropdownMenu
-          button={{ label: current?.label ?? 'Menu', variant: 'ghost' }}
-          alignment="end"
-          presentation="adaptive"
-          items={[
-            ...PAGES.map(toMenuItem),
-            { type: 'divider' },
-            toMenuItem(SETTINGS),
-            signOutItem,
-          ]}
+        <SideNavItem
+          label="Settings"
+          href="/settings"
+          icon={Settings}
+          isSelected={pathname === '/settings'}
         />
-      </HStack>
-    </>
+      </SideNavSection>
+      {linkedNumber ? (
+        <VStack paddingInline={3} paddingBlock={2}>
+          <Text type="supporting">Sending from {linkedNumber}</Text>
+        </VStack>
+      ) : null}
+    </SideNav>
   )
 }

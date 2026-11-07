@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import * as stylex from '@stylexjs/stylex'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRouteContext } from '@tanstack/react-router'
 import { Banner } from '@astryxdesign/core/Banner'
@@ -7,7 +6,7 @@ import { Button } from '@astryxdesign/core/Button'
 import { HStack } from '@astryxdesign/core/HStack'
 import { MetadataList, MetadataListItem } from '@astryxdesign/core/MetadataList'
 import { Skeleton } from '@astryxdesign/core/Skeleton'
-import { Heading, Text } from '@astryxdesign/core/Text'
+import { Text } from '@astryxdesign/core/Text'
 import { Token } from '@astryxdesign/core/Token'
 import { VStack } from '@astryxdesign/core/VStack'
 
@@ -18,6 +17,7 @@ import {
   ConfirmPasswordDialog,
   toConfirmOutcome,
 } from '@/components/confirm-password-dialog'
+import { SettingsSection } from '@/components/settings-section'
 import { RecoveryCodesDialog } from '@/components/two-factor-recovery-codes'
 import { TwoFactorSetupDialog } from '@/components/two-factor-setup-dialog'
 
@@ -27,10 +27,6 @@ type TwoFactorSetup = components['schemas']['TwoFactorSetup']
 const FEW_RECOVERY_CODES = 3
 
 const statusQuery = $api.queryOptions('get', '/api/auth/two-factor')
-
-const styles = stylex.create({
-  measure: { maxWidth: '45ch' },
-})
 
 export function TwoFactorSection() {
   const { user } = useRouteContext({ from: '/_authenticated' })
@@ -84,77 +80,82 @@ export function TwoFactorSection() {
   const isEnabled = status.data?.enabled ?? false
 
   return (
-    <VStack gap={5}>
-      <HStack gap={4} justify="between" vAlign="start">
-        <VStack gap={2}>
-          <Heading level={2}>Two-step verification</Heading>
-          <Text color="secondary" xstyle={styles.measure}>
-            {isEnabled
-              ? 'Signing in asks for your password and then a code from the authenticator app on your phone.'
-              : 'Ask for a code from an authenticator app on your phone after the password, so a stolen password alone cannot get in.'}
-          </Text>
-        </VStack>
-        {status.data ? (
-          <Token
-            label={isEnabled ? 'On' : 'Off'}
-            color={isEnabled ? 'green' : 'gray'}
-            size="sm"
-          />
-        ) : null}
-      </HStack>
-
-      {status.isPending ? (
-        <Skeleton width={160} height={36} />
-      ) : status.isError ? (
-        <Banner
-          status="error"
-          title="Couldn't load two-step verification."
-          description="Check your connection and try again."
-          endContent={
-            <Button
-              label="Try again"
+    <>
+      <SettingsSection
+        id="two-step"
+        title="Two-step verification"
+        description={
+          isEnabled
+            ? 'Signing in asks for your password and then a code from the authenticator app on your phone.'
+            : 'Ask for a code from an authenticator app on your phone after the password, so a stolen password alone cannot get in.'
+        }
+        status={
+          status.data ? (
+            <Token
+              label={isEnabled ? 'On' : 'Off'}
+              color={isEnabled ? 'green' : 'gray'}
               size="sm"
-              clickAction={async () => {
-                await status.refetch()
-              }}
             />
-          }
-        />
-      ) : status.data.enabled ? (
-        <VStack gap={5}>
-          <MetadataList label={{ position: 'start', width: 160 }}>
-            <MetadataListItem label="Recovery codes">
-              <Text>{status.data.recovery_codes_remaining} left</Text>
-            </MetadataListItem>
-          </MetadataList>
-          {status.data.recovery_codes_remaining <= FEW_RECOVERY_CODES ? (
-            <Banner
-              status="warning"
-              title="You're running out of recovery codes."
-              description="Create new ones while you can still sign in, and keep them somewhere safe."
-            />
-          ) : null}
-          <HStack gap={2} wrap="wrap">
+          ) : null
+        }
+      >
+        {status.isPending ? (
+          <Skeleton width={160} height={36} />
+        ) : status.isError ? (
+          <Banner
+            status="error"
+            title="Couldn't load two-step verification."
+            description="Check your connection and try again."
+            endContent={
+              <Button
+                label="Try again"
+                size="sm"
+                clickAction={async () => {
+                  await status.refetch()
+                }}
+              />
+            }
+          />
+        ) : status.data.enabled ? (
+          <VStack gap={5}>
+            <MetadataList label={{ position: 'start', width: 160 }}>
+              <MetadataListItem label="Recovery codes">
+                <Text>{status.data.recovery_codes_remaining} left</Text>
+              </MetadataListItem>
+            </MetadataList>
+            {status.data.recovery_codes_remaining <= FEW_RECOVERY_CODES ? (
+              <Banner
+                status="warning"
+                title="You're running out of recovery codes."
+                description="Create new ones while you can still sign in, and keep them somewhere safe."
+              />
+            ) : null}
+            <HStack gap={2} wrap="wrap">
+              <Button
+                label="New recovery codes"
+                clickAction={() => setConfirming('regenerate')}
+              />
+              <Button
+                label="Turn off"
+                variant="ghost"
+                clickAction={() => setConfirming('disable')}
+              />
+            </HStack>
+          </VStack>
+        ) : (
+          <HStack gap={4} justify="between" vAlign="center" wrap="wrap">
+            <Text color="secondary">
+              Works with any authenticator app, such as 1Password, Google
+              Authenticator or Authy.
+            </Text>
             <Button
-              label="New recovery codes"
-              clickAction={() => setConfirming('regenerate')}
-            />
-            <Button
-              label="Turn off"
-              variant="ghost"
-              clickAction={() => setConfirming('disable')}
+              label="Turn on"
+              variant="primary"
+              clickAction={() => setConfirming('setup')}
             />
           </HStack>
-        </VStack>
-      ) : (
-        <HStack>
-          <Button
-            label="Turn on"
-            variant="primary"
-            clickAction={() => setConfirming('setup')}
-          />
-        </HStack>
-      )}
+        )}
+      </SettingsSection>
 
       <ConfirmPasswordDialog
         isOpen={confirming === 'setup'}
@@ -199,6 +200,6 @@ export function TwoFactorSection() {
           void refresh()
         }}
       />
-    </VStack>
+    </>
   )
 }

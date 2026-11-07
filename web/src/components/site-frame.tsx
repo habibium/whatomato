@@ -18,6 +18,7 @@ import {
 
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Wordmark } from '@/components/wordmark'
+import { SOURCE_URL } from '@/lib/source'
 
 /** Layout's own padding, so header, content and footer share one content line. */
 export const FRAME_PADDING = 6
@@ -91,7 +92,17 @@ export function SiteFrame({
       footer={
         <LayoutFooter role="contentinfo" hasDivider>
           <HStack gap={4} justify="between" vAlign="center" wrap="wrap">
-            <Text type="supporting">v{__APP_VERSION__}</Text>
+            <HStack gap={4} vAlign="center">
+              <Text type="supporting">v{__APP_VERSION__}</Text>
+              <Link
+                href={SOURCE_URL}
+                target="_blank"
+                type="supporting"
+                color="secondary"
+              >
+                Source code
+              </Link>
+            </HStack>
             <ThemeToggle />
           </HStack>
         </LayoutFooter>

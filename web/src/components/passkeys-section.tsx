@@ -1,14 +1,11 @@
 import { useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
-import { Card } from '@astryxdesign/core/Card'
-import { EmptyState } from '@astryxdesign/core/EmptyState'
 import { HStack } from '@astryxdesign/core/HStack'
 import { Icon } from '@astryxdesign/core/Icon'
 import { List, ListItem } from '@astryxdesign/core/List'
-import { Heading, Text } from '@astryxdesign/core/Text'
+import { Text } from '@astryxdesign/core/Text'
 import { Timestamp } from '@astryxdesign/core/Timestamp'
-import { VStack } from '@astryxdesign/core/VStack'
 import { KeyRound, Plus } from 'lucide-react'
 
 import { $api, api } from '@/api/client'
@@ -18,6 +15,7 @@ import {
 } from '@/components/confirm-password-dialog'
 import type { ConfirmOutcome } from '@/components/confirm-password-dialog'
 import { PasskeyNameDialog } from '@/components/passkey-name-dialog'
+import { SettingsSection } from '@/components/settings-section'
 import type { Passkey, SaveOutcome } from '@/components/passkey-name-dialog'
 import {
   createPasskey,
@@ -101,64 +99,61 @@ export function PasskeysSection() {
   ) : null
 
   return (
-    <VStack gap={4}>
-      <HStack gap={4} justify="between" vAlign="center">
-        <Heading level={2}>Passkeys</Heading>
-        {list.length > 0 ? addButton : null}
-      </HStack>
-      <Text color="secondary">
-        Sign in with your fingerprint, face or screen lock instead of your
-        password. A passkey only works on this site, so it can't be phished.
-      </Text>
+    <>
+      <SettingsSection
+        id="passkeys"
+        title="Passkeys"
+        description="Sign in with your fingerprint, face or screen lock instead of your password. A passkey only works on this site, so it can't be phished."
+      >
+        {notice ? <NoticeBanner key={notice} notice={notice} /> : null}
 
-      {notice ? <NoticeBanner key={notice} notice={notice} /> : null}
-
-      {passkeys.isError ? (
-        <Banner
-          status="error"
-          title="Couldn't load your passkeys."
-          description="Something went wrong on our side."
-          endContent={
-            <Button
-              label="Try again"
-              size="sm"
-              clickAction={async () => {
-                await passkeys.refetch()
-              }}
-            />
-          }
-        />
-      ) : list.length > 0 ? (
-        <List hasDividers>
-          {list.map((passkey) => (
-            <ListItem
-              key={passkey.id}
-              label={passkey.name}
-              startContent={<Icon icon={KeyRound} color="secondary" />}
-              description={<PasskeyDates passkey={passkey} />}
-              endContent={
-                <Button
-                  label={`Remove ${passkey.name}`}
-                  variant="ghost"
-                  size="sm"
-                  clickAction={() => setRemoving(passkey)}
-                >
-                  Remove
-                </Button>
-              }
-            />
-          ))}
-        </List>
-      ) : passkeys.isSuccess ? (
-        <Card>
-          <EmptyState
-            icon={<Icon icon={KeyRound} size="lg" />}
-            title="No passkeys yet"
-            description="Add one on this device, and next time sign in without typing your password."
-            actions={addButton}
+        {passkeys.isError ? (
+          <Banner
+            status="error"
+            title="Couldn't load your passkeys."
+            description="Something went wrong on our side."
+            endContent={
+              <Button
+                label="Try again"
+                size="sm"
+                clickAction={async () => {
+                  await passkeys.refetch()
+                }}
+              />
+            }
           />
-        </Card>
-      ) : null}
+        ) : list.length > 0 ? (
+          <List hasDividers>
+            {list.map((passkey) => (
+              <ListItem
+                key={passkey.id}
+                label={passkey.name}
+                startContent={<Icon icon={KeyRound} color="secondary" />}
+                description={<PasskeyDates passkey={passkey} />}
+                endContent={
+                  <Button
+                    label={`Remove ${passkey.name}`}
+                    variant="ghost"
+                    size="sm"
+                    clickAction={() => setRemoving(passkey)}
+                  >
+                    Remove
+                  </Button>
+                }
+              />
+            ))}
+          </List>
+        ) : passkeys.isSuccess ? (
+          <HStack gap={4} justify="between" vAlign="center" wrap="wrap">
+            <Text color="secondary">
+              No passkeys yet. Add one on this device, and next time sign in
+              without typing your password.
+            </Text>
+            {addButton}
+          </HStack>
+        ) : null}
+        {list.length > 0 && addButton ? <HStack>{addButton}</HStack> : null}
+      </SettingsSection>
 
       <ConfirmPasswordDialog
         isOpen={isAdding}
@@ -179,7 +174,7 @@ export function PasskeysSection() {
         confirmLabel="Remove passkey"
         onConfirm={remove}
       />
-    </VStack>
+    </>
   )
 }
 

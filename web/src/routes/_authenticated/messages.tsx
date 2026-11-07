@@ -5,35 +5,36 @@ import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { HStack } from '@astryxdesign/core/HStack'
 import { useAnnounce, useMediaQuery } from '@astryxdesign/core/hooks'
-import { Icon } from '@astryxdesign/core/Icon'
 import { Link } from '@astryxdesign/core/Link'
 import { MoreMenu } from '@astryxdesign/core/MoreMenu'
 import { Skeleton } from '@astryxdesign/core/Skeleton'
 import { Switch } from '@astryxdesign/core/Switch'
+import { Tab, TabList } from '@astryxdesign/core/TabList'
 import { Table, pixel, proportional } from '@astryxdesign/core/Table'
 import { Text } from '@astryxdesign/core/Text'
-import { Timestamp } from '@astryxdesign/core/Timestamp'
+import { useToast } from '@astryxdesign/core/Toast'
 import { VisuallyHidden } from '@astryxdesign/core/VisuallyHidden'
 import { VStack } from '@astryxdesign/core/VStack'
-import { User, Users } from 'lucide-react'
 
 import type { TableColumn } from '@astryxdesign/core/Table'
 
 import { api } from '@/api/client'
 import { AppFrame } from '@/components/app-frame'
 import { ConfirmDeleteDialog } from '@/components/confirm-dialog'
-import { ListEmpty } from '@/components/list-empty'
+import { FirstRun } from '@/components/first-run'
 import { MessageFormDialog } from '@/components/message-form-dialog'
 import { OfflineBanner } from '@/components/offline-banner'
 import { PageHeading } from '@/components/page-heading'
+import { RecipientCell } from '@/components/recipient-cell'
 import { SendNowDialog } from '@/components/send-now-dialog'
 import { WhatsAppBanner } from '@/components/whatsapp-banner'
-import { describeCron } from '@/lib/cron'
 import {
-  BROWSER_TIME_ZONE,
-  messagesQuery,
-  recipientLabel,
-} from '@/lib/scheduler'
+  formatWhen,
+  formatWhenInSentence,
+  summariseCron,
+  zoneLabel,
+} from '@/lib/format'
+import { messagesQuery, recipientLabel } from '@/lib/scheduler'
 import type { ScheduledMessage } from '@/lib/scheduler'
 import { useSessionExpiry } from '@/lib/use-session-expiry'
 import { connectionProblem, toWriteProblem } from '@/lib/write-problem'
@@ -48,15 +49,42 @@ type OpenDialog =
   | { kind: 'delete'; message: ScheduledMessage }
   | { kind: 'send' }
 
+type View = 'scheduled' | 'off' | 'past'
+
+const VIEWS: { value: View; label: string }[] = [
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'off', label: 'Off' },
+  { value: 'past', label: 'Past' },
+]
+
+/** A one-time message that has run can't be switched back on, so it gets its own view. */
+function viewOf(message: ScheduledMessage): View {
+  if (message.next_run_at) return 'scheduled'
+  if (message.schedule_kind === 'once' && message.last_run_at) return 'past'
+  return 'off'
+}
+
+const time = (iso: string | null | undefined) => (iso ? Date.parse(iso) : 0)
+
+const ORDER: Record<
+  View,
+  (a: ScheduledMessage, b: ScheduledMessage) => number
+> = {
+  scheduled: (a, b) => time(a.next_run_at) - time(b.next_run_at),
+  off: (a, b) => time(b.updated_at) - time(a.updated_at),
+  past: (a, b) => time(b.last_run_at) - time(a.last_run_at),
+}
+
 function MessagesPage() {
   const notice = useLocation({ select: (location) => location.state.notice })
   const queryClient = useQueryClient()
   const announce = useAnnounce()
+  const toast = useToast()
   const query = useQuery(messagesQuery)
   const isSignedOut = useSessionExpiry(query.error, '/messages')
   const [dialog, setDialog] = useState<OpenDialog | null>(null)
   const [problem, setProblem] = useState<WriteProblem | null>(null)
-  const [isSent, setIsSent] = useState(false)
+  const [view, setView] = useState<View>('scheduled')
 
   const closeDialog = (isOpen: boolean) => {
     if (!isOpen) setDialog(null)
@@ -91,6 +119,7 @@ function MessagesPage() {
       // 404: someone already deleted it, which is what was asked for
       if (result.response.ok || result.response.status === 404) {
         announce('Message deleted.')
+        toast({ body: 'Message deleted.', type: 'info' })
       } else {
         setProblem(toWriteProblem(result, failed))
       }
@@ -102,18 +131,22 @@ function MessagesPage() {
   }
 
   const messages = query.data
-  const isEmpty = messages?.length === 0
+  const counts = { scheduled: 0, off: 0, past: 0 }
+  for (const message of messages ?? []) counts[viewOf(message)] += 1
+  const shown = (messages ?? [])
+    .filter((message) => viewOf(message) === view)
+    .sort(ORDER[view])
+  const hasViews = counts.off + counts.past > 0
+
   const actions = (
     <>
       <Button
         label="Send now"
-        size="lg"
         clickAction={() => setDialog({ kind: 'send' })}
       />
       <Button
         label="New message"
         variant="primary"
-        size="lg"
         clickAction={() => setDialog({ kind: 'write', message: null })}
       />
     </>
@@ -121,7 +154,7 @@ function MessagesPage() {
 
   return (
     <AppFrame>
-      <VStack gap={8} paddingBlock={10}>
+      <VStack gap={6}>
         {notice === 'email-verified' ? (
           <Banner
             status="success"
@@ -131,36 +164,15 @@ function MessagesPage() {
           />
         ) : null}
         {query.isRefetchError && !isSignedOut ? <OfflineBanner /> : null}
-        <WhatsAppBanner />
 
         <PageHeading
-          title="Scheduled messages."
+          title="Messages"
           lede={<Summary messages={messages} />}
-          actions={isEmpty ? undefined : actions}
+          actions={messages?.length === 0 ? undefined : actions}
         />
 
-        {isSent ? (
-          <Banner
-            status="success"
-            title="Your message is on its way."
-            description={
-              <>
-                See how it went in{' '}
-                <Link
-                  href="/history"
-                  type="inherit"
-                  color="inherit"
-                  hasUnderline
-                >
-                  History
-                </Link>
-                .
-              </>
-            }
-            isDismissable
-            onDismiss={() => setIsSent(false)}
-          />
-        ) : null}
+        {messages?.length === 0 ? null : <WhatsAppBanner />}
+
         {problem ? (
           <Banner
             status="error"
@@ -173,23 +185,51 @@ function MessagesPage() {
 
         {messages ? (
           messages.length > 0 ? (
-            <MessageTable
-              messages={messages}
-              onToggle={toggle}
-              onEdit={(message) => setDialog({ kind: 'write', message })}
-              onDelete={(message) => setDialog({ kind: 'delete', message })}
-            />
+            <VStack gap={2}>
+              {hasViews ? (
+                <TabList
+                  value={view}
+                  onChange={(value) => setView(value as View)}
+                  hasDivider
+                >
+                  {VIEWS.map((option) => (
+                    <Tab
+                      key={option.value}
+                      value={option.value}
+                      label={option.label}
+                      endContent={
+                        <Text type="supporting" hasTabularNumbers>
+                          {counts[option.value]}
+                        </Text>
+                      }
+                    />
+                  ))}
+                </TabList>
+              ) : null}
+              {shown.length > 0 ? (
+                <MessageTable
+                  view={view}
+                  messages={shown}
+                  onToggle={toggle}
+                  onEdit={(message) => setDialog({ kind: 'write', message })}
+                  onDelete={(message) => setDialog({ kind: 'delete', message })}
+                />
+              ) : (
+                <VStack paddingBlock={8}>
+                  <Text color="secondary">{EMPTY_VIEW[view]}</Text>
+                </VStack>
+              )}
+            </VStack>
           ) : (
-            <ListEmpty
-              title="Nothing scheduled yet"
-              description="Write a message once, and it goes out on its own: at a set time, or on a repeat."
-              actions={actions}
+            <FirstRun
+              onNewMessage={() => setDialog({ kind: 'write', message: null })}
+              onSendNow={() => setDialog({ kind: 'send' })}
             />
           )
         ) : query.isPending ? (
-          <VStack gap={3} aria-busy="true">
-            {[0, 1, 2, 3].map((index) => (
-              <Skeleton key={index} index={index} width="100%" height={44} />
+          <VStack gap={2} aria-busy="true">
+            {[0, 1, 2, 3, 4].map((index) => (
+              <Skeleton key={index} index={index} width="100%" height={56} />
             ))}
           </VStack>
         ) : isSignedOut ? null : (
@@ -218,7 +258,17 @@ function MessagesPage() {
       <SendNowDialog
         isOpen={dialog?.kind === 'send'}
         onOpenChange={closeDialog}
-        onSent={() => setIsSent(true)}
+        onSent={() =>
+          toast({
+            body: 'Your message is on its way.',
+            type: 'info',
+            endContent: (
+              <Link href="/history" hasUnderline>
+                See it in History
+              </Link>
+            ),
+          })
+        }
       />
       <ConfirmDeleteDialog
         isOpen={dialog?.kind === 'delete'}
@@ -233,34 +283,34 @@ function MessagesPage() {
   )
 }
 
+const EMPTY_VIEW: Record<View, string> = {
+  scheduled:
+    'Nothing is due to go out. Switch a message on, or write a new one.',
+  off: 'Every message is switched on.',
+  past: 'No one-time message has run yet. History shows how each send went.',
+}
+
 function Summary({ messages }: { messages: ScheduledMessage[] | undefined }) {
-  const live = (messages ?? []).flatMap((message) =>
-    message.next_run_at ? [{ message, at: message.next_run_at }] : [],
-  )
-  if (live.length === 0) {
-    return messages?.length
-      ? 'None of these are due to go out.'
+  if (!messages) return null
+  const due = messages
+    .filter((message) => message.next_run_at)
+    .sort(ORDER.scheduled)
+  const [next] = due
+  if (!next?.next_run_at) {
+    return messages.length
+      ? 'Nothing is due to go out.'
       : 'Messages go out from your own number, at a set time or on a repeat.'
   }
-
-  const next = live.reduce((soonest, run) =>
-    Date.parse(run.at) < Date.parse(soonest.at) ? run : soonest,
-  )
   return (
     <>
-      {live.length} on schedule. Next to {recipientLabel(next.message)},{' '}
-      <Timestamp
-        value={next.at}
-        format="date_time"
-        type="inherit"
-        color="inherit"
-      />
-      .
+      {due.length} scheduled. Next to {recipientLabel(next)}{' '}
+      {formatWhenInSentence(next.next_run_at)}.
     </>
   )
 }
 
 interface MessageTableProps {
+  view: View
   messages: ScheduledMessage[]
   onToggle: (message: ScheduledMessage, enabled: boolean) => Promise<void>
   onEdit: (message: ScheduledMessage) => void
@@ -268,38 +318,43 @@ interface MessageTableProps {
 }
 
 function MessageTable({
+  view,
   messages,
   onToggle,
   onEdit,
   onDelete,
 }: MessageTableProps) {
-  const isNarrow = useMediaQuery('(max-width: 999px)')
+  const isNarrow = useMediaQuery('(max-width: 1099px)')
 
   const enabled: TableColumn<ScheduledMessage> = {
     key: 'enabled',
-    header: <VisuallyHidden>Enabled</VisuallyHidden>,
-    width: pixel(64),
-    renderCell: (message) => (
-      <Switch
-        label={`Enabled, to ${recipientLabel(message)}`}
-        isLabelHidden
-        size="sm"
-        value={message.enabled}
-        changeAction={(next) => onToggle(message, next)}
-      />
-    ),
+    header: <VisuallyHidden>On</VisuallyHidden>,
+    width: pixel(56),
+    renderCell: (message) =>
+      viewOf(message) === 'past' ? null : (
+        <Switch
+          label={`Send to ${recipientLabel(message)}`}
+          isLabelHidden
+          size="sm"
+          value={message.enabled}
+          changeAction={(next) => onToggle(message, next)}
+        />
+      ),
   }
   const menu: TableColumn<ScheduledMessage> = {
     key: 'actions',
     header: <VisuallyHidden>Actions</VisuallyHidden>,
-    width: pixel(52),
+    width: pixel(48),
     renderCell: (message) => (
       <MoreMenu
         label={`Actions for ${recipientLabel(message)}`}
         alignment="end"
         size="sm"
         items={[
-          { label: 'Edit', onClick: () => onEdit(message) },
+          {
+            label: viewOf(message) === 'past' ? 'Schedule again' : 'Edit',
+            onClick: () => onEdit(message),
+          },
           {
             label: 'Delete',
             variant: 'destructive',
@@ -309,21 +364,29 @@ function MessageTable({
       />
     ),
   }
+  const when: TableColumn<ScheduledMessage> = {
+    key: 'when',
+    header: WHEN_HEADER[view],
+    width: pixel(184),
+    renderCell: (message) => <When message={message} view={view} />,
+  }
 
   const columns: TableColumn<ScheduledMessage>[] = isNarrow
     ? [
         {
           key: 'message',
-          header: 'Message',
+          header: <VisuallyHidden>Message</VisuallyHidden>,
           width: proportional(1),
           renderCell: (message) => (
-            <VStack gap={1}>
-              <Recipient message={message} />
+            <VStack gap={2}>
+              <RecipientCell {...message} isMuted={!message.enabled} />
               <Text color="secondary" maxLines={2}>
                 {message.body}
               </Text>
-              <Schedule message={message} />
-              <NextRun message={message} />
+              <HStack gap={2} vAlign="start" wrap="wrap">
+                <When message={message} view={view} />
+                <Schedule message={message} />
+              </HStack>
             </VStack>
           ),
         },
@@ -333,9 +396,11 @@ function MessageTable({
     : [
         {
           key: 'recipient',
-          header: 'Recipient',
+          header: 'To',
           width: proportional(3),
-          renderCell: (message) => <Recipient message={message} />,
+          renderCell: (message) => (
+            <RecipientCell {...message} isMuted={!message.enabled} />
+          ),
         },
         {
           key: 'body',
@@ -349,16 +414,11 @@ function MessageTable({
         },
         {
           key: 'schedule',
-          header: 'Schedule',
+          header: 'Repeats',
           width: proportional(3),
           renderCell: (message) => <Schedule message={message} />,
         },
-        {
-          key: 'next',
-          header: 'Next run',
-          width: pixel(208),
-          renderCell: (message) => <NextRun message={message} />,
-        },
+        when,
         enabled,
         menu,
       ]
@@ -369,67 +429,49 @@ function MessageTable({
       columns={columns}
       idKey="id"
       verticalAlign={isNarrow ? 'top' : 'middle'}
+      hasHover
     />
   )
 }
 
-function Recipient({ message }: { message: ScheduledMessage }) {
-  const isGroup = message.recipient_type === 'group'
-  return (
-    <HStack gap={2} vAlign="center">
-      <Icon icon={isGroup ? Users : User} size="sm" color="secondary" />
-      <VisuallyHidden>{isGroup ? 'Group: ' : 'Contact: '}</VisuallyHidden>
-      <Text
-        weight="medium"
-        color={message.enabled ? 'primary' : 'secondary'}
-        maxLines={1}
-        hasTabularNumbers
-      >
-        {recipientLabel(message)}
-      </Text>
-    </HStack>
-  )
+const WHEN_HEADER: Record<View, string> = {
+  scheduled: 'Next send',
+  off: 'Status',
+  past: 'Ran',
 }
 
-function Schedule({ message }: { message: ScheduledMessage }) {
-  if (message.schedule_kind === 'once') {
-    return <Text color="secondary">One time</Text>
-  }
-  return (
-    <VStack>
-      <Text color="secondary">
-        {describeCron(message.cron ?? '') ?? message.cron}
-      </Text>
-      {message.timezone === BROWSER_TIME_ZONE ? null : (
-        <Text type="supporting">{message.timezone}</Text>
-      )}
-    </VStack>
-  )
-}
-
-function NextRun({ message }: { message: ScheduledMessage }) {
-  if (message.next_run_at) {
+function When({ message, view }: { message: ScheduledMessage; view: View }) {
+  if (view === 'scheduled' && message.next_run_at) {
     return (
-      <Timestamp
-        value={message.next_run_at}
-        format="date_time"
-        type="body"
-        color="primary"
-      />
+      <Text weight="medium" hasTabularNumbers textWrap="nowrap">
+        {formatWhen(message.next_run_at)}
+      </Text>
     )
   }
-  if (message.schedule_kind === 'once' && message.last_run_at) {
+  if (view === 'past' && message.last_run_at) {
     return (
-      <Text color="secondary">
-        Ran{' '}
-        <Timestamp
-          value={message.last_run_at}
-          format="date_time"
-          type="inherit"
-          color="inherit"
-        />
+      <Text color="secondary" hasTabularNumbers textWrap="nowrap">
+        {formatWhen(message.last_run_at)}
       </Text>
     )
   }
   return <Text color="secondary">Off</Text>
+}
+
+function Schedule({ message }: { message: ScheduledMessage }) {
+  const zone = zoneLabel(message.timezone)
+  const label =
+    message.schedule_kind === 'once'
+      ? 'Once'
+      : summariseCron(message.cron ?? '')
+  return (
+    <VStack>
+      <Text color="secondary" maxLines={1}>
+        {label}
+      </Text>
+      {zone && message.schedule_kind === 'recurring' ? (
+        <Text type="supporting">{zone}</Text>
+      ) : null}
+    </VStack>
+  )
 }
