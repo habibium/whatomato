@@ -564,6 +564,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/whatsapp/contacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The contacts saved on the phone, to choose where messages go by name
+         * @description The phone shares its address book with linked devices; this is the copy kept from it, so it
+         *     answers while WhatsApp is paused or offline too. Unlinking deletes it.
+         */
+        get: operations["contacts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/whatsapp/groups": {
         parameters: {
             query?: never;
@@ -631,6 +652,27 @@ export interface paths {
         put?: never;
         /** Disconnect WhatsApp and keep the link */
         post: operations["pause"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/whatsapp/pictures/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A saved contact's or a group's profile picture, a small JPEG
+         * @description Looked up on WhatsApp while it's connected and kept in memory for a few hours. Not found when
+         *     there's none, when the contact keeps it private, or when it can't be looked up right now.
+         */
+        get: operations["picture"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -721,6 +763,29 @@ export interface components {
         /** @description The account password, asked again before a passkey is added or removed */
         ConfirmPasskeyChange: {
             password: string;
+        };
+        ContactBook: {
+            /** @description By name */
+            contacts: components["schemas"]["ContactResponse"][];
+            /**
+             * @description False until the phone's address book has come through in full, which starts once WhatsApp
+             *     connects. Poll every few seconds meanwhile.
+             */
+            imported: boolean;
+        };
+        /** @description A contact saved on the phone */
+        ContactResponse: {
+            first_name: string | null;
+            /** @description WhatsApp's address for the contact */
+            id: string;
+            /** @description As saved on the phone, else the first name or the WhatsApp username */
+            name: string;
+            /**
+             * @description Digits with the country code. Empty when WhatsApp hasn't shared the number with linked
+             *     devices, and then nothing can be sent to the contact.
+             */
+            phone_number: string | null;
+            username: string | null;
         };
         Credentials: {
             email: string;
@@ -2094,6 +2159,8 @@ export interface operations {
                 /** @description 1 to 100, 50 by default */
                 limit?: number;
                 offset?: number;
+                /** @description Only deliveries to this number's digits or this group's id */
+                recipient?: string;
             };
             header?: never;
             path?: never;
@@ -2794,6 +2861,41 @@ export interface operations {
             };
         };
     };
+    contacts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ContactBook"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     groups: {
         parameters: {
             query?: never;
@@ -2968,6 +3070,52 @@ export interface operations {
             };
             /** @description WhatsApp isn't connected */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    picture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The contact's or group's id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/jpeg": number[];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

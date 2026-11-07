@@ -1356,6 +1356,15 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "recipient",
+            "in": "query",
+            "description": "Only deliveries to this number's digits or this group's id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2223,6 +2232,45 @@
         }
       }
     },
+    "/api/whatsapp/contacts": {
+      "get": {
+        "summary": "The contacts saved on the phone, to choose where messages go by name",
+        "description": "The phone shares its address book with linked devices; this is the copy kept from it, so it\nanswers while WhatsApp is paused or offline too. Unlinking deletes it.",
+        "operationId": "contacts",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContactBook"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/whatsapp/groups": {
       "get": {
         "summary": "The groups the account is in, to choose where messages go",
@@ -2407,6 +2455,71 @@
           },
           "409": {
             "description": "WhatsApp isn't connected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/whatsapp/pictures/{id}": {
+      "get": {
+        "summary": "A saved contact's or a group's profile picture, a small JPEG",
+        "description": "Looked up on WhatsApp while it's connected and kept in memory for a few hours. Not found when\nthere's none, when the contact keeps it private, or when it can't be looked up right now.",
+        "operationId": "picture",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "The contact's or group's id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "image/jpeg": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -2641,6 +2754,66 @@
         "properties": {
           "password": {
             "type": "string"
+          }
+        }
+      },
+      "ContactBook": {
+        "type": "object",
+        "required": [
+          "imported",
+          "contacts"
+        ],
+        "properties": {
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContactResponse"
+            },
+            "description": "By name"
+          },
+          "imported": {
+            "type": "boolean",
+            "description": "False until the phone's address book has come through in full, which starts once WhatsApp\nconnects. Poll every few seconds meanwhile."
+          }
+        }
+      },
+      "ContactResponse": {
+        "type": "object",
+        "description": "A contact saved on the phone",
+        "required": [
+          "id",
+          "name",
+          "first_name",
+          "phone_number",
+          "username"
+        ],
+        "properties": {
+          "first_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "description": "WhatsApp's address for the contact"
+          },
+          "name": {
+            "type": "string",
+            "description": "As saved on the phone, else the first name or the WhatsApp username"
+          },
+          "phone_number": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Digits with the country code. Empty when WhatsApp hasn't shared the number with linked\ndevices, and then nothing can be sent to the contact."
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

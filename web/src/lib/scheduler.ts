@@ -4,7 +4,7 @@ import { z } from 'zod'
 import type { components } from '@/api/schema'
 
 import { api } from '@/api/client'
-import { ApiError, formatPhoneNumber } from '@/lib/whatsapp'
+import { ApiError } from '@/lib/whatsapp'
 
 export type ScheduledMessage = components['schemas']['ScheduledMessage']
 export type Template = components['schemas']['MessageTemplate']
@@ -84,13 +84,21 @@ export function deliveriesQuery(page: number) {
   })
 }
 
-export function recipientLabel({
-  recipient_type,
-  recipient,
-  recipient_name,
-}: Pick<ScheduledMessage, 'recipient_type' | 'recipient' | 'recipient_name'>) {
-  if (recipient_name) return recipient_name
-  return recipient_type === 'contact'
-    ? formatPhoneNumber(recipient)
-    : 'Unnamed group'
+/** The latest few deliveries to one number or group, for a contact's page. */
+export function recipientDeliveriesQuery(recipient: string, limit: number) {
+  return queryOptions({
+    queryKey: [...DELIVERIES_KEY, 'to', recipient, limit],
+    queryFn: async () => {
+      const { data, response } = await api.GET('/api/deliveries', {
+        params: { query: { recipient, limit } },
+      })
+      if (!data) throw new ApiError(response.status)
+      return data
+    },
+    refetchInterval: (query) =>
+      query.state.data?.items.some((item) => item.status === 'pending')
+        ? PENDING_POLL_MS
+        : false,
+    retry: retryOutages,
+  })
 }

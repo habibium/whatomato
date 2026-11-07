@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_lid_mappings (account_id, lid, phone_number, learning_source, created_at, updated_at) VALUES ($1, '100000000000001', '15550002', 'other', 0, 0)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "88095b490a5df35e69d8d814b2e5d21ca083c45a7b5c9fd2a12319b6544fe31a"
+}

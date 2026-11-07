@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, scheduled_message_id, recipient_type AS \"recipient_type: RecipientType\",\n               recipient, recipient_name, body, status AS \"status: DeliveryStatus\", error,\n               created_at, sent_at\n           FROM deliveries WHERE user_id = $1\n           ORDER BY created_at DESC, id LIMIT $2 OFFSET $3",
+  "query": "SELECT id, scheduled_message_id, recipient_type AS \"recipient_type: RecipientType\",\n               recipient, recipient_name, body, status AS \"status: DeliveryStatus\", error,\n               created_at, sent_at\n           FROM deliveries WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)\n           ORDER BY created_at DESC, id LIMIT $3 OFFSET $4",
   "describe": {
     "columns": [
       {
@@ -117,6 +117,7 @@
     "parameters": {
       "Left": [
         "Uuid",
+        "Text",
         "Int8",
         "Int8"
       ]
@@ -134,5 +135,5 @@
       true
     ]
   },
-  "hash": "da7d4226443da049631ad50ec2f4a935c5309b492b0ff7fb0162a527b8c540f5"
+  "hash": "91cbaf1b864dc5950cf4ceff55e0bf29269b37ddb17c7389e84014705b2acf87"
 }

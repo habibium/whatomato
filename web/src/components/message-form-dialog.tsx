@@ -27,6 +27,7 @@ import { api } from '@/api/client'
 import { CronBuilder } from '@/components/cron-builder'
 import { DialogForm } from '@/components/dialog-form'
 import { RecipientField, checkRecipient } from '@/components/recipient-field'
+import type { Recipient } from '@/components/recipient-field'
 import { DEFAULT_CRON, HOUR_FORMAT } from '@/lib/cron'
 import { toFieldErrors, toFieldStatus } from '@/lib/form-errors'
 import {
@@ -93,14 +94,16 @@ function toLocalInput(date: Date) {
 function toValues(
   message: ScheduledMessage | null,
   template: Template | null,
+  recipient: Recipient | null,
 ): Values {
+  const to = message ?? recipient
   return {
-    recipient_type: message?.recipient_type ?? 'contact',
+    recipient_type: to?.recipient_type ?? 'contact',
     recipient:
-      message?.recipient_type === 'contact'
-        ? formatPhoneNumber(message.recipient)
-        : (message?.recipient ?? ''),
-    recipient_name: message?.recipient_name ?? null,
+      to?.recipient_type === 'contact'
+        ? formatPhoneNumber(to.recipient)
+        : (to?.recipient ?? ''),
+    recipient_name: to?.recipient_name ?? null,
     template_id: message?.template_id ?? template?.id ?? null,
     body: message?.body ?? template?.body ?? '',
     schedule_kind: message?.schedule_kind ?? 'once',
@@ -139,6 +142,8 @@ interface MessageFormDialogProps {
   message: ScheduledMessage | null
   /** A template to start a new message from. */
   template?: Template | null
+  /** Who a new message goes to, with digits for a number. */
+  recipient?: Recipient | null
 }
 
 export function MessageFormDialog({
@@ -146,6 +151,7 @@ export function MessageFormDialog({
   onOpenChange,
   message,
   template = null,
+  recipient = null,
 }: MessageFormDialogProps) {
   return (
     <Dialog
@@ -159,6 +165,7 @@ export function MessageFormDialog({
         <MessageForm
           message={message}
           template={template}
+          recipient={recipient}
           onClose={() => onOpenChange(false)}
         />
       ) : null}
@@ -169,10 +176,12 @@ export function MessageFormDialog({
 function MessageForm({
   message,
   template,
+  recipient,
   onClose,
 }: {
   message: ScheduledMessage | null
   template: Template | null
+  recipient: Recipient | null
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -187,7 +196,7 @@ function MessageForm({
     : "Couldn't schedule the message."
 
   const form = useForm({
-    defaultValues: toValues(message, template),
+    defaultValues: toValues(message, template, recipient),
     validators: { onSubmit: schema },
     canSubmitWhenInvalid: true,
     listeners: {
@@ -289,7 +298,6 @@ function MessageForm({
                         )
                         field.handleChange(next.recipient)
                       }}
-                      onBlur={field.handleBlur}
                       status={toFieldStatus(field.state.meta)}
                     />
                   )}

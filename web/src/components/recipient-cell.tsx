@@ -1,10 +1,14 @@
 import * as stylex from '@stylexjs/stylex'
-import { Avatar } from '@astryxdesign/core/Avatar'
 import { HStack } from '@astryxdesign/core/HStack'
 import { Text } from '@astryxdesign/core/Text'
 import { VStack } from '@astryxdesign/core/VStack'
 
-import { recipientLabel } from '@/lib/scheduler'
+import { PersonAvatar } from '@/components/person-avatar'
+import {
+  useContactBook,
+  useRecipientLabel,
+  useRecipientPictureID,
+} from '@/lib/contacts'
 import type { RecipientType } from '@/lib/scheduler'
 import { formatPhoneNumber } from '@/lib/whatsapp'
 
@@ -27,25 +31,30 @@ export function RecipientCell({
   recipient_name,
   isMuted = false,
 }: RecipientCellProps) {
-  const name = recipientLabel({
+  const { book, byNumber } = useContactBook()
+  const name = useRecipientLabel()({
     recipient_type,
     recipient,
     recipient_name: recipient_name ?? null,
   })
+  const pictureID = useRecipientPictureID()({ recipient_type, recipient })
   const isGroup = recipient_type === 'group'
+  const isNamed = byNumber.has(recipient) || Boolean(recipient_name)
   const detail = isGroup
     ? 'Group'
-    : recipient_name
+    : isNamed
       ? formatPhoneNumber(recipient)
-      : 'Contact'
+      : book?.imported
+        ? 'Not in your contacts'
+        : 'Phone number'
 
   return (
     <HStack gap={3} vAlign="center" xstyle={styles.text}>
-      <Avatar
+      <PersonAvatar
         name={name}
+        pictureID={pictureID}
         size="md"
         shape={isGroup ? 'rounded' : 'circle'}
-        tooltip={false}
       />
       <VStack xstyle={styles.text}>
         <Text

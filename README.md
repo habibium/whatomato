@@ -111,9 +111,12 @@ Postgres holds what a linked device has to keep to stay linked and to encrypt me
 - the device's identity and the Signal keys and sessions for the people and groups it talks to;
 - the app state keys and versions WhatsApp syncs between devices;
 - recent sent messages, which WhatsApp can ask a device to send again when a recipient failed to decrypt them;
-- the linked number, and when it was linked, paused or stopped.
+- the linked number, and when it was linked, paused or stopped;
+- the contacts saved on the phone, which it shares with linked devices: their names, numbers and WhatsApp usernames, so a message can go to a name. The first connect after linking replays the whole address book once; after that each change on the phone comes through as it's made.
 
-Everything secret is encrypted with `ENCRYPTION_KEY` (XChaCha20-Poly1305), bound to its account, table and key, so a database dump alone can't take over a device. Lookup keys, timestamps and flags stay in the clear. Whatomato doesn't download chat history or store the messages it receives.
+Profile pictures of saved contacts and groups aren't stored: each is looked up when the app shows it, at most two at a time, and kept in the server's memory for a few hours.
+
+Everything secret is encrypted with `ENCRYPTION_KEY` (XChaCha20-Poly1305), bound to its account, table and key, so a database dump alone can't take over a device. Contact names are encrypted the same way. Lookup keys, timestamps and flags stay in the clear, and those include each contact's number and WhatsApp address. Whatomato doesn't download chat history or store the messages it receives.
 
 What a user writes is not encrypted: templates, scheduled messages and the delivery history keep the message text and the recipient in plain columns, so a database dump does show those. Deleting a schedule keeps its history.
 

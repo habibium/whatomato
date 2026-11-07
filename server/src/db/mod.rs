@@ -8,6 +8,7 @@ pub mod tokens;
 pub mod two_factor;
 pub mod users;
 pub mod whatsapp_accounts;
+pub mod whatsapp_contacts;
 
 use std::time::Duration;
 

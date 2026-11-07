@@ -102,6 +102,11 @@ export function isPhoneNumber(value: string) {
   )
 }
 
+/** Whether digits read as a full number once a + goes in front, country code and all. */
+export function isInternational(digits: string) {
+  return parsePhoneNumberFromString(`+${digits}`)?.isValid() ?? false
+}
+
 /** The API sends the digits with the country code and no plus. */
 export function formatPhoneNumber(digits: string) {
   const international = `+${digits}`

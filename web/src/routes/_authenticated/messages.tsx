@@ -34,7 +34,8 @@ import {
   summariseCron,
   zoneLabel,
 } from '@/lib/format'
-import { messagesQuery, recipientLabel } from '@/lib/scheduler'
+import { useRecipientLabel } from '@/lib/contacts'
+import { messagesQuery } from '@/lib/scheduler'
 import type { ScheduledMessage } from '@/lib/scheduler'
 import { useSessionExpiry } from '@/lib/use-session-expiry'
 import { connectionProblem, toWriteProblem } from '@/lib/write-problem'
@@ -291,6 +292,7 @@ const EMPTY_VIEW: Record<View, string> = {
 }
 
 function Summary({ messages }: { messages: ScheduledMessage[] | undefined }) {
+  const recipientLabel = useRecipientLabel()
   if (!messages) return null
   const due = messages
     .filter((message) => message.next_run_at)
@@ -325,6 +327,7 @@ function MessageTable({
   onDelete,
 }: MessageTableProps) {
   const isNarrow = useMediaQuery('(max-width: 1099px)')
+  const recipientLabel = useRecipientLabel()
 
   const enabled: TableColumn<ScheduledMessage> = {
     key: 'enabled',

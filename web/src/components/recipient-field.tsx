@@ -1,28 +1,38 @@
-import { useId, useRef } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { Avatar } from '@astryxdesign/core/Avatar'
 import { Button } from '@astryxdesign/core/Button'
 import { Field } from '@astryxdesign/core/Field'
+import { HStack } from '@astryxdesign/core/HStack'
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from '@astryxdesign/core/SegmentedControl'
 import { Selector } from '@astryxdesign/core/Selector'
+import { Text } from '@astryxdesign/core/Text'
+import { Typeahead, TypeaheadItem } from '@astryxdesign/core/Typeahead'
+import type { SearchSource, SearchableItem } from '@astryxdesign/core/Typeahead'
 import { VStack } from '@astryxdesign/core/VStack'
 import type { z } from 'zod'
 
-import { PhoneNumberField } from '@/components/phone-number-field'
+import { PersonAvatar } from '@/components/person-avatar'
+import type { Contact } from '@/lib/contacts'
+import { rankContacts, useContactBook } from '@/lib/contacts'
 import type { RecipientType } from '@/lib/scheduler'
 import {
   ApiError,
   NUMBER_HINT,
+  digitsOf,
+  formatPhoneNumber,
   groupsQuery,
+  isInternational,
   isPhoneNumber,
 } from '@/lib/whatsapp'
 
 /** Past this many groups, scrolling for one takes longer than typing its name. */
 const SEARCHABLE_FROM = 8
 
-interface Recipient {
+export interface Recipient {
   recipient_type: RecipientType
   recipient: string
   recipient_name: string | null
@@ -35,7 +45,11 @@ export function checkRecipient(
   const message =
     recipient_type === 'group'
       ? !recipient && 'Choose a group'
-      : !isPhoneNumber(recipient) && NUMBER_HINT
+      : !recipient.trim()
+        ? 'Choose a contact, or type a number with its country code'
+        : /\p{L}/u.test(recipient)
+          ? 'Choose a contact from the list, or type a number'
+          : !isPhoneNumber(recipient) && NUMBER_HINT
   if (message) {
     context.addIssue({ code: 'custom', path: ['recipient'], message })
   }
@@ -44,14 +58,12 @@ export function checkRecipient(
 interface RecipientFieldProps {
   value: Recipient
   onChange: (value: Recipient) => void
-  onBlur: () => void
   status?: { type: 'error'; message?: string }
 }
 
 export function RecipientField({
   value,
   onChange,
-  onBlur,
   status,
 }: RecipientFieldProps) {
   const id = useId()
@@ -78,27 +90,170 @@ export function RecipientField({
           value={value.recipient_type}
           onChange={(type) => switchTo(type as RecipientType)}
         >
-          <SegmentedControlItem value="contact" label="Phone number" />
+          <SegmentedControlItem value="contact" label="Contact" />
           <SegmentedControlItem value="group" label="Group" />
         </SegmentedControl>
       </Field>
       {value.recipient_type === 'contact' ? (
-        <PhoneNumberField
-          label="Phone number"
-          isLabelHidden
-          placeholder="+44 7700 900123"
-          htmlName="recipient"
-          value={value.recipient}
-          onChange={(recipient) =>
-            onChange({ ...value, recipient, recipient_name: null })
-          }
-          onBlur={onBlur}
-          isInvalid={status !== undefined}
-          errorMessage={status?.message}
-        />
+        <ContactPicker value={value} onChange={onChange} status={status} />
       ) : (
         <GroupPicker value={value} onChange={onChange} status={status} />
       )}
+    </VStack>
+  )
+}
+
+type ContactItem = SearchableItem<{
+  number: string | null
+  contact: Contact | null
+}>
+
+function itemFor(contact: Contact): ContactItem {
+  return {
+    id: contact.id,
+    label: contact.name,
+    auxiliaryData: { number: contact.phone_number, contact },
+  }
+}
+
+function numberItem(digits: string, label?: string | null): ContactItem {
+  return {
+    id: `number:${digits}`,
+    label: label || formatPhoneNumber(digits),
+    auxiliaryData: { number: digits, contact: null },
+  }
+}
+
+/**
+ * One field for both ways people remember someone: a name from the phone's contacts, or a number
+ * typed in full. A typed number counts without being picked from the list.
+ */
+function ContactPicker({
+  value,
+  onChange,
+  status,
+}: Pick<RecipientFieldProps, 'value' | 'onChange' | 'status'>) {
+  const { book, byNumber, isImporting } = useContactBook()
+  const [isTyped, setIsTyped] = useState(false)
+  const contacts = useMemo(() => book?.contacts ?? [], [book])
+
+  const digits = digitsOf(value.recipient)
+  const known = byNumber.get(digits)
+  const chosen =
+    !isTyped && digits
+      ? known
+        ? itemFor(known)
+        : numberItem(digits, value.recipient_name)
+      : null
+
+  const source = useMemo<SearchSource<ContactItem>>(
+    () => ({
+      search: (query) => {
+        const found = rankContacts(contacts, query)
+        // A contact without a number can't be sent to; it's listed last so its absence isn't a mystery
+        const items = [
+          ...found.filter((contact) => contact.phone_number),
+          ...found.filter((contact) => !contact.phone_number),
+        ].map(itemFor)
+        const typed = digitsOf(query)
+        if (
+          isPhoneNumber(query) &&
+          isInternational(typed) &&
+          !byNumber.has(typed)
+        ) {
+          items.unshift(numberItem(typed))
+        }
+        return items
+      },
+      bootstrap: () =>
+        contacts.filter((contact) => contact.phone_number).map(itemFor),
+    }),
+    [contacts, byNumber],
+  )
+
+  // A name alone can't tell two Karims apart
+  const hint = known
+    ? isTyped
+      ? `That’s ${known.name} in your contacts.`
+      : `Sends to ${formatPhoneNumber(digits)}`
+    : isImporting
+      ? 'Your contacts are coming over from your phone. Type a number meanwhile.'
+      : book && contacts.length === 0
+        ? book.imported
+          ? 'No saved contacts came over from your phone. Type a number with its country code.'
+          : 'Link WhatsApp to search your contacts by name. Until then, type a number.'
+        : null
+
+  return (
+    <VStack gap={2}>
+      <Typeahead<ContactItem>
+        label="Contact"
+        isLabelHidden
+        size="lg"
+        width="100%"
+        placeholder={
+          contacts.length > 0
+            ? 'Search contacts, or type a number'
+            : '+44 7700 900123'
+        }
+        searchSource={source}
+        value={chosen}
+        hasEntriesOnFocus={contacts.length > 0}
+        debounceMs={0}
+        // The whole book scrolls in the menu; pictures load only for the rows in view
+        maxMenuItems={Math.max(contacts.length + 1, 8)}
+        emptySearchResultsText="No contact matches. Type the whole number to send to it."
+        onChange={(item) => {
+          const number = item?.auxiliaryData?.number
+          if (item && !number) return
+          setIsTyped(false)
+          onChange({
+            recipient_type: 'contact',
+            recipient: number ? formatPhoneNumber(number) : '',
+            recipient_name: item?.auxiliaryData?.contact?.name ?? null,
+          })
+        }}
+        onChangeQuery={(query) => {
+          // Editing a picked contact fires this too; leaving the field puts the contact back
+          if (chosen) return
+          setIsTyped(true)
+          onChange({
+            recipient_type: 'contact',
+            recipient: query,
+            recipient_name: null,
+          })
+        }}
+        renderItem={(item) => {
+          const number = item.auxiliaryData?.number
+          const contact = item.auxiliaryData?.contact
+          return (
+            <TypeaheadItem
+              item={item}
+              icon={
+                contact ? (
+                  <PersonAvatar
+                    name={contact.name}
+                    pictureID={contact.id}
+                    size="sm"
+                  />
+                ) : (
+                  <Avatar size="sm" tooltip={false} />
+                )
+              }
+              description={
+                number
+                  ? contact
+                    ? formatPhoneNumber(number)
+                    : 'Not in your contacts'
+                  : 'WhatsApp hasn’t shared their number'
+              }
+              isDisabled={!number}
+            />
+          )
+        }}
+        status={status}
+      />
+      {hint ? <Text type="supporting">{hint}</Text> : null}
     </VStack>
   )
 }
@@ -158,6 +313,17 @@ function GroupPicker({
         isLoading={groups.isPending}
         isReadOnly={groups.isError}
         hasSearch={options.length > SEARCHABLE_FROM}
+        renderOption={(option) => (
+          <HStack gap={2} vAlign="center">
+            <PersonAvatar
+              name={option.label ?? option.value}
+              pictureID={option.value}
+              size="sm"
+              shape="rounded"
+            />
+            <Text maxLines={1}>{option.label ?? option.value}</Text>
+          </HStack>
+        )}
         status={
           status ??
           (warning ? { type: 'warning', message: warning } : undefined)

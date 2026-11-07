@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT jid, names FROM whatsapp_contacts WHERE account_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "jid",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_contacts",
+            "name": "jid"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "names",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_contacts",
+            "name": "names"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "27219422488001c826ea058eb08e1407dfd48dbc5df8875cd6093f87f8d2ab7a"
+}

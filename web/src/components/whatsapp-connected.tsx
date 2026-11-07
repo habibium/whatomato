@@ -16,6 +16,7 @@ import {
 } from '@astryxdesign/core/theme/tokens.stylex'
 
 import { api } from '@/api/client'
+import { PersonAvatar } from '@/components/person-avatar'
 import { ApiError, groupsQuery } from '@/lib/whatsapp'
 
 /** Enough to show the list is real without pushing the page below the fold. */
@@ -143,9 +144,21 @@ export function GroupsSection({ onStale }: ConnectedSectionProps) {
         <VStack gap={4} hAlign="start">
           <VStack as="ul" width="100%">
             {shown.map((group) => (
-              <VStack as="li" key={group.id} xstyle={styles.row}>
+              <HStack
+                as="li"
+                key={group.id}
+                gap={3}
+                vAlign="center"
+                xstyle={styles.row}
+              >
+                <PersonAvatar
+                  name={group.name || 'Unnamed group'}
+                  pictureID={group.id}
+                  size="sm"
+                  shape="rounded"
+                />
                 <Text maxLines={1}>{group.name || 'Unnamed group'}</Text>
-              </VStack>
+              </HStack>
             ))}
           </VStack>
           {list.length > PREVIEW_COUNT ? (

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n               SELECT 1 FROM whatsapp_contacts c\n               JOIN whatsapp_accounts a ON a.id = c.account_id\n               WHERE a.user_id = $1 AND c.jid = $2\n           ) AS \"saved!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "saved!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "27193cbfbfdcd3132b8d9f29b4ddab9bd1b0ce7f63edf2f410c1fcb5dcb95810"
+}

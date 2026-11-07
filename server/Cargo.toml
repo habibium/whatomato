@@ -53,6 +53,8 @@ whatsapp-rust = { git = "https://github.com/oxidezap/whatsapp-rust", rev = "4e3c
 zeroize = "1"
 
 [dev-dependencies]
+# Paused clocks for tests of time-based caches
+tokio = { version = "1", features = ["test-util"] }
 tower = { version = "0.5", features = ["util"] }
 webauthn-authenticator-rs = { version = "0.5.5", features = ["softpasskey"] }
 

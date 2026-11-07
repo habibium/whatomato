@@ -25,6 +25,7 @@ import {
   spacingVars,
 } from '@astryxdesign/core/theme/tokens.stylex'
 import {
+  BookUser,
   CalendarClock,
   FileText,
   History,
@@ -39,6 +40,7 @@ import { CONNECTION_DOTS, formatPhoneNumber, statusQuery } from '@/lib/whatsapp'
 
 const WORK = [
   { href: '/messages', label: 'Messages', icon: CalendarClock },
+  { href: '/contacts', label: 'Contacts', icon: BookUser },
   { href: '/templates', label: 'Templates', icon: FileText },
   { href: '/history', label: 'History', icon: History },
 ] as const
@@ -156,7 +158,9 @@ function AppNav() {
             label={page.label}
             href={page.href}
             icon={page.icon}
-            isSelected={page.href === pathname}
+            isSelected={
+              pathname === page.href || pathname.startsWith(`${page.href}/`)
+            }
           />
         ))}
       </SideNavSection>

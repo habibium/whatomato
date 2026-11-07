@@ -53,10 +53,11 @@ pub async fn create(db: impl PgExecutor<'_>, delivery: NewDelivery<'_>) -> sqlx:
     .await
 }
 
-/// A page of the user's deliveries, newest first
+/// A page of the user's deliveries, newest first, to `recipient` alone if it's given
 pub async fn page(
     db: impl PgExecutor<'_>,
     user_id: Uuid,
+    recipient: Option<&str>,
     limit: i64,
     offset: i64,
 ) -> sqlx::Result<Vec<Delivery>> {
@@ -65,9 +66,10 @@ pub async fn page(
         r#"SELECT id, scheduled_message_id, recipient_type AS "recipient_type: RecipientType",
                recipient, recipient_name, body, status AS "status: DeliveryStatus", error,
                created_at, sent_at
-           FROM deliveries WHERE user_id = $1
-           ORDER BY created_at DESC, id LIMIT $2 OFFSET $3"#,
+           FROM deliveries WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)
+           ORDER BY created_at DESC, id LIMIT $3 OFFSET $4"#,
         user_id,
+        recipient,
         limit,
         offset,
     )
@@ -75,10 +77,16 @@ pub async fn page(
     .await
 }
 
-pub async fn count(db: impl PgExecutor<'_>, user_id: Uuid) -> sqlx::Result<i64> {
+pub async fn count(
+    db: impl PgExecutor<'_>,
+    user_id: Uuid,
+    recipient: Option<&str>,
+) -> sqlx::Result<i64> {
     sqlx::query_scalar!(
-        r#"SELECT count(*) AS "count!" FROM deliveries WHERE user_id = $1"#,
-        user_id
+        r#"SELECT count(*) AS "count!" FROM deliveries
+           WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)"#,
+        user_id,
+        recipient
     )
     .fetch_one(db)
     .await

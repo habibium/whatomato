@@ -82,7 +82,7 @@ const capabilities = [
   },
   {
     term: 'Contacts and groups',
-    body: 'Send to any number on WhatsApp, or to a group your number is in. A number that isn’t on WhatsApp is caught before anything goes out.',
+    body: 'Pick someone by the name saved on your phone, type any number on WhatsApp, or choose a group your number is in. A number that isn’t on WhatsApp is caught before anything goes out.',
   },
   {
     term: 'Templates',
@@ -97,7 +97,7 @@ const capabilities = [
 const limits = [
   {
     term: 'It never reads your chats',
-    body: 'Whatomato doesn’t download your chat history or store the messages you receive.',
+    body: 'Whatomato doesn’t download your chat history or store the messages you receive. It keeps the names and numbers of your saved contacts, encrypted, and deletes them when you unlink.',
   },
   {
     term: 'It sends at a human pace',
@@ -116,7 +116,7 @@ const steps = [
   },
   {
     term: 'Write',
-    body: 'Choose who it goes to, write the message, and pick when: once, or on a repeat.',
+    body: 'Choose who it goes to by name, write the message, and pick when: once, or on a repeat.',
   },
   {
     term: 'Leave it',

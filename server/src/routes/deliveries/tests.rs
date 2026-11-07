@@ -92,3 +92,30 @@ async fn nobody_sees_another_users_history(pool: PgPool) {
     assert_eq!(page.body["total"], 0);
     assert_eq!(page.body["items"], json!([]));
 }
+
+#[sqlx::test]
+async fn the_history_narrows_to_one_recipient(pool: PgPool) {
+    let app = TestApp::new(pool.clone());
+    let (user_id, session) = app.signed_in("ada@example.com").await;
+    delivery(&pool, user_id, "to ada", "sent", 2.0).await;
+    sqlx::query!(
+        "INSERT INTO deliveries (user_id, recipient_type, recipient, body) \
+         VALUES ($1, 'contact', '15550002', 'to grace')",
+        user_id
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let page = app
+        .call(
+            Method::GET,
+            "/deliveries?recipient=15550002",
+            None,
+            Some(&session),
+        )
+        .await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert_eq!(page.body["total"], 1);
+    assert_eq!(page.body["items"][0]["body"], "to grace");
+}

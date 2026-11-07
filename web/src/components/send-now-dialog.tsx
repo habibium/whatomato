@@ -14,9 +14,10 @@ import { z } from 'zod'
 import { api } from '@/api/client'
 import { DialogForm } from '@/components/dialog-form'
 import { RecipientField, checkRecipient } from '@/components/recipient-field'
+import type { Recipient } from '@/components/recipient-field'
 import { toFieldErrors, toFieldStatus } from '@/lib/form-errors'
 import { BODY_MAX, DELIVERIES_KEY, bodySchema } from '@/lib/scheduler'
-import { digitsOf } from '@/lib/whatsapp'
+import { digitsOf, formatPhoneNumber } from '@/lib/whatsapp'
 import { connectionProblem, toWriteProblem } from '@/lib/write-problem'
 import type { WriteProblem } from '@/lib/write-problem'
 
@@ -33,11 +34,16 @@ const schema = z
 
 type Values = z.infer<typeof schema>
 
-const DEFAULTS: Values = {
-  recipient_type: 'contact',
-  recipient: '',
-  recipient_name: null,
-  body: '',
+function toValues(recipient: Recipient | null): Values {
+  return {
+    recipient_type: recipient?.recipient_type ?? 'contact',
+    recipient:
+      recipient?.recipient_type === 'contact'
+        ? formatPhoneNumber(recipient.recipient)
+        : (recipient?.recipient ?? ''),
+    recipient_name: recipient?.recipient_name ?? null,
+    body: '',
+  }
 }
 
 interface SendNowDialogProps {
@@ -45,12 +51,15 @@ interface SendNowDialogProps {
   onOpenChange: (isOpen: boolean) => void
   /** The message is queued, and the dialog has closed. */
   onSent: () => void
+  /** Who it goes to, with digits for a number. */
+  recipient?: Recipient | null
 }
 
 export function SendNowDialog({
   isOpen,
   onOpenChange,
   onSent,
+  recipient = null,
 }: SendNowDialogProps) {
   return (
     <Dialog
@@ -60,16 +69,22 @@ export function SendNowDialog({
       width={480}
     >
       {isOpen ? (
-        <SendNowForm onSent={onSent} onClose={() => onOpenChange(false)} />
+        <SendNowForm
+          recipient={recipient}
+          onSent={onSent}
+          onClose={() => onOpenChange(false)}
+        />
       ) : null}
     </Dialog>
   )
 }
 
 function SendNowForm({
+  recipient,
   onSent,
   onClose,
 }: {
+  recipient: Recipient | null
   onSent: () => void
   onClose: () => void
 }) {
@@ -78,7 +93,7 @@ function SendNowForm({
   const [isWhatsAppDown, setIsWhatsAppDown] = useState(false)
 
   const form = useForm({
-    defaultValues: DEFAULTS,
+    defaultValues: toValues(recipient),
     validators: { onSubmit: schema },
     canSubmitWhenInvalid: true,
     listeners: {
@@ -178,7 +193,6 @@ function SendNowForm({
                         )
                         field.handleChange(next.recipient)
                       }}
-                      onBlur={field.handleBlur}
                       status={toFieldStatus(field.state.meta)}
                     />
                   )}

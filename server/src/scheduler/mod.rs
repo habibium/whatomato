@@ -405,7 +405,7 @@ mod tests {
         assert!(!row.enabled);
         assert_eq!(row.next_run_at, None);
         assert!(row.last_run_at.is_some());
-        assert_eq!(deliveries::count(&pool, owner).await.unwrap(), 1);
+        assert_eq!(deliveries::count(&pool, owner, None).await.unwrap(), 1);
     }
 
     #[sqlx::test]

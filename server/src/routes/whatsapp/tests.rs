@@ -124,3 +124,159 @@ async fn linking_refuses_a_number_that_cannot_be_whole(pool: PgPool) {
         response.body
     );
 }
+
+#[sqlx::test]
+async fn contacts_list_by_name_with_numbers_from_lid_mappings(pool: PgPool) {
+    use crate::{
+        crypto::Cipher,
+        db::{whatsapp_accounts, whatsapp_contacts},
+        whatsapp::contacts::{Names, seal_names},
+    };
+
+    let app = TestApp::new(pool.clone());
+    let (user_id, session) = app.signed_in("ada@example.com").await;
+    let empty = call(&app, Method::GET, "/contacts", None, Some(&session)).await;
+    assert_eq!(empty.status, StatusCode::OK);
+    assert_eq!(empty.body, json!({ "imported": false, "contacts": [] }));
+
+    let cipher = Cipher::new(&[0; 32]);
+    let account_id = whatsapp_accounts::find_or_create(&pool, user_id)
+        .await
+        .unwrap()
+        .id;
+    let contacts = [
+        (
+            "15550001@s.whatsapp.net",
+            Some("15550001"),
+            None,
+            Some("zoe"),
+            None,
+        ),
+        (
+            "100000000000001@lid",
+            None,
+            Some("100000000000001"),
+            Some("Ada"),
+            Some("Ada"),
+        ),
+        (
+            "100000000000002@lid",
+            None,
+            Some("100000000000002"),
+            Some("bob"),
+            None,
+        ),
+        (
+            "15550004@s.whatsapp.net",
+            Some("15550004"),
+            None,
+            None,
+            None,
+        ),
+    ];
+    for (jid, number, lid, full_name, first_name) in contacts {
+        let names = Names {
+            full_name: full_name.map(str::to_owned),
+            first_name: first_name.map(str::to_owned),
+            username: None,
+        };
+        let sealed = seal_names(&cipher, account_id, jid, &names).unwrap();
+        whatsapp_contacts::save(&pool, account_id, jid, number, lid, &sealed)
+            .await
+            .unwrap();
+    }
+    sqlx::query!(
+        "INSERT INTO whatsapp_lid_mappings \
+         (account_id, lid, phone_number, learning_source, created_at, updated_at) \
+         VALUES ($1, '100000000000001', '15550002', 'other', 0, 0)",
+        account_id
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    whatsapp_contacts::mark_imported(&pool, account_id)
+        .await
+        .unwrap();
+
+    let listed = call(&app, Method::GET, "/contacts", None, Some(&session)).await;
+    assert_eq!(listed.status, StatusCode::OK);
+    assert_eq!(
+        listed.body,
+        json!({
+            "imported": true,
+            "contacts": [
+                {
+                    "id": "100000000000001@lid",
+                    "name": "Ada",
+                    "first_name": "Ada",
+                    "phone_number": "15550002",
+                    "username": null,
+                },
+                {
+                    "id": "100000000000002@lid",
+                    "name": "bob",
+                    "first_name": null,
+                    "phone_number": null,
+                    "username": null,
+                },
+                {
+                    "id": "15550001@s.whatsapp.net",
+                    "name": "zoe",
+                    "first_name": null,
+                    "phone_number": "15550001",
+                    "username": null,
+                },
+            ],
+        })
+    );
+}
+
+#[sqlx::test]
+async fn pictures_are_only_for_saved_contacts_and_groups(pool: PgPool) {
+    use crate::{
+        crypto::Cipher,
+        db::{whatsapp_accounts, whatsapp_contacts},
+        whatsapp::contacts::{Names, seal_names},
+    };
+
+    let app = TestApp::new(pool.clone());
+    let (user_id, session) = app.signed_in("ada@example.com").await;
+    let account_id = whatsapp_accounts::find_or_create(&pool, user_id)
+        .await
+        .unwrap()
+        .id;
+    let names = Names {
+        full_name: Some("Grace".into()),
+        first_name: None,
+        username: None,
+    };
+    let saved = "15550001@s.whatsapp.net";
+    let sealed = seal_names(&Cipher::new(&[0; 32]), account_id, saved, &names).unwrap();
+    whatsapp_contacts::save(&pool, account_id, saved, Some("15550001"), None, &sealed)
+        .await
+        .unwrap();
+
+    // Nothing is linked, so even an allowed picture can't be looked up
+    for id in [
+        "15550001%40s.whatsapp.net",
+        "15550002%40s.whatsapp.net",
+        "120363000000000000%40g.us",
+        "not-a-jid",
+    ] {
+        let path = format!("/pictures/{id}");
+        let response = call(&app, Method::GET, &path, None, Some(&session)).await;
+        assert_eq!(response.status, StatusCode::NOT_FOUND, "{id}");
+    }
+    let anonymous = call(&app, Method::GET, "/pictures/x", None, None).await;
+    assert_eq!(anonymous.status, StatusCode::UNAUTHORIZED);
+    assert!(
+        whatsapp_contacts::is_saved(&pool, user_id, saved)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !whatsapp_contacts::is_saved(&pool, user_id, "15550002@s.whatsapp.net")
+            .await
+            .unwrap()
+    );
+}

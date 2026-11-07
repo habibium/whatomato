@@ -2,14 +2,12 @@ import { useState } from 'react'
 import * as stylex from '@stylexjs/stylex'
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
-import { Avatar } from '@astryxdesign/core/Avatar'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { HStack } from '@astryxdesign/core/HStack'
 import { List, ListItem } from '@astryxdesign/core/List'
 import { Pagination } from '@astryxdesign/core/Pagination'
 import { Skeleton } from '@astryxdesign/core/Skeleton'
-import { StatusDot } from '@astryxdesign/core/StatusDot'
 import { Heading, Text } from '@astryxdesign/core/Text'
 import { VStack } from '@astryxdesign/core/VStack'
 import {
@@ -19,15 +17,14 @@ import {
 } from '@astryxdesign/core/theme/tokens.stylex'
 
 import { AppFrame } from '@/components/app-frame'
+import { DeliveryStatus } from '@/components/delivery-status'
+import { PersonAvatar } from '@/components/person-avatar'
 import { ListEmpty } from '@/components/list-empty'
 import { OfflineBanner } from '@/components/offline-banner'
 import { PageHeading } from '@/components/page-heading'
 import { dayKey, formatClock, formatDayHeading } from '@/lib/format'
-import {
-  DELIVERIES_PER_PAGE,
-  deliveriesQuery,
-  recipientLabel,
-} from '@/lib/scheduler'
+import { useRecipientLabel, useRecipientPictureID } from '@/lib/contacts'
+import { DELIVERIES_PER_PAGE, deliveriesQuery } from '@/lib/scheduler'
 import type { Delivery } from '@/lib/scheduler'
 import { useSessionExpiry } from '@/lib/use-session-expiry'
 
@@ -43,7 +40,6 @@ const styles = stylex.create({
     width: { default: '4.25rem', '@media (min-width: 640px)': '4.75rem' },
   },
   start: { paddingTop: spacingVars['--spacing-0-5'] },
-  status: { flexShrink: 0, whiteSpace: 'nowrap' },
   day: {
     fontSize: typeScaleVars['--text-heading-3-size'],
     lineHeight: typeScaleVars['--text-heading-3-leading'],
@@ -178,7 +174,8 @@ function DeliveryLog({ deliveries }: { deliveries: Delivery[] }) {
 }
 
 function DeliveryRow({ delivery }: { delivery: Delivery }) {
-  const name = recipientLabel(delivery)
+  const name = useRecipientLabel()(delivery)
+  const pictureID = useRecipientPictureID()(delivery)
   const isFailed = delivery.status === 'failed'
   return (
     <ListItem
@@ -194,11 +191,11 @@ function DeliveryRow({ delivery }: { delivery: Delivery }) {
             {formatClock(delivery.sent_at ?? delivery.created_at)}
           </Text>
           <HStack xstyle={styles.avatar}>
-            <Avatar
+            <PersonAvatar
               name={name}
+              pictureID={pictureID}
               size="sm"
               shape={delivery.recipient_type === 'group' ? 'rounded' : 'circle'}
-              tooltip={false}
             />
           </HStack>
         </HStack>
@@ -221,40 +218,7 @@ function DeliveryRow({ delivery }: { delivery: Delivery }) {
           ) : null}
         </VStack>
       }
-      endContent={<Status delivery={delivery} />}
+      endContent={<DeliveryStatus delivery={delivery} />}
     />
-  )
-}
-
-function describeStatus({ status, error }: Delivery) {
-  switch (status) {
-    case 'sent':
-      return { label: 'Sent', variant: 'success', isPulsing: false } as const
-    case 'failed':
-      return { label: 'Failed', variant: 'error', isPulsing: false } as const
-    case 'pending':
-      return error
-        ? ({
-            label: 'Waiting to retry',
-            variant: 'warning',
-            isPulsing: true,
-          } as const)
-        : ({ label: 'Sending', variant: 'accent', isPulsing: true } as const)
-  }
-}
-
-function Status({ delivery }: { delivery: Delivery }) {
-  const status = describeStatus(delivery)
-  return (
-    <HStack gap={2} vAlign="center" xstyle={styles.status}>
-      {/* The word beside it says the same, so the dot itself stays quiet */}
-      <StatusDot
-        aria-hidden="true"
-        variant={status.variant}
-        label={status.label}
-        isPulsing={status.isPulsing}
-      />
-      <Text>{status.label}</Text>
-    </HStack>
   )
 }

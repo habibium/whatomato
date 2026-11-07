@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO whatsapp_contacts (account_id, jid, phone_number, lid, names) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (account_id, jid) DO UPDATE SET phone_number = EXCLUDED.phone_number, lid = EXCLUDED.lid, names = EXCLUDED.names, updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "23f4b3341f7768bbf0d90f6a9b9defc834b098e1d9cd9a888c1667ad062115fe"
+}

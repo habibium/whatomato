@@ -36,6 +36,9 @@ struct Page {
     #[serde(default)]
     #[validate(range(min = 0, message = "can't be negative"))]
     offset: i64,
+    /// Only deliveries to this number's digits or this group's id
+    #[validate(length(min = 1, max = 128, message = "must be between 1 and 128 characters"))]
+    recipient: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -110,9 +113,10 @@ async fn list_deliveries(
     ValidatedQuery(page): ValidatedQuery<Page>,
 ) -> Result<Json<DeliveryPage>, AppError> {
     let user_id = session.user.id;
+    let recipient = page.recipient.as_deref();
     let (items, total) = tokio::try_join!(
-        deliveries::page(&state.pool, user_id, page.limit, page.offset),
-        deliveries::count(&state.pool, user_id),
+        deliveries::page(&state.pool, user_id, recipient, page.limit, page.offset),
+        deliveries::count(&state.pool, user_id, recipient),
     )?;
     Ok(Json(DeliveryPage {
         items: items.into_iter().map(Into::into).collect(),

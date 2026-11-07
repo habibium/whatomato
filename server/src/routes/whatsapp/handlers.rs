@@ -1,15 +1,23 @@
 use anyhow::anyhow;
-use axum::{Json, extract::State, http::StatusCode};
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::{StatusCode, header},
+    response::{IntoResponse, Response},
+};
+use whatsapp_rust::prelude::{Jid, Server};
 
 use super::dto::{
-    GroupResponse, LinkRequest, PasswordConfirmation, Unlinked, WhatsAppStatus, digits,
+    ContactBook, ContactResponse, GroupResponse, LinkRequest, PasswordConfirmation, Unlinked,
+    WhatsAppStatus, digits,
 };
 use crate::{
     auth::{reauth, session::Session},
+    db::whatsapp_contacts,
     error::{AppError, ErrorBody},
     extract::ValidatedJson,
     state::AppState,
-    whatsapp::{status::Method, supervisor::CommandError},
+    whatsapp::{contacts, status::Method, supervisor::CommandError},
 };
 
 /// The account's WhatsApp status
@@ -173,6 +181,87 @@ pub async fn groups(
         .map_err(refused_with("WhatsApp isn't connected"))?;
 
     Ok(Json(groups.into_iter().map(GroupResponse::from).collect()))
+}
+
+/// The contacts saved on the phone, to choose where messages go by name
+///
+/// The phone shares its address book with linked devices; this is the copy kept from it, so it
+/// answers while WhatsApp is paused or offline too. Unlinking deletes it.
+#[utoipa::path(get, path = "/contacts", responses(
+    (status = OK, body = ContactBook),
+    (status = UNAUTHORIZED, body = ErrorBody),
+    (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
+))]
+pub async fn contacts(
+    State(state): State<AppState>,
+    session: Session,
+) -> Result<Json<ContactBook>, AppError> {
+    let Some(book) = whatsapp_contacts::book(&state.pool, session.user.id).await? else {
+        return Ok(Json(ContactBook {
+            imported: false,
+            contacts: Vec::new(),
+        }));
+    };
+    let account_id = book.account_id;
+    let mut list: Vec<_> = book
+        .contacts
+        .into_iter()
+        .filter_map(|row| {
+            match contacts::open_names(&state.cipher, account_id, &row.jid, &row.names) {
+                Ok(names) => ContactResponse::new(row.jid, row.phone_number, names),
+                Err(error) => {
+                    tracing::error!(%account_id, "a WhatsApp contact didn't open: {error:#}");
+                    None
+                }
+            }
+        })
+        .collect();
+    list.sort_by_cached_key(|contact| contact.name.to_lowercase());
+
+    Ok(Json(ContactBook {
+        imported: book.imported,
+        contacts: list,
+    }))
+}
+
+/// A saved contact's or a group's profile picture, a small JPEG
+///
+/// Looked up on WhatsApp while it's connected and kept in memory for a few hours. Not found when
+/// there's none, when the contact keeps it private, or when it can't be looked up right now.
+#[utoipa::path(get, path = "/pictures/{id}", params(("id" = String, Path, description = "The contact's or group's id")), responses(
+    (status = OK, content_type = "image/jpeg", body = Vec<u8>),
+    (status = UNAUTHORIZED, body = ErrorBody),
+    (status = NOT_FOUND, body = ErrorBody),
+    (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
+))]
+pub async fn picture(
+    State(state): State<AppState>,
+    session: Session,
+    Path(id): Path<String>,
+) -> Result<Response, AppError> {
+    let user_id = session.user.id;
+    let jid: Jid = id.parse().map_err(|_| AppError::NotFound)?;
+    // Only the people the user saved, so this can't look up any number on WhatsApp
+    let allowed = jid.server == Server::Group
+        || whatsapp_contacts::is_saved(&state.pool, user_id, &id).await?;
+    if !allowed {
+        return Err(AppError::NotFound);
+    }
+    let image = state
+        .whatsapp
+        .handle(user_id)
+        .picture(jid)
+        .await
+        .ok_or(AppError::NotFound)?;
+
+    Ok((
+        [
+            (header::CONTENT_TYPE, "image/jpeg"),
+            (header::CACHE_CONTROL, "private, max-age=3600"),
+        ],
+        image.to_vec(),
+    )
+        .into_response())
 }
 
 /// Send a test message to the account's own number, to check the link works

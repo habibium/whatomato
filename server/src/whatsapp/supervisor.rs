@@ -29,6 +29,8 @@ use whatsapp_rust::{
 
 use super::{
     alerts,
+    contacts::{self, Changes, Feed},
+    pictures::{Image, Pictures},
     status::{self, Alert, Code, Effect, Event, Method, Refused, Status, StopReason},
     store::PgStore,
 };
@@ -240,6 +242,7 @@ enum Command {
     Change(Event, oneshot::Sender<Result<(), CommandError>>),
     Unlink(oneshot::Sender<Result<bool, CommandError>>),
     Groups(oneshot::Sender<Result<Vec<Group>, CommandError>>),
+    Picture(Jid, oneshot::Sender<Option<Image>>),
     SendTestMessage(oneshot::Sender<Result<(), CommandError>>),
     Send(Recipient, String, oneshot::Sender<Result<(), SendFailure>>),
     Shutdown(oneshot::Sender<()>),
@@ -288,6 +291,14 @@ impl Handle {
     /// [`CommandError::NotConnected`] unless connected; `Failed` if WhatsApp doesn't answer.
     pub async fn groups(&self) -> Result<Vec<Group>, CommandError> {
         self.ask(Command::Groups).await?
+    }
+
+    /// A contact's or group's picture: from memory, else from WhatsApp while connected
+    pub async fn picture(&self, jid: Jid) -> Option<Image> {
+        self.ask(|reply| Command::Picture(jid, reply))
+            .await
+            .ok()
+            .flatten()
     }
 
     /// Sends a short text to the account's own number, to prove the link works
@@ -356,9 +367,12 @@ pub fn spawn(
     let (commands_tx, commands) = mpsc::channel(16);
     let (status_tx, status_rx) = watch::channel(status);
     let (events_tx, events) = mpsc::unbounded_channel();
+    let contacts = contacts::spawn_writer(context.pool.clone(), context.cipher.clone());
     tokio::spawn(
         Supervisor {
             context,
+            contacts,
+            pictures: Arc::new(Pictures::new()),
             user_id,
             account_id,
             status: status_tx,
@@ -386,6 +400,8 @@ pub fn spawn(
 
 struct Supervisor {
     context: Context,
+    contacts: Changes,
+    pictures: Arc<Pictures>,
     user_id: Uuid,
     /// `None` until the first link, and again once an unlink deletes the row
     account_id: Option<Uuid>,
@@ -413,6 +429,7 @@ struct Running {
     handle: BotHandle,
     client: Arc<Client>,
     presence: Option<AbortOnDrop>,
+    contacts_import: Option<AbortOnDrop>,
 }
 
 impl Running {
@@ -421,6 +438,7 @@ impl Running {
             client: handle.client(),
             handle,
             presence: None,
+            contacts_import: None,
         }
     }
 }
@@ -467,6 +485,7 @@ impl Supervisor {
                     let _ = reply.send(self.handle(Event::Unlink).await);
                 }
                 Wake::Command(Command::Groups(reply)) => self.groups(reply),
+                Wake::Command(Command::Picture(jid, reply)) => self.picture(jid, reply),
                 Wake::Command(Command::SendTestMessage(reply)) => self.send_test_message(reply),
                 Wake::Command(Command::Send(to, body, reply)) => self.send(to, body, reply),
                 Wake::Command(Command::Shutdown(reply)) => {
@@ -483,6 +502,7 @@ impl Supervisor {
                         self.restarts = 0;
                         self.keepalive_connected = true;
                         self.keep_presence_fresh();
+                        self.import_contacts();
                     }
                     let _ = self.handle(event).await;
                 }
@@ -590,6 +610,7 @@ impl Supervisor {
                 }
                 Effect::SaveStopped(reason) => self.save_stop(&reason).await,
                 Effect::Forget => {
+                    self.pictures.clear();
                     if let Some(account_id) = self.account_id.take() {
                         let deleted =
                             whatsapp_accounts::delete(&self.context.pool, account_id).await;
@@ -723,6 +744,7 @@ impl Supervisor {
             .skip_history_sync()
             .with_cache_config(cache)
             .with_http_client_arc(Arc::clone(&self.context.http))
+            .with_event_handler(Feed::new(account_id, self.contacts.clone()))
             .on_event_for(&WATCHED, move |event, _client| {
                 let events = events.clone();
                 let acks = acks.clone();
@@ -759,11 +781,12 @@ impl Supervisor {
             handle,
             client,
             presence,
+            contacts_import,
         }) = self.client.take()
         else {
             return;
         };
-        drop(presence);
+        drop((presence, contacts_import));
         let released = client.store_release();
         drop(client);
         // Dropping the handle when time runs out aborts the client
@@ -792,11 +815,12 @@ impl Supervisor {
             handle,
             client,
             presence,
+            contacts_import,
         }) = self.client.take()
         else {
             return false;
         };
-        drop(presence);
+        drop((presence, contacts_import));
         let released = client.store_release();
         let report = timeout(STOP_LIMIT, client.logout()).await;
         drop(client);
@@ -845,6 +869,30 @@ impl Supervisor {
                 tokio::spawn(pulse_presence(client, first_in)).abort_handle(),
             ));
         }
+    }
+
+    /// A keepalive's client is gone before a replay would finish, so a paused account waits
+    fn import_contacts(&mut self) {
+        if matches!(*self.status.borrow(), Status::Paused { .. }) {
+            return;
+        }
+        let (Some(running), Some(account_id)) = (&mut self.client, self.account_id) else {
+            return;
+        };
+        if running
+            .contacts_import
+            .as_ref()
+            .is_some_and(|task| !task.0.is_finished())
+        {
+            return;
+        }
+        let import = contacts::import_once(
+            Arc::clone(&running.client),
+            self.context.pool.clone(),
+            account_id,
+            self.contacts.clone(),
+        );
+        running.contacts_import = Some(AbortOnDrop(tokio::spawn(import).abort_handle()));
     }
 
     async fn request_pair_code(&self) {
@@ -905,6 +953,23 @@ impl Supervisor {
                 ))),
             };
             let _ = reply.send(groups);
+        });
+    }
+
+    fn picture(&self, jid: Jid, reply: oneshot::Sender<Option<Image>>) {
+        // Memory answers even while WhatsApp is offline
+        if let Some(known) = self.pictures.cached(&jid.to_string()) {
+            let _ = reply.send(known.image());
+            return;
+        }
+        let Ok(client) = self.connected_client() else {
+            let _ = reply.send(None);
+            return;
+        };
+        let pictures = Arc::clone(&self.pictures);
+        let http = Arc::clone(&self.context.http);
+        tokio::spawn(async move {
+            let _ = reply.send(pictures.fetch(&client, &*http, &jid).await);
         });
     }
 

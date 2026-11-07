@@ -6,6 +6,7 @@ use validator::{Validate, ValidationError};
 use crate::{
     auth::two_factor::qr_code,
     whatsapp::{
+        contacts::Names,
         status::{LinkEnded, Method, Status, StopReason},
         supervisor::Group,
     },
@@ -185,6 +186,50 @@ impl From<Group> for GroupResponse {
             id: group.id,
             name: group.name,
         }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+pub(super) struct ContactBook {
+    /// False until the phone's address book has come through in full, which starts once WhatsApp
+    /// connects. Poll every few seconds meanwhile.
+    pub imported: bool,
+    /// By name
+    pub contacts: Vec<ContactResponse>,
+}
+
+/// A contact saved on the phone
+#[derive(Serialize, ToSchema)]
+pub(super) struct ContactResponse {
+    /// WhatsApp's address for the contact
+    pub id: String,
+    /// As saved on the phone, else the first name or the WhatsApp username
+    pub name: String,
+    #[schema(required = true)]
+    pub first_name: Option<String>,
+    /// Digits with the country code. Empty when WhatsApp hasn't shared the number with linked
+    /// devices, and then nothing can be sent to the contact.
+    #[schema(required = true)]
+    pub phone_number: Option<String>,
+    #[schema(required = true)]
+    pub username: Option<String>,
+}
+
+impl ContactResponse {
+    /// `None` for a contact with no name at all, which no one could pick out of a list
+    pub(super) fn new(id: String, phone_number: Option<String>, names: Names) -> Option<Self> {
+        let name = names
+            .full_name
+            .clone()
+            .or_else(|| names.first_name.clone())
+            .or_else(|| names.username.clone())?;
+        Some(Self {
+            id,
+            name,
+            first_name: names.first_name,
+            phone_number,
+            username: names.username,
+        })
     }
 }
 
