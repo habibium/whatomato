@@ -2,7 +2,7 @@ use anyhow::Context;
 use chrono::{DateTime, DurationRound, TimeDelta, Utc};
 use url::Url;
 
-use super::Email;
+use super::{Email, LOGO_CID};
 use crate::{auth::token::Purpose, whatsapp::status::Alert};
 
 const PRODUCT_NAME: &str = "Whatomato";
@@ -287,8 +287,8 @@ fn render(layout: &Layout) -> Email {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:480px;font-family:{FONT};color:{TEXT};">
 <tr><td style="padding-bottom:40px;">
 <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
-<td valign="middle" style="width:12px;"><div style="width:12px;height:12px;background:{ACCENT};border-radius:6px 6px 6px 0;font-size:0;line-height:0;">&nbsp;</div></td>
-<td style="padding-left:8px;font-size:15px;line-height:20px;font-weight:600;letter-spacing:-0.012em;">{PRODUCT_NAME}</td>
+<td valign="middle" style="width:24px;"><img src="cid:{LOGO_CID}" width="24" height="24" alt="" style="display:block;border:0;outline:none;"></td>
+<td valign="middle" style="padding-left:8px;font-size:15px;line-height:20px;font-weight:600;letter-spacing:-0.012em;">{PRODUCT_NAME}</td>
 </tr></table>
 </td></tr>
 <tr><td style="padding-bottom:12px;font-size:24px;line-height:30px;font-weight:600;letter-spacing:-0.02em;">{heading}</td></tr>

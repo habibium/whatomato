@@ -3,8 +3,14 @@ pub(crate) mod templates;
 use anyhow::Context;
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-    message::{Mailbox, MultiPart},
+    message::{Attachment, Mailbox, MultiPart, SinglePart, header::ContentType},
 };
+
+/// Embedded rather than linked: clients block remote images until asked, and a dev `APP_URL`
+/// isn't reachable from a mailbox at all
+const LOGO: &[u8] = include_bytes!("whatomato-mark.png");
+/// What the HTML part's `<img src="cid:…">` points at
+pub(crate) const LOGO_CID: &str = "mark@whatomato";
 
 pub struct Email {
     pub subject: &'static str,
@@ -75,12 +81,7 @@ impl Mailer {
     async fn send(&self, to: &str, email: Email) -> anyhow::Result<()> {
         match self {
             Self::Smtp { transport, from } => {
-                let message = Message::builder()
-                    .from(from.clone())
-                    .to(to.parse()?)
-                    .subject(email.subject)
-                    .multipart(MultiPart::alternative_plain_html(email.text, email.html))?;
-                transport.send(message).await?;
+                transport.send(message(from, to, email)?).await?;
             }
             Self::Log => {
                 tracing::info!(
@@ -95,5 +96,47 @@ impl Mailer {
         }
 
         Ok(())
+    }
+}
+
+/// Plain text, or HTML with the logo it shows beside it
+fn message(from: &Mailbox, to: &str, email: Email) -> anyhow::Result<Message> {
+    let logo = Attachment::new_inline(LOGO_CID.to_owned())
+        .body(LOGO.to_vec(), ContentType::parse("image/png")?);
+    Ok(Message::builder()
+        .from(from.clone())
+        .to(to.parse()?)
+        .subject(email.subject)
+        .multipart(
+            MultiPart::alternative()
+                .singlepart(SinglePart::plain(email.text))
+                .multipart(
+                    MultiPart::related()
+                        .singlepart(SinglePart::html(email.html))
+                        .singlepart(logo),
+                ),
+        )?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_html_carries_the_logo_it_points_at() {
+        let link = url::Url::parse("https://example.com/verify").unwrap();
+        let email = templates::verify_email(&link);
+        assert!(email.html.contains(&format!(r#"src="cid:{LOGO_CID}""#)));
+
+        let from: Mailbox = "Whatomato <hello@example.com>".parse().unwrap();
+        let raw = String::from_utf8(
+            message(&from, "ada@example.com", email)
+                .unwrap()
+                .formatted(),
+        )
+        .unwrap();
+        assert!(raw.contains("multipart/related"));
+        assert!(raw.contains(&format!("Content-ID: <{LOGO_CID}>")));
+        assert!(raw.contains("Content-Type: image/png"));
     }
 }
