@@ -7,13 +7,13 @@ import { Dialog, DialogHeader } from '@astryxdesign/core/Dialog'
 import { FormLayout } from '@astryxdesign/core/FormLayout'
 import { HStack } from '@astryxdesign/core/HStack'
 import { Layout, LayoutContent, LayoutFooter } from '@astryxdesign/core/Layout'
-import { TextArea } from '@astryxdesign/core/TextArea'
 import { TextInput } from '@astryxdesign/core/TextInput'
 import { VStack } from '@astryxdesign/core/VStack'
 import { z } from 'zod'
 
 import { api } from '@/api/client'
 import { DialogForm } from '@/components/dialog-form'
+import { MessageBodyField } from '@/components/message-body-field'
 import { toFieldErrors, toFieldStatus } from '@/lib/form-errors'
 import { BODY_MAX, bodySchema, templatesQuery } from '@/lib/scheduler'
 import type { Template } from '@/lib/scheduler'
@@ -141,9 +141,7 @@ function TemplateForm({
                 </form.Field>
                 <form.Field name="body">
                   {(field) => (
-                    <TextArea
-                      label="Message"
-                      size="lg"
+                    <MessageBodyField
                       rows={6}
                       maxLength={BODY_MAX}
                       htmlName={field.name}

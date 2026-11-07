@@ -7,7 +7,7 @@ use whatsapp_rust::prelude::Jid;
 
 use crate::{
     db::scheduled_messages::{Fields, Message},
-    scheduler::{RecipientType, ScheduleKind, cron},
+    scheduler::{RecipientType, ScheduleKind, cron, variables},
 };
 
 /// WhatsApp allows far more; this keeps payloads sane
@@ -169,8 +169,10 @@ pub(super) struct SendNowRequest {
     /// As in a scheduled message
     pub recipient: String,
     pub recipient_name: Option<String>,
-    /// Up to 4096 characters
+    /// Up to 4096 characters, variables included
     pub body: String,
+    /// The IANA zone `{{date}}`, `{{time}}` and the like read in; UTC when left out
+    pub timezone: Option<String>,
 }
 
 impl Validate for SendNowRequest {
@@ -245,6 +247,11 @@ pub fn check_body(body: &str, errors: &mut ValidationErrors) {
         add(errors, "body", "can't be empty");
     } else if length > BODY_MAX {
         add(errors, "body", "must be at most 4096 characters");
+    } else if let Err(problem) = variables::check(body) {
+        errors.add(
+            "body",
+            ValidationError::new("invalid").with_message(problem.message().into()),
+        );
     }
 }
 

@@ -3441,7 +3441,7 @@
         "properties": {
           "body": {
             "type": "string",
-            "description": "Up to 4096 characters"
+            "description": "Up to 4096 characters, variables included"
           },
           "recipient": {
             "type": "string",
@@ -3455,6 +3455,13 @@
           },
           "recipient_type": {
             "$ref": "#/components/schemas/RecipientType"
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The IANA zone `{{date}}`, `{{time}}` and the like read in; UTC when left out"
           }
         }
       },

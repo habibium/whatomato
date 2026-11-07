@@ -17,7 +17,6 @@ import {
 import { Selector } from '@astryxdesign/core/Selector'
 import { Switch } from '@astryxdesign/core/Switch'
 import { Text } from '@astryxdesign/core/Text'
-import { TextArea } from '@astryxdesign/core/TextArea'
 import { VStack } from '@astryxdesign/core/VStack'
 import { z } from 'zod'
 
@@ -26,8 +25,10 @@ import type { components } from '@/api/schema'
 import { api } from '@/api/client'
 import { CronBuilder } from '@/components/cron-builder'
 import { DialogForm } from '@/components/dialog-form'
+import { MessageBodyField } from '@/components/message-body-field'
 import { RecipientField, checkRecipient } from '@/components/recipient-field'
 import type { Recipient } from '@/components/recipient-field'
+import { useVariableContext } from '@/lib/contacts'
 import { DEFAULT_CRON, HOUR_FORMAT } from '@/lib/cron'
 import { toFieldErrors, toFieldStatus } from '@/lib/form-errors'
 import {
@@ -254,6 +255,17 @@ function MessageForm({
     (state) => state.values.recipient_name,
   )
   const templateID = useStore(form.store, (state) => state.values.template_id)
+  const recipientValue = useStore(form.store, (state) => state.values.recipient)
+  const runAt = useStore(form.store, (state) => state.values.run_at)
+  const variables = useVariableContext(
+    {
+      recipient_type: recipientType,
+      recipient: recipientValue,
+      recipient_name: recipientName,
+    },
+    scheduleKind === 'once' && runAt ? new Date(runAt) : null,
+    timezone,
+  )
   const list = templates.data ?? []
 
   return (
@@ -332,16 +344,14 @@ function MessageForm({
 
                 <form.Field name="body">
                   {(field) => (
-                    <TextArea
-                      label="Message"
-                      size="lg"
-                      rows={5}
+                    <MessageBodyField
                       maxLength={BODY_MAX}
                       htmlName={field.name}
                       value={field.state.value}
                       onChange={(value) => field.handleChange(value)}
                       onBlur={field.handleBlur}
                       status={toFieldStatus(field.state.meta)}
+                      context={variables}
                     />
                   )}
                 </form.Field>

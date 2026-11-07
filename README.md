@@ -132,6 +132,8 @@ A connected account shows as online for 45 seconds once a day, which keeps the p
 
 A message goes out once at a set time, or repeatedly on a five-field cron schedule read in the time zone it was created in. Minutes are the finest unit, and each account sends at most one message every 3 seconds, however many are due, since sending like a machine is one way to get banned. A server that was down sends what it missed once when it's back, and a repeating message then moves on to its next time.
 
+A message or template can hold variables, filled in as each message is queued: `{{first_name}}` and `{{name}}` from the name saved on the phone (or the group's name), and `{{day}}`, `{{date}}`, `{{time}}`, `{{month}}` and `{{year}}` for when it's due, in its own time zone. A fallback goes after a bar, so `{{first_name|there}}` says "there" when there's no name. Saving refuses a variable that doesn't exist, and the history keeps the text as it went out.
+
 A delivery reads as sent once WhatsApp acknowledges it, which doesn't prove it reached the phone. A contact is checked first, so a number that isn't on WhatsApp fails instead of appearing to work. While WhatsApp is reconnecting a send waits and tries again for about half an hour. It fails straight away when the account is paused, stopped or unlinked, because only its owner can fix that. Anything that may already have gone out, such as a send the server restarted during or one WhatsApp never confirmed, fails with a message saying so rather than risking a second copy.
 
 ### Running it

@@ -86,7 +86,7 @@ const capabilities = [
   },
   {
     term: 'Templates',
-    body: 'Save the text you send often, and start a message from it in one click.',
+    body: 'Save the text you send often, and start a message from it in one click. Write {{first_name}} or {{date}} and each message fills them in as it goes out.',
   },
   {
     term: 'History',

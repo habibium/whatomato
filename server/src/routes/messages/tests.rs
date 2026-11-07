@@ -387,3 +387,37 @@ async fn sending_now_checks_the_message_first(pool: PgPool) {
     assert!(refused.body["details"]["recipient"].is_array());
     assert!(refused.body["details"]["body"].is_array());
 }
+
+#[sqlx::test]
+async fn a_message_names_only_variables_that_exist(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (_, session) = app.signed_in("ada@example.com").await;
+
+    let saved = create(
+        &app,
+        with(
+            once(),
+            "body",
+            json!("Hi {{first_name|there}}, see you {{day}}"),
+        ),
+        &session,
+    )
+    .await;
+    assert_eq!(saved["body"], "Hi {{first_name|there}}, see you {{day}}");
+
+    for (body, message) in [
+        ("Hi {{firstname}}", "{{firstname}} isn't a variable"),
+        ("Hi {{first_name", "a {{ needs a }} to close it"),
+    ] {
+        let refused = app
+            .call(
+                Method::POST,
+                "/messages",
+                Some(with(once(), "body", json!(body))),
+                Some(&session),
+            )
+            .await;
+        assert_eq!(refused.status, StatusCode::BAD_REQUEST);
+        assert_eq!(refused.body["details"]["body"][0], message);
+    }
+}

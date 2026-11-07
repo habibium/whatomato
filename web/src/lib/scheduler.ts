@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { components } from '@/api/schema'
 
 import { api } from '@/api/client'
+import { variableProblem } from '@/lib/variables'
 import { ApiError } from '@/lib/whatsapp'
 
 export type ScheduledMessage = components['schemas']['ScheduledMessage']
@@ -27,6 +28,10 @@ export const bodySchema = z
     (body) => [...body].length <= BODY_MAX,
     `Keep it to ${BODY_MAX} characters`,
   )
+  .superRefine((body, context) => {
+    const problem = variableProblem(body)
+    if (problem) context.addIssue({ code: 'custom', message: problem })
+  })
 
 // The server sends about one message every 3 seconds, so a pending row rarely waits long
 const PENDING_POLL_MS = 3_000

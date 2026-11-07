@@ -2,6 +2,7 @@
 //! schedules into deliveries, then starts at most one delivery per account.
 
 pub mod cron;
+pub mod variables;
 
 use std::{collections::HashMap, future::Future, time::Duration};
 
@@ -17,6 +18,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{
+    crypto::Cipher,
     db::{
         deliveries::{self, Claimed, NewDelivery},
         scheduled_messages,
@@ -124,11 +126,11 @@ pub struct Scheduler {
 
 impl Scheduler {
     #[must_use]
-    pub fn spawn(pool: PgPool, sender: impl Sender) -> Self {
+    pub fn spawn(pool: PgPool, cipher: Cipher, sender: impl Sender) -> Self {
         let (stop, stopped) = oneshot::channel();
         Self {
             stop,
-            task: tokio::spawn(run(pool, sender, stopped)),
+            task: tokio::spawn(run(pool, cipher, sender, stopped)),
         }
     }
 
@@ -140,7 +142,12 @@ impl Scheduler {
     }
 }
 
-async fn run(pool: PgPool, sender: impl Sender, mut stopped: oneshot::Receiver<()>) {
+async fn run(
+    pool: PgPool,
+    cipher: Cipher,
+    sender: impl Sender,
+    mut stopped: oneshot::Receiver<()>,
+) {
     tokio::select! {
         () = sender.ready() => {}
         _ = &mut stopped => return,
@@ -164,7 +171,7 @@ async fn run(pool: PgPool, sender: impl Sender, mut stopped: oneshot::Receiver<(
                 busy.remove(&task);
             }
             _ = ticks.tick() => {
-                if let Err(error) = enqueue_due(&pool, Utc::now()).await {
+                if let Err(error) = enqueue_due(&pool, &cipher, Utc::now()).await {
                     tracing::warn!(?error, "couldn't enqueue due messages");
                 }
                 let holding: Vec<Uuid> = busy.values().copied().collect();
@@ -186,10 +193,26 @@ async fn run(pool: PgPool, sender: impl Sender, mut stopped: oneshot::Receiver<(
 
 /// Queues everything due by `now` and moves each schedule on, in one transaction: a crash can't
 /// leave a schedule that queued a send and would queue it again
-async fn enqueue_due(pool: &PgPool, now: DateTime<Utc>) -> sqlx::Result<usize> {
+async fn enqueue_due(pool: &PgPool, cipher: &Cipher, now: DateTime<Utc>) -> sqlx::Result<usize> {
     let mut transaction = pool.begin().await?;
     let due = scheduled_messages::lock_due(&mut *transaction, now, DUE_PER_TICK).await?;
     for message in &due {
+        let to = variables::To {
+            recipient_type: message.recipient_type,
+            recipient: &message.recipient,
+            recipient_name: message.recipient_name.as_deref(),
+        };
+        // Filled in now, so History shows what went out and a retry sends the same text
+        let body = variables::fill_in(
+            &mut *transaction,
+            cipher,
+            message.user_id,
+            &to,
+            &message.body,
+            message.next_run_at.unwrap_or(now),
+            &message.timezone,
+        )
+        .await;
         deliveries::create(
             &mut *transaction,
             NewDelivery {
@@ -198,7 +221,7 @@ async fn enqueue_due(pool: &PgPool, now: DateTime<Utc>) -> sqlx::Result<usize> {
                 recipient_type: message.recipient_type,
                 recipient: &message.recipient,
                 recipient_name: message.recipient_name.as_deref(),
-                body: &message.body,
+                body: &body,
             },
         )
         .await?;
@@ -337,6 +360,74 @@ mod tests {
         .unwrap()
     }
 
+    #[sqlx::test]
+    async fn variables_are_filled_in_as_the_message_is_queued(pool: PgPool) {
+        use chrono::TimeZone;
+
+        use crate::{
+            db::whatsapp_accounts,
+            whatsapp::contacts::{Names, seal_names},
+        };
+
+        let cipher = Cipher::new(&[0; 32]);
+        let owner = user(&pool).await;
+        let account_id = whatsapp_accounts::find_or_create(&pool, owner)
+            .await
+            .unwrap()
+            .id;
+        let jid = "15550001@s.whatsapp.net";
+        let names = Names {
+            full_name: Some("Amina Rahman".into()),
+            first_name: None,
+            username: None,
+        };
+        let sealed = seal_names(&cipher, account_id, jid, &names).unwrap();
+        sqlx::query!(
+            "INSERT INTO whatsapp_contacts (account_id, jid, phone_number, names) \
+             VALUES ($1, $2, '15550001', $3)",
+            account_id,
+            jid,
+            sealed,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // 21:05 in London on a Friday
+        let due = Utc.with_ymd_and_hms(2026, 11, 27, 21, 5, 0).unwrap();
+        for (recipient, body) in [
+            ("15550001", "Hi {{first_name}}, see you {{day}} at {{time}}"),
+            ("15550002", "Hi {{first_name|there}}, it's {{date}}"),
+        ] {
+            sqlx::query!(
+                "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, \
+                 schedule_kind, run_at, timezone, next_run_at) \
+                 VALUES ($1, 'contact', $2, $3, 'once', $4, 'Europe/London', $4)",
+                owner,
+                recipient,
+                body,
+                due,
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let now = due + TimeDelta::minutes(1);
+        assert_eq!(enqueue_due(&pool, &cipher, now).await.unwrap(), 2);
+        let mut sent = sqlx::query_scalar!("SELECT body FROM deliveries WHERE user_id = $1", owner)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        sent.sort();
+        assert_eq!(
+            sent,
+            [
+                "Hi Amina, see you Friday at 9:05 PM",
+                "Hi there, it's 27 November",
+            ]
+        );
+    }
+
     async fn recurring_due(pool: &PgPool, owner: Uuid, cron: &str) -> Uuid {
         sqlx::query_scalar!(
             "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, \
@@ -395,8 +486,18 @@ mod tests {
         let owner = user(&pool).await;
         let message = once_due(&pool, owner).await;
 
-        assert_eq!(enqueue_due(&pool, Utc::now()).await.unwrap(), 1);
-        assert_eq!(enqueue_due(&pool, Utc::now()).await.unwrap(), 0);
+        assert_eq!(
+            enqueue_due(&pool, &Cipher::new(&[0; 32]), Utc::now())
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            enqueue_due(&pool, &Cipher::new(&[0; 32]), Utc::now())
+                .await
+                .unwrap(),
+            0
+        );
 
         let row = scheduled_messages::find(&pool, message, owner)
             .await
@@ -414,7 +515,12 @@ mod tests {
         let message = recurring_due(&pool, owner, "0 9 * * *").await;
         let now = Utc.with_ymd_and_hms(2030, 1, 1, 12, 0, 0).unwrap();
 
-        assert_eq!(enqueue_due(&pool, now).await.unwrap(), 1);
+        assert_eq!(
+            enqueue_due(&pool, &Cipher::new(&[0; 32]), now)
+                .await
+                .unwrap(),
+            1
+        );
 
         let row = scheduled_messages::find(&pool, message, owner)
             .await
@@ -432,7 +538,12 @@ mod tests {
         let owner = user(&pool).await;
         let message = recurring_due(&pool, owner, "0 0 31 2 *").await;
 
-        assert_eq!(enqueue_due(&pool, Utc::now()).await.unwrap(), 1);
+        assert_eq!(
+            enqueue_due(&pool, &Cipher::new(&[0; 32]), Utc::now())
+                .await
+                .unwrap(),
+            1
+        );
 
         let row = scheduled_messages::find(&pool, message, owner)
             .await
@@ -453,7 +564,12 @@ mod tests {
         .await
         .unwrap();
 
-        assert_eq!(enqueue_due(&pool, Utc::now()).await.unwrap(), 0);
+        assert_eq!(
+            enqueue_due(&pool, &Cipher::new(&[0; 32]), Utc::now())
+                .await
+                .unwrap(),
+            0
+        );
     }
 
     #[sqlx::test]
@@ -554,7 +670,12 @@ mod tests {
         claim_one(&pool).await;
 
         let (stop, stopped) = oneshot::channel();
-        let task = tokio::spawn(run(pool.clone(), FakeSender::answering(vec![]), stopped));
+        let task = tokio::spawn(run(
+            pool.clone(),
+            Cipher::new(&[0; 32]),
+            FakeSender::answering(vec![]),
+            stopped,
+        ));
         tokio::time::sleep(Duration::from_millis(200)).await;
         stop.send(()).unwrap();
         task.await.unwrap();
@@ -570,7 +691,7 @@ mod tests {
         once_due(&pool, owner).await;
         let sender = FakeSender::answering(vec![]);
 
-        let scheduler = Scheduler::spawn(pool.clone(), sender.clone());
+        let scheduler = Scheduler::spawn(pool.clone(), Cipher::new(&[0; 32]), sender.clone());
         tokio::time::sleep(Duration::from_millis(300)).await;
         scheduler.shutdown().await;
 

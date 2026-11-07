@@ -7,16 +7,22 @@ import { Dialog, DialogHeader } from '@astryxdesign/core/Dialog'
 import { FormLayout } from '@astryxdesign/core/FormLayout'
 import { HStack } from '@astryxdesign/core/HStack'
 import { Layout, LayoutContent, LayoutFooter } from '@astryxdesign/core/Layout'
-import { TextArea } from '@astryxdesign/core/TextArea'
 import { VStack } from '@astryxdesign/core/VStack'
 import { z } from 'zod'
 
 import { api } from '@/api/client'
 import { DialogForm } from '@/components/dialog-form'
+import { MessageBodyField } from '@/components/message-body-field'
 import { RecipientField, checkRecipient } from '@/components/recipient-field'
 import type { Recipient } from '@/components/recipient-field'
 import { toFieldErrors, toFieldStatus } from '@/lib/form-errors'
-import { BODY_MAX, DELIVERIES_KEY, bodySchema } from '@/lib/scheduler'
+import { useVariableContext } from '@/lib/contacts'
+import {
+  BODY_MAX,
+  BROWSER_TIME_ZONE,
+  DELIVERIES_KEY,
+  bodySchema,
+} from '@/lib/scheduler'
 import { digitsOf, formatPhoneNumber } from '@/lib/whatsapp'
 import { connectionProblem, toWriteProblem } from '@/lib/write-problem'
 import type { WriteProblem } from '@/lib/write-problem'
@@ -110,6 +116,7 @@ function SendNowForm({
                 : value.recipient,
             recipient_name: value.recipient_name,
             body: value.body.trim(),
+            timezone: BROWSER_TIME_ZONE,
           },
         })
         if (result.data) {
@@ -142,6 +149,16 @@ function SendNowForm({
   const recipientName = useStore(
     form.store,
     (state) => state.values.recipient_name,
+  )
+  const recipientValue = useStore(form.store, (state) => state.values.recipient)
+  const variables = useVariableContext(
+    {
+      recipient_type: recipientType,
+      recipient: recipientValue,
+      recipient_name: recipientName,
+    },
+    null,
+    BROWSER_TIME_ZONE,
   )
 
   return (
@@ -199,16 +216,14 @@ function SendNowForm({
                 </form.Field>
                 <form.Field name="body">
                   {(field) => (
-                    <TextArea
-                      label="Message"
-                      size="lg"
-                      rows={5}
+                    <MessageBodyField
                       maxLength={BODY_MAX}
                       htmlName={field.name}
                       value={field.state.value}
                       onChange={(value) => field.handleChange(value)}
                       onBlur={field.handleBlur}
                       status={toFieldStatus(field.state.meta)}
+                      context={variables}
                     />
                   )}
                 </form.Field>

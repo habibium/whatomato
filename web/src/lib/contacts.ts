@@ -5,6 +5,8 @@ import type { components } from '@/api/schema'
 
 import { api } from '@/api/client'
 import type { ScheduledMessage } from '@/lib/scheduler'
+import { firstWord } from '@/lib/variables'
+import type { VariableContext } from '@/lib/variables'
 import { ApiError, formatPhoneNumber, statusQuery } from '@/lib/whatsapp'
 
 export type Contact = components['schemas']['ContactResponse']
@@ -102,6 +104,27 @@ export function useRecipientLabel() {
     return recipient.recipient_type === 'contact'
       ? formatPhoneNumber(recipient.recipient)
       : 'Unnamed group'
+  }
+}
+
+/** What the variables in a message to this recipient would be filled with. */
+export function useVariableContext(
+  recipient: Recipient,
+  at: Date | null,
+  timeZone: string,
+): VariableContext {
+  const { byNumber } = useContactBook()
+  const isContact = recipient.recipient_type === 'contact'
+  const contact = isContact
+    ? byNumber.get(recipient.recipient.replace(/\D/g, ''))
+    : undefined
+  const name = contact?.name ?? recipient.recipient_name ?? null
+  return {
+    hasRecipient: recipient.recipient.trim() !== '',
+    firstName: isContact ? (contact?.first_name ?? firstWord(name)) : null,
+    name,
+    at,
+    timeZone,
   }
 }
 

@@ -19,7 +19,7 @@ use crate::{
     },
     error::{AppError, ErrorBody},
     extract::ValidatedJson,
-    scheduler::{ScheduleKind, cron},
+    scheduler::{ScheduleKind, cron, variables},
     state::AppState,
     whatsapp::supervisor::SendFailure,
 };
@@ -80,6 +80,22 @@ pub async fn send_now(
         return Err(AppError::Conflict(failure.unavailable()));
     }
     let recipient = normalized_recipient(input.recipient_type, &input.recipient);
+    let recipient_name = input.recipient_name.as_deref().map(str::trim);
+    let to = variables::To {
+        recipient_type: input.recipient_type,
+        recipient: &recipient,
+        recipient_name,
+    };
+    let body = variables::fill_in(
+        &state.pool,
+        &state.cipher,
+        user_id,
+        &to,
+        input.body.trim(),
+        Utc::now(),
+        input.timezone.as_deref().unwrap_or("UTC"),
+    )
+    .await;
     let delivery_id = deliveries::create(
         &state.pool,
         NewDelivery {
@@ -87,8 +103,8 @@ pub async fn send_now(
             scheduled_message_id: None,
             recipient_type: input.recipient_type,
             recipient: &recipient,
-            recipient_name: input.recipient_name.as_deref().map(str::trim),
-            body: input.body.trim(),
+            recipient_name,
+            body: &body,
         },
     )
     .await?;

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, schedule_kind, run_at, timezone, next_run_at) VALUES ($1, 'contact', $2, $3, 'once', $4, 'Europe/London', $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "98dadcbd9d11e0bbb0695a1d9ada5863b763d5d81811eaeb67e823a43a991b58"
+}

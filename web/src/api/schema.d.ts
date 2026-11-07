@@ -996,12 +996,14 @@ export interface components {
         /** @description The second step of a sign-in: a code from the authenticator app, or a recovery code */
         SecondFactor: components["schemas"]["AuthenticatorCode"] | components["schemas"]["RecoveryCode"];
         SendNowRequest: {
-            /** @description Up to 4096 characters */
+            /** @description Up to 4096 characters, variables included */
             body: string;
             /** @description As in a scheduled message */
             recipient: string;
             recipient_name?: string | null;
             recipient_type: components["schemas"]["RecipientType"];
+            /** @description The IANA zone `{{date}}`, `{{time}}` and the like read in; UTC when left out */
+            timezone?: string | null;
         };
         SendNowResponse: {
             /** Format: uuid */
