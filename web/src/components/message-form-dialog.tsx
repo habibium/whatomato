@@ -28,7 +28,6 @@ import { MessageBodyField } from '@/components/message-body-field'
 import { RecipientField, checkRecipient } from '@/components/recipient-field'
 import { ScheduleBuilder } from '@/components/schedule-builder'
 import type { Recipient } from '@/components/recipient-field'
-import { useVariableContext } from '@/lib/contacts'
 import { DEFAULT_RECURRENCE, HOUR_FORMAT } from '@/lib/schedule'
 import type { Recurrence } from '@/lib/schedule'
 import { toFieldErrors, toFieldStatus } from '@/lib/form-errors'
@@ -38,7 +37,7 @@ import {
   bodySchema,
   messagesQuery,
   templatesQuery,
-  useNextRuns,
+  useMessagePreview,
 } from '@/lib/scheduler'
 import type { ScheduledMessage, Template } from '@/lib/scheduler'
 import { digitsOf, formatPhoneNumber } from '@/lib/whatsapp'
@@ -283,26 +282,17 @@ function MessageForm({
   const recipientValue = useStore(form.store, (state) => state.values.recipient)
   const runAt = useStore(form.store, (state) => state.values.run_at)
   const recurrence = useStore(form.store, (state) => state.values.recurrence)
-  // The builder asks the same, so this is answered from its cache
-  const nextRun = useNextRuns(
-    scheduleKind === 'recurring' ? recurrence : null,
+  const body = useStore(form.store, (state) => state.values.body)
+  const preview = useMessagePreview({
+    body,
+    recipient_type: recipientType,
+    recipient: recipientValue,
+    recipient_name: recipientName,
     timezone,
-  ).data?.runs[0]
-  const variables = useVariableContext(
-    {
-      recipient_type: recipientType,
-      recipient: recipientValue,
-      recipient_name: recipientName,
-    },
-    scheduleKind === 'once'
-      ? runAt
-        ? new Date(runAt)
-        : null
-      : nextRun
-        ? new Date(nextRun)
-        : null,
-    timezone,
-  )
+    run_at:
+      scheduleKind === 'once' && runAt ? new Date(runAt).toISOString() : null,
+    recurrence: scheduleKind === 'recurring' ? recurrence : null,
+  })
   const list = templates.data ?? []
 
   return (
@@ -394,7 +384,7 @@ function MessageForm({
                       onChange={(value) => field.handleChange(value)}
                       onBlur={field.handleBlur}
                       status={toFieldStatus(field.state.meta)}
-                      context={variables}
+                      preview={preview}
                     />
                   )}
                 </form.Field>

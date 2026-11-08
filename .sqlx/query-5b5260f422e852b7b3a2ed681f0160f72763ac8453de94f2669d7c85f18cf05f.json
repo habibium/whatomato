@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, schedule_kind, recurrence, timezone, next_run_at) VALUES ($1, 'contact', '15550001', 'Maghrib at {{sunset + 10m}}, iftar at {{time}}', 'recurring', '{\"type\": \"sun\", \"event\": \"sunset\", \"offset_minutes\": 0, \"days\": \"* * *\", \"place\": null}', 'Asia/Dhaka', $2) RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5b5260f422e852b7b3a2ed681f0160f72763ac8453de94f2669d7c85f18cf05f"
+}

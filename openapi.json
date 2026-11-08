@@ -1615,6 +1615,119 @@
         }
       }
     },
+    "/api/messages/preview": {
+      "get": {
+        "summary": "A message as it would go out, filled in by the same code that fills it in to send",
+        "operationId": "preview",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "query",
+            "description": "Up to 4096 characters, variables included",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "description": "The IANA zone times read in",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recipient_type",
+            "in": "query",
+            "description": "`contact` when left out",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/RecipientType"
+            }
+          },
+          {
+            "name": "recipient",
+            "in": "query",
+            "description": "As in a scheduled message; left out until one's chosen",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recipient_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "run_at",
+            "in": "query",
+            "description": "When a one-time message goes out",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "recurrence",
+            "in": "query",
+            "description": "How a recurring message repeats, as JSON: the preview reads its next run, and the place a\nsun schedule names. Without either, it reads now.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/messages/send-now": {
       "post": {
         "summary": "Send a message straight away",
@@ -3398,6 +3511,48 @@
             "type": "number",
             "format": "double",
             "description": "Degrees east, from -180 to 180"
+          }
+        }
+      },
+      "Preview": {
+        "type": "object",
+        "required": [
+          "text",
+          "problem",
+          "values",
+          "empty"
+        ],
+        "properties": {
+          "empty": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The variables the body uses that would go out empty, having no fallback"
+          },
+          "problem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why saving would refuse the body's variables, if it would"
+          },
+          "text": {
+            "type": "string",
+            "description": "The body as it would go out; as written while it has a problem"
+          },
+          "values": {
+            "type": "object",
+            "description": "What each variable holds, unmoved; `null` where it would be empty",
+            "additionalProperties": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },

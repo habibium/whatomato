@@ -11,7 +11,7 @@ use std::{iter, str::FromStr};
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
-pub use sun::{Place, Sun, SunEvent};
+pub use sun::{Place, Sun, SunEvent, event_on};
 use utoipa::ToSchema;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -79,6 +79,15 @@ impl Recurrence {
         }
     }
 
+    /// The place a sun schedule names, if it names one
+    #[must_use]
+    pub const fn place(&self) -> Option<Place> {
+        match self {
+            Self::Sun(sun) => sun.place,
+            Self::Cron { .. } => None,
+        }
+    }
+
     /// For a sun schedule, the main city of `timezone`: where it watches the sun from unless it
     /// names a place of its own
     #[must_use]
@@ -91,6 +100,12 @@ impl Recurrence {
             Self::Cron { .. } => None,
         }
     }
+}
+
+/// Where the main city of `zone` is, for sun times where nothing names a place
+#[must_use]
+pub fn city_place(zone: Tz) -> Option<Place> {
+    places::city(zone).map(|city| city.place)
 }
 
 /// Whether `timezone` is an IANA zone name

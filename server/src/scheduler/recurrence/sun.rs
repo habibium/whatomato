@@ -58,6 +58,24 @@ pub struct Sun {
     pub place: Option<Place>,
 }
 
+/// When the sun rises or sets at `place` on `day` in `zone`, to the minute as cron sends and as
+/// `{{time}}` reads. `None` on a day it doesn't, as in polar night, or at a place that isn't one.
+#[must_use]
+pub fn event_on(event: SunEvent, day: NaiveDate, place: Place, zone: Tz) -> Option<DateTime<Utc>> {
+    let coordinates = place.coordinates()?;
+    let event = match event {
+        SunEvent::Sunrise => SolarEvent::Sunrise,
+        SunEvent::Sunset => SolarEvent::Sunset,
+    };
+    // The crate counts solar days, which can sit a date off the zone's far from its meridian
+    [day.pred_opt()?, day, day.succ_opt()?]
+        .into_iter()
+        .filter_map(|solar| SolarDay::new(coordinates, solar).event_time(event))
+        .find(|at| at.with_timezone(&zone).date_naive() == day)?
+        .duration_round(TimeDelta::minutes(1))
+        .ok()
+}
+
 impl Sun {
     pub(super) fn problem(&self, zone: Tz) -> Option<&'static str> {
         if Days::parse(&self.days).is_none() {
@@ -82,7 +100,6 @@ impl Sun {
         let place = self
             .place
             .or_else(|| places::city(zone).map(|city| city.place))?;
-        let coordinates = place.coordinates()?;
         let offset = TimeDelta::minutes(self.offset_minutes.into());
         // The day before too, since an offset can carry a send over midnight
         let mut from = after
@@ -92,11 +109,8 @@ impl Sun {
             .pred_opt()?;
         for _ in 0..SEARCH_DAYS {
             let day = days.first_from(from)?;
-            if let Some(event) = self.time_on(day, coordinates, zone) {
-                // To the minute, as cron sends and as {{time}} reads
-                let send = (event + offset)
-                    .duration_round(TimeDelta::minutes(1))
-                    .ok()?;
+            if let Some(event) = event_on(self.event, day, place, zone) {
+                let send = event.checked_add_signed(offset)?;
                 if send > after {
                     return Some(send);
                 }
@@ -104,19 +118,6 @@ impl Sun {
             from = day.succ_opt()?;
         }
         None
-    }
-
-    /// When the sun rises or sets on `day` in `zone`. `None` on a day it doesn't, as in polar night.
-    fn time_on(&self, day: NaiveDate, coordinates: Coordinates, zone: Tz) -> Option<DateTime<Utc>> {
-        let event = match self.event {
-            SunEvent::Sunrise => SolarEvent::Sunrise,
-            SunEvent::Sunset => SolarEvent::Sunset,
-        };
-        // The crate counts solar days, which can sit a date off the zone's far from its meridian
-        [day.pred_opt()?, day, day.succ_opt()?]
-            .into_iter()
-            .filter_map(|solar| SolarDay::new(coordinates, solar).event_time(event))
-            .find(|at| at.with_timezone(&zone).date_naive() == day)
     }
 
     pub(super) fn normalized(&self) -> Self {

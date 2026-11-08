@@ -12,14 +12,13 @@ import {
 } from '@astryxdesign/core/theme/tokens.stylex'
 
 import {
-  emptyVariables,
   hasVariables,
   insertVariable,
+  isTimeVariable,
   matchingVariables,
-  preview,
   variableAt,
 } from '@/lib/variables'
-import type { VariableContext } from '@/lib/variables'
+import type { BodyPreview } from '@/lib/variables'
 import { VariableHighlights } from '@/components/variable-highlights'
 
 const styles = stylex.create({
@@ -51,7 +50,7 @@ interface MessageBodyFieldProps {
   maxLength: number
   status?: { type: 'error'; message?: string }
   /** For each variable's example and the preview; without it only the hints show. */
-  context?: VariableContext | null
+  preview?: BodyPreview | null
 }
 
 /**
@@ -67,7 +66,7 @@ export function MessageBodyField({
   htmlName,
   maxLength,
   status,
-  context = null,
+  preview = null,
 }: MessageBodyFieldProps) {
   const listID = useId()
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -183,8 +182,10 @@ export function MessageBodyField({
     }
   })
 
-  const shown = context && hasVariables(value) ? preview(value, context) : null
-  const [empty] = context ? emptyVariables(value, context) : []
+  // The preview lags the typing, so it shows only once both agree the body reads
+  const shown =
+    preview && !preview.problem && hasVariables(value) ? preview.text : null
+  const [empty] = preview?.empty ?? []
 
   return (
     <VStack gap={2}>
@@ -195,7 +196,7 @@ export function MessageBodyField({
             popover.triggerRef(element)
           }}
           label={label}
-          description="Type {{ to add their name, the date or the time, filled in as it goes out."
+          description="Type {{ to add their name, the time, sunset and more, filled in as it goes out. Move a time with + or −, as in {{sunset + 10m}}."
           size="lg"
           rows={rows}
           maxLength={maxLength}
@@ -216,7 +217,9 @@ export function MessageBodyField({
       ) : null}
       {empty ? (
         <Text type="supporting">
-          {`{{${empty}}} would be empty for this recipient. Write {{${empty}|there}} to say “there” instead.`}
+          {isTimeVariable(empty)
+            ? `{{${empty}}} would be empty, with no city in this time zone or no ${empty} that day. Write {{${empty}|soon}} to say “soon” instead.`
+            : `{{${empty}}} would be empty for this recipient. Write {{${empty}|there}} to say “there” instead.`}
         </Text>
       ) : null}
       {popover.render(
@@ -228,7 +231,7 @@ export function MessageBodyField({
           xstyle={styles.list}
         >
           {options.map((option, index) => {
-            const example = context ? option.value(context) : null
+            const example = preview?.values[option.name] ?? null
             return (
               <VStack
                 as="li"

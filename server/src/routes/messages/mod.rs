@@ -14,6 +14,7 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::list_messages, handlers::create_message))
         .routes(routes!(handlers::send_now))
         .routes(routes!(handlers::next_runs))
+        .routes(routes!(handlers::preview))
         .routes(routes!(
             handlers::get_message,
             handlers::update_message,

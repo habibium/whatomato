@@ -504,6 +504,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/messages/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A message as it would go out, filled in by the same code that fills it in to send */
+        get: operations["preview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/messages/send-now": {
         parameters: {
             query?: never;
@@ -984,6 +1001,18 @@ export interface components {
              * @description Degrees east, from -180 to 180
              */
             longitude: number;
+        };
+        Preview: {
+            /** @description The variables the body uses that would go out empty, having no fallback */
+            empty: string[];
+            /** @description Why saving would refuse the body's variables, if it would */
+            problem: string | null;
+            /** @description The body as it would go out; as written while it has a problem */
+            text: string;
+            /** @description What each variable holds, unmoved; `null` where it would be empty */
+            values: {
+                [key: string]: string | null;
+            };
         };
         /** @enum {string} */
         RecipientType: "contact" | "group";
@@ -2397,6 +2426,66 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NextRuns"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    preview: {
+        parameters: {
+            query: {
+                /** @description Up to 4096 characters, variables included */
+                body: string;
+                /** @description The IANA zone times read in */
+                timezone: string;
+                /** @description `contact` when left out */
+                recipient_type?: components["schemas"]["RecipientType"];
+                /** @description As in a scheduled message; left out until one's chosen */
+                recipient?: string;
+                recipient_name?: string;
+                /** @description When a one-time message goes out */
+                run_at?: string;
+                /**
+                 * @description How a recurring message repeats, as JSON: the preview reads its next run, and the place a
+                 *     sun schedule names. Without either, it reads now.
+                 */
+                recurrence?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preview"];
                 };
             };
             400: {

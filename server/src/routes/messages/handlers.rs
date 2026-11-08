@@ -8,8 +8,8 @@ use uuid::Uuid;
 use validator::{ValidationError, ValidationErrors};
 
 use super::dto::{
-    MessageInput, NextRuns, NextRunsQuery, ScheduledMessage, SendNowRequest, SendNowResponse,
-    ToggleRequest, normalized_recipient,
+    MessageInput, NextRuns, NextRunsQuery, Preview, PreviewQuery, ScheduledMessage, SendNowRequest,
+    SendNowResponse, ToggleRequest, normalized_recipient,
 };
 use crate::{
     auth::session::Session,
@@ -19,7 +19,7 @@ use crate::{
     },
     error::{AppError, ErrorBody},
     extract::{ValidatedJson, ValidatedQuery},
-    scheduler::{ScheduleKind, variables},
+    scheduler::{RecipientType, ScheduleKind, recurrence::Recurrence, variables},
     state::AppState,
     whatsapp::supervisor::SendFailure,
 };
@@ -89,14 +89,18 @@ pub async fn send_now(
         recipient: &recipient,
         recipient_name,
     };
+    let due = variables::Due {
+        at: Utc::now(),
+        timezone: input.timezone.as_deref().unwrap_or("UTC"),
+        place: None,
+    };
     let body = variables::fill_in(
         &state.pool,
         &state.cipher,
         user_id,
         &to,
         input.body.trim(),
-        Utc::now(),
-        input.timezone.as_deref().unwrap_or("UTC"),
+        &due,
     )
     .await;
     let delivery_id = deliveries::create(
@@ -129,6 +133,47 @@ pub async fn next_runs(
     Json(NextRuns {
         runs: recurrence.next_runs(&query.timezone, Utc::now(), NEXT_RUNS),
         city: recurrence.city(&query.timezone),
+    })
+}
+
+/// A message as it would go out, filled in by the same code that fills it in to send
+#[utoipa::path(get, path = "/preview", params(PreviewQuery), responses(
+    (status = OK, body = Preview),
+    (status = BAD_REQUEST, body = ErrorBody),
+    (status = UNAUTHORIZED, body = ErrorBody),
+    (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
+))]
+pub async fn preview(
+    State(state): State<AppState>,
+    session: Session,
+    ValidatedQuery(query): ValidatedQuery<PreviewQuery>,
+) -> Json<Preview> {
+    let recipient_type = query.recipient_type.unwrap_or(RecipientType::Contact);
+    let recipient = normalized_recipient(recipient_type, query.recipient.as_deref().unwrap_or(""));
+    let to = variables::To {
+        recipient_type,
+        recipient: &recipient,
+        recipient_name: query.recipient_name.as_deref().map(str::trim),
+    };
+    let now = Utc::now();
+    let recurrence = query.recurrence.as_ref().map(Recurrence::normalized);
+    let due = variables::Due {
+        at: query
+            .run_at
+            .or_else(|| recurrence.as_ref()?.next_after(&query.timezone, now))
+            .unwrap_or(now),
+        timezone: &query.timezone,
+        place: recurrence.as_ref().and_then(Recurrence::place),
+    };
+    let values = variables::values(&state.pool, &state.cipher, session.user.id, &to, &due).await;
+    let body = query.body.trim();
+    Json(Preview {
+        text: variables::render(body, &values),
+        problem: variables::check(body)
+            .err()
+            .map(|problem| problem.message()),
+        values: variables::all(&values).into_iter().collect(),
+        empty: variables::empty(body, &values),
     })
 }
 

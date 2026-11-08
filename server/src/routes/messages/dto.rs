@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use utoipa::{IntoParams, ToSchema};
@@ -180,6 +182,63 @@ fn from_json_text<'de, D: Deserializer<'de>, T: DeserializeOwned>(
 ) -> Result<T, D::Error> {
     let text = String::deserialize(deserializer)?;
     serde_json::from_str(&text).map_err(serde::de::Error::custom)
+}
+
+fn from_optional_json_text<'de, D: Deserializer<'de>, T: DeserializeOwned>(
+    deserializer: D,
+) -> Result<Option<T>, D::Error> {
+    Option::<String>::deserialize(deserializer)?
+        .filter(|text| !text.is_empty())
+        .map(|text| serde_json::from_str(&text).map_err(serde::de::Error::custom))
+        .transpose()
+}
+
+/// A message as it's being written
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(super) struct PreviewQuery {
+    /// Up to 4096 characters, variables included
+    pub body: String,
+    /// The IANA zone times read in
+    pub timezone: String,
+    /// `contact` when left out
+    pub recipient_type: Option<RecipientType>,
+    /// As in a scheduled message; left out until one's chosen
+    pub recipient: Option<String>,
+    pub recipient_name: Option<String>,
+    /// When a one-time message goes out
+    pub run_at: Option<DateTime<Utc>>,
+    /// How a recurring message repeats, as JSON: the preview reads its next run, and the place a
+    /// sun schedule names. Without either, it reads now.
+    #[param(value_type = Option<String>)]
+    #[serde(default, deserialize_with = "from_optional_json_text")]
+    pub recurrence: Option<Recurrence>,
+}
+
+/// A body with a problem still previews, since the variables' examples help most while one's
+/// being typed
+impl Validate for PreviewQuery {
+    fn validate(&self) -> Result<(), ValidationErrors> {
+        let mut errors = ValidationErrors::new();
+        if self.body.trim().chars().count() > BODY_MAX {
+            add(&mut errors, "body", "must be at most 4096 characters");
+        }
+        check_timezone(&self.timezone, &mut errors);
+        finish(errors)
+    }
+}
+
+#[derive(Serialize, ToSchema)]
+pub(super) struct Preview {
+    /// The body as it would go out; as written while it has a problem
+    pub text: String,
+    /// Why saving would refuse the body's variables, if it would
+    #[schema(required = true)]
+    pub problem: Option<String>,
+    /// What each variable holds, unmoved; `null` where it would be empty
+    pub values: BTreeMap<&'static str, Option<String>>,
+    /// The variables the body uses that would go out empty, having no fallback
+    pub empty: Vec<&'static str>,
 }
 
 #[derive(Serialize, ToSchema)]

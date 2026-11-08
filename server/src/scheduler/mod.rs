@@ -202,6 +202,11 @@ async fn enqueue_due(pool: &PgPool, cipher: &Cipher, now: DateTime<Utc>) -> sqlx
             recipient: &message.recipient,
             recipient_name: message.recipient_name.as_deref(),
         };
+        let due = variables::Due {
+            at: message.next_run_at.unwrap_or(now),
+            timezone: &message.timezone,
+            place: message.recurrence.as_ref().and_then(|json| json.place()),
+        };
         // Filled in now, so History shows what went out and a retry sends the same text
         let body = variables::fill_in(
             &mut *transaction,
@@ -209,8 +214,7 @@ async fn enqueue_due(pool: &PgPool, cipher: &Cipher, now: DateTime<Utc>) -> sqlx
             message.user_id,
             &to,
             &message.body,
-            message.next_run_at.unwrap_or(now),
-            &message.timezone,
+            &due,
         )
         .await;
         deliveries::create(
@@ -536,23 +540,25 @@ mod tests {
     }
 
     #[sqlx::test]
-    async fn a_sun_schedule_moves_to_the_next_days_sunset(pool: PgPool) {
+    async fn a_sun_schedule_moves_to_the_next_days_sunset_and_reads_the_sun(pool: PgPool) {
         let owner = user(&pool).await;
+        // Sunset in Dhaka on 8 November, and just after
+        let sunset = Utc.with_ymd_and_hms(2026, 11, 8, 11, 16, 0).unwrap();
+        let now = sunset + TimeDelta::minutes(1);
         let message = sqlx::query_scalar!(
             "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, \
              schedule_kind, recurrence, timezone, next_run_at) \
-             VALUES ($1, 'contact', '15550001', 'hello', 'recurring', \
+             VALUES ($1, 'contact', '15550001', 'Maghrib at {{sunset + 10m}}, iftar at {{time}}', \
+                     'recurring', \
                      '{\"type\": \"sun\", \"event\": \"sunset\", \"offset_minutes\": 0, \
                        \"days\": \"* * *\", \"place\": null}', 'Asia/Dhaka', $2) \
              RETURNING id",
             owner,
-            past(),
+            sunset,
         )
         .fetch_one(&pool)
         .await
         .unwrap();
-        // Just after sunset in Dhaka on 8 November, at 11:16 UTC
-        let now = Utc.with_ymd_and_hms(2026, 11, 8, 11, 17, 0).unwrap();
 
         assert_eq!(
             enqueue_due(&pool, &Cipher::new(&[0; 32]), now)
@@ -561,6 +567,11 @@ mod tests {
             1
         );
 
+        let sent = sqlx::query_scalar!("SELECT body FROM deliveries WHERE user_id = $1", owner)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(sent, "Maghrib at 5:26 PM, iftar at 5:16 PM");
         let row = scheduled_messages::find(&pool, message, owner)
             .await
             .unwrap()

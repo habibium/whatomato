@@ -538,3 +538,89 @@ async fn next_runs_name_what_is_wrong(pool: PgPool) {
     let response = app.call(Method::GET, &path, None, None).await;
     assert_eq!(response.status, StatusCode::UNAUTHORIZED);
 }
+
+fn preview_path(pairs: &[(&str, &str)]) -> String {
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    for (name, value) in pairs {
+        query.append_pair(name, value);
+    }
+    format!("/messages/preview?{}", query.finish())
+}
+
+#[sqlx::test]
+async fn a_preview_fills_in_what_would_go_out(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (_, session) = app.signed_in("ada@example.com").await;
+    let path = preview_path(&[
+        (
+            "body",
+            "{{name}}: Maghrib at {{sunset + 10m}}, {{first_name}}",
+        ),
+        ("timezone", "Asia/Dhaka"),
+        ("recipient_type", "group"),
+        ("recipient", "120363000000000000@g.us"),
+        ("recipient_name", "Family"),
+        ("run_at", "2026-11-08T12:00:00Z"),
+    ]);
+
+    let response = app.call(Method::GET, &path, None, Some(&session)).await;
+
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_eq!(response.body["text"], "Family: Maghrib at 5:26 PM, ");
+    assert_eq!(response.body["problem"], Value::Null);
+    assert_eq!(response.body["values"]["sunset"], "5:16 PM");
+    assert_eq!(response.body["values"]["sunrise"], "6:08 AM");
+    assert_eq!(response.body["values"]["first_name"], Value::Null);
+    assert_eq!(response.body["empty"], json!(["first_name"]));
+}
+
+#[sqlx::test]
+async fn a_preview_reads_a_schedules_next_run_and_the_place_it_names(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (_, session) = app.signed_in("ada@example.com").await;
+    let near_dhaka = json!({ "latitude": 23.8, "longitude": 90.4 });
+    let path = preview_path(&[
+        ("body", "{{time}}|{{sunset}}"),
+        ("timezone", "Asia/Dhaka"),
+        ("recurrence", &sunset(&near_dhaka).to_string()),
+    ]);
+
+    let response = app.call(Method::GET, &path, None, Some(&session)).await;
+
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    let text = response.body["text"].as_str().unwrap();
+    let (time, sunset) = text.split_once('|').unwrap();
+    // Ten minutes before sunset, as the schedule says
+    let minutes = |clock: &str| {
+        let time = chrono::NaiveTime::parse_from_str(clock, "%-I:%M %p").unwrap();
+        time.signed_duration_since(chrono::NaiveTime::MIN)
+            .num_minutes()
+    };
+    assert_eq!(minutes(sunset) - minutes(time), 10, "{text}");
+}
+
+#[sqlx::test]
+async fn a_preview_names_what_is_wrong_and_still_gives_the_values(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (_, session) = app.signed_in("ada@example.com").await;
+    let path = preview_path(&[
+        ("body", "{{first_name + 10m}} and {{"),
+        ("timezone", "Asia/Dhaka"),
+    ]);
+
+    let response = app.call(Method::GET, &path, None, Some(&session)).await;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_eq!(
+        response.body["problem"],
+        "{{first_name}} isn't a time, so it can't move"
+    );
+    assert_eq!(response.body["text"], "{{first_name + 10m}} and {{");
+    assert!(response.body["values"]["sunset"].is_string());
+
+    let too_long = preview_path(&[("body", &"x".repeat(4097)), ("timezone", "UTC")]);
+    let response = app.call(Method::GET, &too_long, None, Some(&session)).await;
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+
+    let response = app.call(Method::GET, &path, None, None).await;
+    assert_eq!(response.status, StatusCode::UNAUTHORIZED);
+}

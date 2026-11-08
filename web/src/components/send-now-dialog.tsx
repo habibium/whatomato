@@ -16,12 +16,12 @@ import { MessageBodyField } from '@/components/message-body-field'
 import { RecipientField, checkRecipient } from '@/components/recipient-field'
 import type { Recipient } from '@/components/recipient-field'
 import { toFieldErrors, toFieldStatus } from '@/lib/form-errors'
-import { useVariableContext } from '@/lib/contacts'
 import {
   BODY_MAX,
   BROWSER_TIME_ZONE,
   DELIVERIES_KEY,
   bodySchema,
+  useMessagePreview,
 } from '@/lib/scheduler'
 import { digitsOf, formatPhoneNumber } from '@/lib/whatsapp'
 import { connectionProblem, toWriteProblem } from '@/lib/write-problem'
@@ -151,15 +151,14 @@ function SendNowForm({
     (state) => state.values.recipient_name,
   )
   const recipientValue = useStore(form.store, (state) => state.values.recipient)
-  const variables = useVariableContext(
-    {
-      recipient_type: recipientType,
-      recipient: recipientValue,
-      recipient_name: recipientName,
-    },
-    null,
-    BROWSER_TIME_ZONE,
-  )
+  const body = useStore(form.store, (state) => state.values.body)
+  const preview = useMessagePreview({
+    body,
+    recipient_type: recipientType,
+    recipient: recipientValue,
+    recipient_name: recipientName,
+    timezone: BROWSER_TIME_ZONE,
+  })
 
   return (
     <DialogForm onSubmit={() => void form.handleSubmit()}>
@@ -223,7 +222,7 @@ function SendNowForm({
                       onChange={(value) => field.handleChange(value)}
                       onBlur={field.handleBlur}
                       status={toFieldStatus(field.state.meta)}
-                      context={variables}
+                      preview={preview}
                     />
                   )}
                 </form.Field>
