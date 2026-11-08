@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.3] - 2026-11-08
+
+### Features
+
+- **web:** Duplicate a message, opening the form with every field as it was (c7b61bf)
+- Pick the days of the week straight away, plus last day of the month, nth weekday and yearly schedules (cd00e12)
+
+### Bug Fixes
+
+- **web:** Highlight variables in text that's already there when a dialog opens (7bc50dd)
 ## [0.1.2] - 2026-11-07
 
 ### Features
