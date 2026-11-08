@@ -13,27 +13,46 @@ import {
   ToggleButtonGroup,
 } from '@astryxdesign/core/ToggleButton'
 import { VStack } from '@astryxdesign/core/VStack'
+import { colorVars } from '@astryxdesign/core/theme/tokens.stylex'
 
 import {
   HOUR_FORMAT,
-  LAST_MONTH_DAY,
+  NTHS,
   WEEKDAYS,
   buildCron,
-  describeCron,
+  daysInMonth,
+  describeControls,
   parseCron,
+  scheduleNote,
 } from '@/lib/cron'
-import type { CronControls, Frequency } from '@/lib/cron'
+import type { CronControls, Frequency, Nth } from '@/lib/cron'
 
 const FREQUENCIES = [
-  { value: 'daily', label: 'Daily' },
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
+  { value: 'weekly', label: 'Days of the week' },
+  { value: 'monthly', label: 'Day of the month' },
+  { value: 'nth-weekday', label: 'Weekday of the month' },
+  { value: 'yearly', label: 'Date each year' },
   { value: 'custom', label: 'Custom cron' },
 ]
 
-const MONTH_DAYS = Array.from({ length: LAST_MONTH_DAY }, (_, index) =>
-  String(index + 1),
-)
+const numbers = (count: number) =>
+  Array.from({ length: count }, (_, index) => String(index + 1))
+
+const MONTH_DAYS = [
+  ...numbers(31).map((day) => ({ value: day, label: day })),
+  { value: 'last', label: 'Last day' },
+]
+
+const monthName = new Intl.DateTimeFormat(undefined, { month: 'long' })
+const MONTHS = numbers(12).map((month) => ({
+  value: month,
+  label: monthName.format(new Date(2000, Number(month) - 1, 1)),
+}))
+
+const WEEKDAY_OPTIONS = WEEKDAYS.map((day) => ({
+  value: String(day.value),
+  label: day.name,
+}))
 
 const styles = stylex.create({
   // Equal cells, so the row keeps to the field edges and still fits a phone
@@ -42,6 +61,17 @@ const styles = stylex.create({
     gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
   },
   weekday: { paddingInline: 0 },
+  // The theme's pressed state is a faint grey, too close to off when all seven start on
+  chosen: {
+    backgroundColor: {
+      default: colorVars['--color-accent'],
+      '@media (hover: hover)': {
+        default: colorVars['--color-accent'],
+        ':hover': `color-mix(in srgb, ${colorVars['--color-accent']} 85%, transparent)`,
+      },
+    },
+    color: colorVars['--color-on-accent'],
+  },
 })
 
 interface CronBuilderProps {
@@ -54,7 +84,8 @@ export function CronBuilder({ value, onChange, status }: CronBuilderProps) {
   const id = useId()
   const [controls, setControls] = useState(() => parseCron(value))
   const cron = buildCron(controls)
-  const description = cron ? describeCron(cron) : null
+  const description = cron ? describeControls(controls) : null
+  const note = scheduleNote(controls)
 
   const update = (patch: Partial<CronControls>) => {
     const next = { ...controls, ...patch }
@@ -109,8 +140,11 @@ export function CronBuilder({ value, onChange, status }: CronBuilderProps) {
               <ToggleButton
                 key={day.value}
                 value={String(day.value)}
-                label={day.label}
-                xstyle={styles.weekday}
+                label={day.short}
+                xstyle={[
+                  styles.weekday,
+                  controls.weekdays.includes(day.value) && styles.chosen,
+                ]}
               />
             ))}
           </ToggleButtonGroup>
@@ -123,8 +157,54 @@ export function CronBuilder({ value, onChange, status }: CronBuilderProps) {
           size="lg"
           options={MONTH_DAYS}
           value={String(controls.monthDay)}
-          onChange={(day) => update({ monthDay: Number(day) })}
+          onChange={(day) =>
+            update({ monthDay: day === 'last' ? 'last' : Number(day) })
+          }
         />
+      ) : null}
+
+      {controls.frequency === 'nth-weekday' ? (
+        <FormLayout direction="horizontal">
+          <Selector
+            label="On the"
+            size="lg"
+            options={[...NTHS]}
+            value={controls.nth}
+            onChange={(nth) => update({ nth: nth as Nth })}
+          />
+          <Selector
+            label="Day"
+            size="lg"
+            options={WEEKDAY_OPTIONS}
+            value={String(controls.nthWeekday)}
+            onChange={(day) => update({ nthWeekday: Number(day) })}
+          />
+        </FormLayout>
+      ) : null}
+
+      {controls.frequency === 'yearly' ? (
+        <FormLayout direction="horizontal">
+          <Selector
+            label="Month"
+            size="lg"
+            options={MONTHS}
+            value={String(controls.month)}
+            onChange={(month) => {
+              const days = daysInMonth(Number(month))
+              update({
+                month: Number(month),
+                yearDay: Math.min(controls.yearDay, days),
+              })
+            }}
+          />
+          <Selector
+            label="Day"
+            size="lg"
+            options={numbers(daysInMonth(controls.month))}
+            value={String(controls.yearDay)}
+            onChange={(day) => update({ yearDay: Number(day) })}
+          />
+        </FormLayout>
       ) : null}
 
       {custom ? (
@@ -139,11 +219,14 @@ export function CronBuilder({ value, onChange, status }: CronBuilderProps) {
         />
       ) : null}
 
-      <Text aria-live="polite" color={description ? 'primary' : 'secondary'}>
-        {controls.frequency === 'weekly' && controls.weekdays.length === 0
-          ? 'Pick at least one day.'
-          : (description ?? 'That isn’t a schedule yet.')}
-      </Text>
+      <VStack gap={1}>
+        <Text aria-live="polite" color={description ? 'primary' : 'secondary'}>
+          {controls.frequency === 'weekly' && controls.weekdays.length === 0
+            ? 'Pick at least one day.'
+            : (description ?? 'That isn’t a schedule yet.')}
+        </Text>
+        {note ? <Text type="supporting">{note}</Text> : null}
+      </VStack>
       {status?.message && !custom ? (
         <FieldStatus type="error" message={status.message} variant="detached" />
       ) : null}

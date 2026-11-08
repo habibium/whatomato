@@ -1,13 +1,8 @@
-import { HOUR_FORMAT, describeCron, parseCron } from '@/lib/cron'
+import { clock, describeSchedule } from '@/lib/cron'
 import { BROWSER_TIME_ZONE } from '@/lib/scheduler'
 
 const DAY_MS = 86_400_000
 
-const clock = new Intl.DateTimeFormat(undefined, {
-  hour: 'numeric',
-  minute: '2-digit',
-  hourCycle: HOUR_FORMAT === '24h' ? 'h23' : 'h12',
-})
 const weekdayShort = new Intl.DateTimeFormat(undefined, {
   weekday: 'short',
   day: 'numeric',
@@ -34,8 +29,6 @@ const fullDate = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
 })
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-const ordinals = new Intl.PluralRules('en', { type: 'ordinal' })
-const SUFFIX = { one: 'st', two: 'nd', few: 'rd', other: 'th' } as const
 
 /** Whole calendar days from today to the date, in this device's time zone. */
 function daysFromToday(date: Date, now = new Date()) {
@@ -99,68 +92,7 @@ function capitalise(text: string) {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
-function ordinal(day: number) {
-  const rule = ordinals.select(day) as keyof typeof SUFFIX
-  return `${day}${SUFFIX[rule] ?? SUFFIX.other}`
-}
-
-const WEEKDAY_NAMES = [
-  'Sunday',
-  'Monday',
-  'Tuesday',
-  'Wednesday',
-  'Thursday',
-  'Friday',
-  'Saturday',
-]
-
-/** "1-5" in the weekday field as "1,2,3,4,5", so the presets can read it. */
-function expandWeekdayRanges(expression: string) {
-  const fields = expression.trim().split(/\s+/)
-  const weekday = fields[4]
-  if (
-    fields.length !== 5 ||
-    !weekday ||
-    !/^[0-6](-[0-6])?(,[0-6](-[0-6])?)*$/.test(weekday)
-  ) {
-    return expression
-  }
-  const days = weekday.split(',').flatMap((part) => {
-    const [from = 0, to = from] = part.split('-').map(Number)
-    return Array.from(
-      { length: Math.max(0, to - from + 1) },
-      (_, index) => from + index,
-    )
-  })
-  fields[4] = days.join(',')
-  return fields.join(' ')
-}
-
-function clockOf(time: string) {
-  const [hour = 0, minute = 0] = time.split(':').map(Number)
-  return clock.format(new Date(2000, 0, 1, hour, minute))
-}
-
-/** "Weekdays at 09:45", "Tuesdays at 12:00", "Monthly on the 28th at 09:00"; cronstrue for the rest. */
+/** "Monday to Thursday at 9:00 AM", "Last day of every month at 9:00 AM"; cronstrue for the rest. */
 export function summariseCron(expression: string) {
-  const controls = parseCron(expandWeekdayRanges(expression))
-  const at = clockOf(controls.time)
-  switch (controls.frequency) {
-    case 'daily':
-      return `Every day at ${at}`
-    case 'monthly':
-      return `Monthly on the ${ordinal(controls.monthDay)} at ${at}`
-    case 'weekly': {
-      const days = [...controls.weekdays].sort((a, b) => a - b)
-      const key = days.join(',')
-      if (key === '1,2,3,4,5') return `Weekdays at ${at}`
-      if (key === '0,6') return `Weekends at ${at}`
-      if (days.length === 7) return `Every day at ${at}`
-      if (days.length === 1) return `${WEEKDAY_NAMES[days[0] ?? 0]}s at ${at}`
-      const names = days.map((day) => WEEKDAY_NAMES[day]?.slice(0, 3))
-      return `${names.join(', ')} at ${at}`
-    }
-    case 'custom':
-      return describeCron(expression) ?? expression
-  }
+  return describeSchedule(expression) ?? expression
 }

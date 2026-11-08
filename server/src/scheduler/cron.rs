@@ -120,6 +120,30 @@ mod tests {
         assert_eq!(problem("0 0 31 2 *", "UTC"), Some("never matches a date"));
     }
 
+    // The web's schedule builder writes each of these forms
+    #[test]
+    fn the_builders_schedules_match_as_described() {
+        // 2026-11-05 is a Thursday
+        let from = at(2026, 11, 5, 12, 0);
+        for (expression, next) in [
+            ("0 9 * * 1-4", at(2026, 11, 9, 9, 0)),
+            ("0 9 * * 0-4", at(2026, 11, 8, 9, 0)),
+            ("0 9 * * 1,3,5", at(2026, 11, 6, 9, 0)),
+            ("0 9 15 * *", at(2026, 11, 15, 9, 0)),
+            ("0 9 L * *", at(2026, 11, 30, 9, 0)),
+            ("0 9 * * 1#1", at(2026, 12, 7, 9, 0)),
+            ("0 9 * * 5L", at(2026, 11, 27, 9, 0)),
+            ("0 9 12 3 *", at(2027, 3, 12, 9, 0)),
+            ("0 9 29 2 *", at(2028, 2, 29, 9, 0)),
+        ] {
+            assert_eq!(
+                next_run(expression, "UTC", from),
+                Some(next),
+                "{expression}"
+            );
+        }
+    }
+
     #[test]
     fn zones_are_iana_names() {
         assert!(is_timezone("Asia/Dhaka"));
