@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE scheduled_messages SET enabled = $3, next_run_at = $4, updated_at = now()\n           WHERE id = $1 AND user_id = $2\n           RETURNING id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at, cron,\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at",
+  "query": "SELECT id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at,\n               recurrence AS \"recurrence: Json<Recurrence>\",\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at\n           FROM scheduled_messages WHERE id = $1 AND user_id = $2",
   "describe": {
     "columns": [
       {
@@ -93,12 +93,12 @@
       },
       {
         "ordinal": 8,
-        "name": "cron",
-        "type_info": "Text",
+        "name": "recurrence: Json<Recurrence>",
+        "type_info": "Jsonb",
         "origin": {
           "Table": {
             "table": "scheduled_messages",
-            "name": "cron"
+            "name": "recurrence"
           }
         }
       },
@@ -183,9 +183,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Bool",
-        "Timestamptz"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -207,5 +205,5 @@
       false
     ]
   },
-  "hash": "8d2e31a8e3d6ce53dc4dd96b7db5f9b300af8c9209fd53d8827a1fe8583901b5"
+  "hash": "fb03b2981605627fe1a9aff994c704ad973372f888f217686f51838c38763f39"
 }

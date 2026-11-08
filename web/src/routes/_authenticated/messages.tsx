@@ -31,7 +31,7 @@ import { WhatsAppBanner } from '@/components/whatsapp-banner'
 import {
   formatWhen,
   formatWhenInSentence,
-  summariseCron,
+  summariseRecurrence,
   zoneLabel,
 } from '@/lib/format'
 import { useRecipientLabel } from '@/lib/contacts'
@@ -479,7 +479,7 @@ function Schedule({ message }: { message: ScheduledMessage }) {
   const label =
     message.schedule_kind === 'once'
       ? 'Once'
-      : summariseCron(message.cron ?? '')
+      : summariseRecurrence(message.recurrence)
   return (
     <VStack>
       <Text color="secondary" maxLines={1}>

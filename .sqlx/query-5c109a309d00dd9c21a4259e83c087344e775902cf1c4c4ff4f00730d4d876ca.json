@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, schedule_kind, recurrence, timezone, next_run_at) VALUES ($1, 'contact', '15550001', 'hello', 'recurring', jsonb_build_object('type', 'cron', 'expression', $2::text), 'UTC', $3) RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5c109a309d00dd9c21a4259e83c087344e775902cf1c4c4ff4f00730d4d876ca"
+}

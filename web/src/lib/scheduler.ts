@@ -1,9 +1,12 @@
-import { keepPreviousData, queryOptions } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query'
 import { z } from 'zod'
 
 import type { components } from '@/api/schema'
 
 import { api } from '@/api/client'
+import { toFieldErrors } from '@/lib/form-errors'
+import type { Recurrence } from '@/lib/schedule'
 import { variableProblem } from '@/lib/variables'
 import { ApiError } from '@/lib/whatsapp'
 
@@ -106,4 +109,47 @@ export function recipientDeliveriesQuery(recipient: string, limit: number) {
         : false,
     retry: retryOutages,
   })
+}
+
+/** The server's answer for a schedule not yet saved: when it goes out, or why it never would. */
+export interface NextRuns {
+  runs: string[]
+  /** For a sun schedule, the time zone's main city. */
+  city: string | null
+  problem: string | null
+}
+
+const PREVIEW_SETTLE_MS = 250
+
+function nextRunsQuery(recurrence: string, timezone: string) {
+  return queryOptions({
+    queryKey: ['next-runs', recurrence, timezone],
+    queryFn: async (): Promise<NextRuns> => {
+      const { data, error, response } = await api.GET(
+        '/api/messages/next-runs',
+        { params: { query: { recurrence, timezone } } },
+      )
+      if (data) return { ...data, problem: null }
+      const fields = toFieldErrors(error, ['recurrence', 'timezone'] as const)
+      const problem = fields?.recurrence?.[0] ?? fields?.timezone?.[0]
+      if (problem) return { runs: [], city: null, problem: problem.message }
+      throw new ApiError(response.status)
+    },
+    enabled: recurrence !== '',
+    placeholderData: keepPreviousData,
+    // The runs move on as time does, but slowly next to how long a form stays open
+    staleTime: 60_000,
+    retry: retryOutages,
+  })
+}
+
+/** Asks once the controls stop changing, so typing a cron expression doesn't ask on every key. */
+export function useNextRuns(recurrence: Recurrence | null, timezone: string) {
+  const text = recurrence ? JSON.stringify(recurrence) : ''
+  const [settled, setSettled] = useState(text)
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(text), PREVIEW_SETTLE_MS)
+    return () => clearTimeout(timer)
+  }, [text])
+  return useQuery(nextRunsQuery(settled, timezone))
 }

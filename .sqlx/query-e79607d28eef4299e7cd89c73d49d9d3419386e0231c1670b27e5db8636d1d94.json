@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, recipient_name, body,\n               schedule_kind, run_at, cron, timezone, template_id, enabled, next_run_at)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)\n           RETURNING id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at, cron,\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at",
+  "query": "SELECT id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at,\n               recurrence AS \"recurrence: Json<Recurrence>\",\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at\n           FROM scheduled_messages WHERE user_id = $1 ORDER BY created_at, id",
   "describe": {
     "columns": [
       {
@@ -93,12 +93,12 @@
       },
       {
         "ordinal": 8,
-        "name": "cron",
-        "type_info": "Text",
+        "name": "recurrence: Json<Recurrence>",
+        "type_info": "Jsonb",
         "origin": {
           "Table": {
             "table": "scheduled_messages",
-            "name": "cron"
+            "name": "recurrence"
           }
         }
       },
@@ -182,18 +182,7 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Timestamptz",
-        "Text",
-        "Text",
-        "Uuid",
-        "Bool",
-        "Timestamptz"
+        "Uuid"
       ]
     },
     "nullable": [
@@ -215,5 +204,5 @@
       false
     ]
   },
-  "hash": "3e0ea1d977934f300e23fe82eb0eede767a42270baf83b4e8effefec9a3ffd1a"
+  "hash": "e79607d28eef4299e7cd89c73d49d9d3419386e0231c1670b27e5db8636d1d94"
 }

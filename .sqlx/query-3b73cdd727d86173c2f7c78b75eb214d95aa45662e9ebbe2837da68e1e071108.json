@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, schedule_kind, cron, timezone, next_run_at) VALUES ($1, 'contact', '15550001', 'hello', 'recurring', $2, 'UTC', $3) RETURNING id",
+  "query": "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, schedule_kind, recurrence, timezone, next_run_at) VALUES ($1, 'contact', '15550001', 'hello', 'recurring', '{\"type\": \"sun\", \"event\": \"sunset\", \"offset_minutes\": 0, \"days\": \"* * *\", \"place\": null}', 'Asia/Dhaka', $2) RETURNING id",
   "describe": {
     "columns": [
       {
@@ -18,7 +18,6 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
         "Timestamptz"
       ]
     },
@@ -26,5 +25,5 @@
       false
     ]
   },
-  "hash": "e3e8f78731ff7b94c01bc71717fae9235e8c74784930141d57b932d8098cfcf3"
+  "hash": "3b73cdd727d86173c2f7c78b75eb214d95aa45662e9ebbe2837da68e1e071108"
 }

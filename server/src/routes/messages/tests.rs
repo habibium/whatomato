@@ -28,9 +28,13 @@ fn recurring() -> Value {
         "recipient": "15550001234",
         "body": "Morning",
         "schedule_kind": "recurring",
-        "cron": "0 9 * * *",
+        "recurrence": { "type": "cron", "expression": "0 9 * * *" },
         "timezone": "Asia/Dhaka",
     })
+}
+
+fn sunset(place: &Value) -> Value {
+    json!({ "type": "sun", "event": "sunset", "offset_minutes": -10, "days": "* * *", "place": place })
 }
 
 fn with(mut input: Value, field: &str, value: Value) -> Value {
@@ -67,7 +71,7 @@ async fn a_one_time_message_runs_at_its_time(pool: PgPool) {
     assert_eq!(message["recipient"], "15550001234");
     assert_eq!(message["body"], "Hello");
     assert_eq!(message["next_run_at"], message["run_at"]);
-    assert_eq!(message["cron"], Value::Null);
+    assert_eq!(message["recurrence"], Value::Null);
     assert_eq!(message["timezone"], "UTC");
     assert_eq!(message["enabled"], true);
 }
@@ -136,9 +140,31 @@ async fn every_bad_field_is_named(pool: PgPool) {
         (with(once(), "body", json!("x".repeat(4097))), "body"),
         (with(once(), "run_at", json!(past)), "run_at"),
         (with(once(), "run_at", Value::Null), "run_at"),
-        (with(recurring(), "cron", Value::Null), "cron"),
-        (with(recurring(), "cron", json!("*/5 * * * * *")), "cron"),
-        (with(recurring(), "cron", json!("0 0 31 2 *")), "cron"),
+        (with(recurring(), "recurrence", Value::Null), "recurrence"),
+        (
+            with(
+                recurring(),
+                "recurrence",
+                json!({ "type": "cron", "expression": "*/5 * * * * *" }),
+            ),
+            "recurrence",
+        ),
+        (
+            with(
+                recurring(),
+                "recurrence",
+                json!({ "type": "cron", "expression": "0 0 31 2 *" }),
+            ),
+            "recurrence",
+        ),
+        (
+            with(
+                with(recurring(), "recurrence", sunset(&Value::Null)),
+                "timezone",
+                json!("UTC"),
+            ),
+            "recurrence",
+        ),
         (
             with(recurring(), "timezone", json!("Mars/Base")),
             "timezone",
@@ -174,7 +200,7 @@ async fn a_message_can_change_from_once_to_recurring(pool: PgPool) {
 
     assert_eq!(updated.status, StatusCode::OK, "{}", updated.body);
     assert_eq!(updated.body["run_at"], Value::Null);
-    assert_eq!(updated.body["cron"], "0 9 * * *");
+    assert_eq!(updated.body["recurrence"]["expression"], "0 9 * * *");
     assert_ne!(updated.body["next_run_at"], message["next_run_at"]);
 }
 
@@ -420,4 +446,95 @@ async fn a_message_names_only_variables_that_exist(pool: PgPool) {
         assert_eq!(refused.status, StatusCode::BAD_REQUEST);
         assert_eq!(refused.body["details"]["body"][0], message);
     }
+}
+
+#[sqlx::test]
+async fn a_sun_schedule_moves_with_the_sun_and_keeps_a_place_to_a_tenth_of_a_degree(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (_, session) = app.signed_in("ada@example.com").await;
+    let input = with(
+        recurring(),
+        "recurrence",
+        sunset(&json!({ "latitude": 23.8103, "longitude": 90.4125 })),
+    );
+
+    let message = create(&app, input, &session).await;
+
+    assert_eq!(
+        message["recurrence"]["place"],
+        json!({ "latitude": 23.8, "longitude": 90.4 })
+    );
+    let next: DateTime<Utc> = message["next_run_at"].as_str().unwrap().parse().unwrap();
+    assert!(next > Utc::now());
+    // Ten minutes before sunset in Dhaka, which runs from about 5:10 to 6:50 PM through the year
+    let local = next
+        .with_timezone(&chrono_tz::Asia::Dhaka)
+        .format("%H:%M")
+        .to_string();
+    assert!(("17:00".."18:41").contains(&local.as_str()), "{local}");
+}
+
+fn next_runs_path(recurrence: &Value, timezone: &str) -> String {
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("recurrence", &recurrence.to_string())
+        .append_pair("timezone", timezone)
+        .finish();
+    format!("/messages/next-runs?{query}")
+}
+
+#[sqlx::test]
+async fn next_runs_show_a_schedule_before_it_is_saved(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (_, session) = app.signed_in("ada@example.com").await;
+
+    let response = app
+        .call(
+            Method::GET,
+            &next_runs_path(&sunset(&Value::Null), "Asia/Dhaka"),
+            None,
+            Some(&session),
+        )
+        .await;
+
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_eq!(response.body["city"], "Dhaka");
+    let runs: Vec<DateTime<Utc>> = serde_json::from_value(response.body["runs"].clone()).unwrap();
+    assert_eq!(runs.len(), 3);
+    assert!(runs[0] > Utc::now());
+    for pair in runs.windows(2) {
+        let gap = pair[1] - pair[0];
+        assert!(
+            gap > TimeDelta::hours(23) && gap < TimeDelta::hours(25),
+            "{gap}"
+        );
+    }
+
+    let cron = json!({ "type": "cron", "expression": "0 9 * * *" });
+    let response = app
+        .call(
+            Method::GET,
+            &next_runs_path(&cron, "UTC"),
+            None,
+            Some(&session),
+        )
+        .await;
+    assert_eq!(response.status, StatusCode::OK, "{}", response.body);
+    assert_eq!(response.body["city"], Value::Null);
+}
+
+#[sqlx::test]
+async fn next_runs_name_what_is_wrong(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (_, session) = app.signed_in("ada@example.com").await;
+
+    let path = next_runs_path(&sunset(&Value::Null), "UTC");
+    let response = app.call(Method::GET, &path, None, Some(&session)).await;
+    assert_eq!(response.status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        response.body["details"]["recurrence"][0],
+        "needs a place, as its time zone has no city to go by"
+    );
+
+    let response = app.call(Method::GET, &path, None, None).await;
+    assert_eq!(response.status, StatusCode::UNAUTHORIZED);
 }

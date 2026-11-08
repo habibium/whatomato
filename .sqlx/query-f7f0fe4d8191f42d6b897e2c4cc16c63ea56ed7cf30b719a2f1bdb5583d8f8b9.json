@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at, cron,\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at\n           FROM scheduled_messages WHERE user_id = $1 ORDER BY created_at, id",
+  "query": "SELECT id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at,\n               recurrence AS \"recurrence: Json<Recurrence>\",\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at\n           FROM scheduled_messages WHERE enabled AND next_run_at <= $1\n           ORDER BY next_run_at LIMIT $2 FOR UPDATE SKIP LOCKED",
   "describe": {
     "columns": [
       {
@@ -93,12 +93,12 @@
       },
       {
         "ordinal": 8,
-        "name": "cron",
-        "type_info": "Text",
+        "name": "recurrence: Json<Recurrence>",
+        "type_info": "Jsonb",
         "origin": {
           "Table": {
             "table": "scheduled_messages",
-            "name": "cron"
+            "name": "recurrence"
           }
         }
       },
@@ -182,7 +182,8 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Timestamptz",
+        "Int8"
       ]
     },
     "nullable": [
@@ -204,5 +205,5 @@
       false
     ]
   },
-  "hash": "50f423405a2cc68ae498d7ebeb1699ead65fc36a955766c3904ed91d2e8525f6"
+  "hash": "f7f0fe4d8191f42d6b897e2c4cc16c63ea56ed7cf30b719a2f1bdb5583d8f8b9"
 }

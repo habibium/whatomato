@@ -487,6 +487,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/messages/next-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** When a schedule would go out, to check it before it's saved */
+        get: operations["next_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/messages/send-now": {
         parameters: {
             query?: never;
@@ -860,8 +877,6 @@ export interface components {
         MessageInput: {
             /** @description Up to 4096 characters */
             body: string;
-            /** @description Required for `recurring`: 5 fields, minute hour day month weekday */
-            cron?: string | null;
             enabled?: boolean;
             /**
              * @description For a contact, a phone number with its country code; a leading +, spaces and dashes are
@@ -871,6 +886,7 @@ export interface components {
             /** @description How the recipient shows in lists */
             recipient_name?: string | null;
             recipient_type: components["schemas"]["RecipientType"];
+            recurrence?: null | components["schemas"]["Recurrence"];
             /**
              * Format: date-time
              * @description Required for `once`, and in the future
@@ -882,7 +898,7 @@ export interface components {
              * @description The template the text came from, if any
              */
             template_id?: string | null;
-            /** @description The IANA zone `cron` is read in */
+            /** @description The IANA zone `recurrence` is read in */
             timezone?: string;
         };
         MessageTemplate: {
@@ -902,6 +918,12 @@ export interface components {
             };
             /** @description Tells the user's passkeys apart; blank or left out, it is "Passkey" */
             name?: string | null;
+        };
+        NextRuns: {
+            /** @description For a sun schedule, the time zone's main city, which it goes by unless it names a place */
+            city: string | null;
+            /** @description Soonest first */
+            runs: string[];
         };
         /** @enum {string} */
         NotLinkedBecause: "expired" | "failed" | "logged_out";
@@ -951,6 +973,18 @@ export interface components {
             /** @description The token from the reset email's link */
             token: string;
         };
+        Place: {
+            /**
+             * Format: double
+             * @description Degrees north, from -90 to 90
+             */
+            latitude: number;
+            /**
+             * Format: double
+             * @description Degrees east, from -180 to 180
+             */
+            longitude: number;
+        };
         /** @enum {string} */
         RecipientType: "contact" | "group";
         RecoveryCode: {
@@ -964,13 +998,21 @@ export interface components {
              */
             recovery_codes: string[];
         };
+        Recurrence: {
+            /** @description 5 fields: minute hour day month weekday */
+            expression: string;
+            /** @enum {string} */
+            type: "cron";
+        } | (components["schemas"]["Sun"] & {
+            /** @enum {string} */
+            type: "sun";
+        });
         /** @enum {string} */
         ScheduleKind: "once" | "recurring";
         ScheduledMessage: {
             body: string;
             /** Format: date-time */
             created_at: string;
-            cron: string | null;
             enabled: boolean;
             /** Format: uuid */
             id: string;
@@ -984,6 +1026,7 @@ export interface components {
             recipient: string;
             recipient_name: string | null;
             recipient_type: components["schemas"]["RecipientType"];
+            recurrence: null | components["schemas"]["Recurrence"];
             /** Format: date-time */
             run_at: string | null;
             schedule_kind: components["schemas"]["ScheduleKind"];
@@ -1030,6 +1073,19 @@ export interface components {
         };
         /** @enum {string} */
         StoppedBecause: "replaced" | "temporary_ban" | "outdated" | "refused";
+        Sun: {
+            /** @description Cron's day fields: day of the month, month, weekday. `* * *` for every day. */
+            days: string;
+            event: components["schemas"]["SunEvent"];
+            /**
+             * Format: int32
+             * @description Minutes after the sun rises or sets, or before when negative; up to 12 hours either way
+             */
+            offset_minutes: number;
+            place: null | components["schemas"]["Place"];
+        };
+        /** @enum {string} */
+        SunEvent: "sunrise" | "sunset";
         TemplateInput: {
             /** @description Up to 4096 characters */
             body: string;
@@ -2304,6 +2360,54 @@ export interface operations {
                 };
             };
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    next_runs: {
+        parameters: {
+            query: {
+                /** @description A `Recurrence`, as JSON */
+                recurrence: string;
+                /** @description The IANA zone its days are read in */
+                timezone: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NextRuns"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

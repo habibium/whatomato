@@ -23,13 +23,14 @@ import { z } from 'zod'
 import type { components } from '@/api/schema'
 
 import { api } from '@/api/client'
-import { CronBuilder } from '@/components/cron-builder'
 import { DialogForm } from '@/components/dialog-form'
 import { MessageBodyField } from '@/components/message-body-field'
 import { RecipientField, checkRecipient } from '@/components/recipient-field'
+import { ScheduleBuilder } from '@/components/schedule-builder'
 import type { Recipient } from '@/components/recipient-field'
 import { useVariableContext } from '@/lib/contacts'
-import { DEFAULT_CRON, HOUR_FORMAT } from '@/lib/cron'
+import { DEFAULT_RECURRENCE, HOUR_FORMAT } from '@/lib/schedule'
+import type { Recurrence } from '@/lib/schedule'
 import { toFieldErrors, toFieldStatus } from '@/lib/form-errors'
 import {
   BODY_MAX,
@@ -37,6 +38,7 @@ import {
   bodySchema,
   messagesQuery,
   templatesQuery,
+  useNextRuns,
 } from '@/lib/scheduler'
 import type { ScheduledMessage, Template } from '@/lib/scheduler'
 import { digitsOf, formatPhoneNumber } from '@/lib/whatsapp'
@@ -48,7 +50,7 @@ const FIELDS = [
   'recipient_name',
   'body',
   'run_at',
-  'cron',
+  'recurrence',
   'timezone',
   'template_id',
 ] as const
@@ -62,16 +64,16 @@ const schema = z
     body: bodySchema,
     schedule_kind: z.enum(['once', 'recurring']),
     run_at: z.string(),
-    cron: z.string(),
+    recurrence: z.custom<Recurrence>().nullable(),
     enabled: z.boolean(),
   })
   .superRefine((values, context) => {
     checkRecipient(values, context)
     if (values.schedule_kind === 'recurring') {
-      if (!values.cron) {
+      if (!values.recurrence) {
         context.addIssue({
           code: 'custom',
-          path: ['cron'],
+          path: ['recurrence'],
           message: 'Set a schedule',
         })
       }
@@ -109,7 +111,7 @@ function toValues(
     body: message?.body ?? template?.body ?? '',
     schedule_kind: message?.schedule_kind ?? 'once',
     run_at: message?.run_at ? toLocalInput(new Date(message.run_at)) : '',
-    cron: message?.cron ?? DEFAULT_CRON,
+    recurrence: message?.recurrence ?? DEFAULT_RECURRENCE,
     enabled: message?.enabled ?? true,
   }
 }
@@ -138,7 +140,7 @@ function toInput(
     body: values.body.trim(),
     schedule_kind: values.schedule_kind,
     run_at: isOnce ? new Date(values.run_at).toISOString() : null,
-    cron: isOnce ? null : values.cron,
+    recurrence: isOnce ? null : values.recurrence,
     timezone,
     enabled: values.enabled,
   }
@@ -210,7 +212,7 @@ function MessageForm({
   const [problem, setProblem] = useState<WriteProblem | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
   const bannerRef = useRef<HTMLDivElement>(null)
-  // A message keeps the zone it was written in; cron reads in that zone wherever it's edited
+  // A message keeps the zone it was written in; its schedule reads in that zone wherever it's edited
   const timezone = (message ?? copyOf)?.timezone ?? BROWSER_TIME_ZONE
   const failed = message
     ? "Couldn't save your changes."
@@ -280,13 +282,25 @@ function MessageForm({
   const templateID = useStore(form.store, (state) => state.values.template_id)
   const recipientValue = useStore(form.store, (state) => state.values.recipient)
   const runAt = useStore(form.store, (state) => state.values.run_at)
+  const recurrence = useStore(form.store, (state) => state.values.recurrence)
+  // The builder asks the same, so this is answered from its cache
+  const nextRun = useNextRuns(
+    scheduleKind === 'recurring' ? recurrence : null,
+    timezone,
+  ).data?.runs[0]
   const variables = useVariableContext(
     {
       recipient_type: recipientType,
       recipient: recipientValue,
       recipient_name: recipientName,
     },
-    scheduleKind === 'once' && runAt ? new Date(runAt) : null,
+    scheduleKind === 'once'
+      ? runAt
+        ? new Date(runAt)
+        : null
+      : nextRun
+        ? new Date(nextRun)
+        : null,
     timezone,
   )
   const list = templates.data ?? []
@@ -431,12 +445,13 @@ function MessageForm({
                     )}
                   </form.Field>
                 ) : (
-                  <form.Field name="cron">
+                  <form.Field name="recurrence">
                     {(field) => (
                       <VStack gap={2}>
-                        <CronBuilder
+                        <ScheduleBuilder
                           value={field.state.value}
-                          onChange={(cron) => field.handleChange(cron)}
+                          onChange={(next) => field.handleChange(next)}
+                          timezone={timezone}
                           status={toFieldStatus(field.state.meta)}
                         />
                         <Text type="supporting">

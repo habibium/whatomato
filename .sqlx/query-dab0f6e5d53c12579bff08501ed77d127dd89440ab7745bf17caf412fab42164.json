@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at, cron,\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at\n           FROM scheduled_messages WHERE enabled AND next_run_at <= $1\n           ORDER BY next_run_at LIMIT $2 FOR UPDATE SKIP LOCKED",
+  "query": "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, recipient_name, body,\n               schedule_kind, run_at, recurrence, timezone, template_id, enabled, next_run_at)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)\n           RETURNING id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at,\n               recurrence AS \"recurrence: Json<Recurrence>\",\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -93,12 +93,12 @@
       },
       {
         "ordinal": 8,
-        "name": "cron",
-        "type_info": "Text",
+        "name": "recurrence: Json<Recurrence>",
+        "type_info": "Jsonb",
         "origin": {
           "Table": {
             "table": "scheduled_messages",
-            "name": "cron"
+            "name": "recurrence"
           }
         }
       },
@@ -182,8 +182,18 @@
     ],
     "parameters": {
       "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
         "Timestamptz",
-        "Int8"
+        "Jsonb",
+        "Text",
+        "Uuid",
+        "Bool",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -205,5 +215,5 @@
       false
     ]
   },
-  "hash": "345859baef74eeb8aa038e60e5f46725920198279bd1d900234dda6f714234ec"
+  "hash": "dab0f6e5d53c12579bff08501ed77d127dd89440ab7745bf17caf412fab42164"
 }

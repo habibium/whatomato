@@ -51,6 +51,7 @@ webauthn-rs-proto = "0.5.5"
 # The default features bring a SQLite whose libsqlite3-sys clashes with sqlx's.
 whatsapp-rust = { git = "https://github.com/oxidezap/whatsapp-rust", rev = "4e3c8fb12f006284415b60287eeae8fdab7e5a22", default-features = false, features = ["tokio-runtime", "tokio-transport", "ureq-client"] }
 zeroize = "1"
+sunrise = "3"
 
 [dev-dependencies]
 # Paused clocks for tests of time-based caches

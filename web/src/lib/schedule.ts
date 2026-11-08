@@ -1,5 +1,11 @@
 import cronstrue from 'cronstrue'
 
+import type { components } from '@/api/schema'
+
+export type Recurrence = components['schemas']['Recurrence']
+export type Place = components['schemas']['Place']
+export type SunEvent = components['schemas']['SunEvent']
+
 export const HOUR_FORMAT = new Intl.DateTimeFormat(undefined, {
   hour: 'numeric',
 }).resolvedOptions().hour12
@@ -12,7 +18,10 @@ export const clock = new Intl.DateTimeFormat(undefined, {
   hourCycle: HOUR_FORMAT === '24h' ? 'h23' : 'h12',
 })
 
-export const DEFAULT_CRON = '0 9 * * *'
+export const DEFAULT_RECURRENCE: Recurrence = {
+  type: 'cron',
+  expression: '0 9 * * *',
+}
 
 /** Monday first, as the toggles show them; each value as cron numbers it, Sunday being 0. */
 export const WEEKDAYS = [
@@ -42,10 +51,24 @@ export type Frequency =
   | 'yearly'
   | 'custom'
 
-export interface CronControls {
+/** What sets the time of day: the clock, or the sun. */
+export type Timing = 'clock' | SunEvent
+
+/** In minutes, before the sun when negative: the offsets offered, in the order of the day. */
+export const SUN_OFFSETS = [
+  -120, -90, -60, -45, -30, -20, -15, -10, -5, 0, 5, 10, 15, 20, 30, 45, 60, 90,
+  120,
+]
+
+export interface ScheduleControls {
   frequency: Frequency
-  /** `HH:MM`, 24-hour. */
+  timing: Timing
+  /** `HH:MM`, 24-hour, for a set time. */
   time: string
+  /** Minutes after the sun rises or sets, or before it when negative. */
+  offset: number
+  /** Where the sun is watched from; `null` for the main city of the time zone. */
+  place: Place | null
   /** Every day when all seven are on. */
   weekdays: number[]
   monthDay: number | 'last'
@@ -60,18 +83,21 @@ export interface CronControls {
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
 const DAY_NAMES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT']
 
-function defaults(): CronControls {
+function defaults(): ScheduleControls {
   const today = new Date()
   return {
     frequency: 'weekly',
+    timing: 'clock',
     time: '09:00',
+    offset: 0,
+    place: null,
     weekdays: ALL_DAYS,
     monthDay: 1,
     nth: '1',
     nthWeekday: 1,
     month: today.getMonth() + 1,
     yearDay: today.getDate(),
-    custom: DEFAULT_CRON,
+    custom: '0 9 * * *',
   }
 }
 
@@ -109,7 +135,7 @@ function weekdaysOf(field: string) {
 }
 
 /** Reads an expression back into the controls; anything they can't show exactly stays custom. */
-export function parseCron(expression: string): CronControls {
+function parseCron(expression: string): ScheduleControls {
   const base = defaults()
   const custom = { ...base, frequency: 'custom' as const, custom: expression }
   const fields = expression
@@ -175,23 +201,65 @@ function weekdayField(weekdays: number[]) {
   return parts.join(',')
 }
 
-/** Empty when the controls don't make a schedule yet: a weekly one with no days. */
-export function buildCron(controls: CronControls) {
-  if (controls.frequency === 'custom') return controls.custom.trim()
-  const [hour = 0, minute = 0] = controls.time.split(':').map(Number)
-  const at = `${minute} ${hour}`
+/** Reads a schedule back into the controls, as `parseCron` does. */
+export function parseRecurrence(
+  recurrence: Recurrence | null,
+): ScheduleControls {
+  if (!recurrence) return defaults()
+  if (recurrence.type === 'cron') return parseCron(recurrence.expression)
+  // The days with a stand-in time, which only shows if the timing goes back to the clock
+  const controls = parseCron(`0 9 ${recurrence.days}`)
+  if (controls.frequency === 'custom') return controls
+  return {
+    ...controls,
+    timing: recurrence.event,
+    offset: recurrence.offset_minutes,
+    place: recurrence.place,
+  }
+}
+
+/** Cron's day fields, day of the month, month and weekday; empty for a weekly one with no days. */
+function dayFields(controls: ScheduleControls) {
   switch (controls.frequency) {
     case 'weekly':
       return controls.weekdays.length > 0
-        ? `${at} * * ${weekdayField(controls.weekdays)}`
+        ? `* * ${weekdayField(controls.weekdays)}`
         : ''
     case 'monthly':
-      return `${at} ${controls.monthDay === 'last' ? 'L' : controls.monthDay} * *`
+      return `${controls.monthDay === 'last' ? 'L' : controls.monthDay} * *`
     case 'nth-weekday':
-      return `${at} * * ${controls.nthWeekday}${controls.nth === 'last' ? 'L' : `#${controls.nth}`}`
+      return `* * ${controls.nthWeekday}${controls.nth === 'last' ? 'L' : `#${controls.nth}`}`
     case 'yearly':
-      return `${at} ${controls.yearDay} ${controls.month} *`
+      return `${controls.yearDay} ${controls.month} *`
+    case 'custom':
+      return ''
   }
+}
+
+/** The controls as a cron expression at the set time; empty when they don't make one yet. */
+export function buildCron(controls: ScheduleControls) {
+  if (controls.frequency === 'custom') return controls.custom.trim()
+  const days = dayFields(controls)
+  const [hour = 0, minute = 0] = controls.time.split(':').map(Number)
+  return days ? `${minute} ${hour} ${days}` : ''
+}
+
+/** `null` when the controls don't make a schedule yet. */
+export function buildRecurrence(controls: ScheduleControls): Recurrence | null {
+  if (controls.frequency === 'custom' || controls.timing === 'clock') {
+    const expression = buildCron(controls)
+    return expression ? { type: 'cron', expression } : null
+  }
+  const days = dayFields(controls)
+  return days
+    ? {
+        type: 'sun',
+        event: controls.timing,
+        offset_minutes: controls.offset,
+        days,
+        place: controls.place,
+      }
+    : null
 }
 
 const ordinals = new Intl.PluralRules('en', { type: 'ordinal' })
@@ -200,6 +268,20 @@ const list = new Intl.ListFormat('en-GB', { type: 'conjunction' })
 const dayAndMonth = new Intl.DateTimeFormat(undefined, {
   day: 'numeric',
   month: 'long',
+})
+const minutes = new Intl.NumberFormat('en', {
+  style: 'unit',
+  unit: 'minute',
+  unitDisplay: 'long',
+})
+const hours = new Intl.NumberFormat('en', {
+  style: 'unit',
+  unit: 'hour',
+  unitDisplay: 'long',
+})
+const tenths = new Intl.NumberFormat(undefined, {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
 })
 
 export function ordinal(day: number) {
@@ -210,6 +292,42 @@ export function ordinal(day: number) {
 export function clockOf(time: string) {
   const [hour = 0, minute = 0] = time.split(':').map(Number)
   return clock.format(new Date(2000, 0, 1, hour, minute))
+}
+
+/** "10 minutes", "1 hour", "1 hour 30 minutes". */
+function duration(total: number) {
+  const whole = Math.floor(total / 60)
+  const rest = total % 60
+  return [whole ? hours.format(whole) : '', rest ? minutes.format(rest) : '']
+    .filter(Boolean)
+    .join(' ')
+}
+
+/** An offset as an option reads: "At sunrise", "10 minutes before", "1 hour after". */
+export function offsetLabel(offset: number, event: SunEvent) {
+  if (offset === 0) return `At ${event}`
+  return `${duration(Math.abs(offset))} ${offset < 0 ? 'before' : 'after'}`
+}
+
+/** "23.8° N, 90.4° E". */
+export function formatPlace({ latitude, longitude }: Place) {
+  const north = `${tenths.format(Math.abs(latitude))}° ${latitude < 0 ? 'S' : 'N'}`
+  const east = `${tenths.format(Math.abs(longitude))}° ${longitude < 0 ? 'W' : 'E'}`
+  return `${north}, ${east}`
+}
+
+/** To a tenth of a degree, about 10 km, as the server keeps it: no closer to someone's home. */
+export function roundPlace(latitude: number, longitude: number): Place {
+  const round = (degrees: number) => Math.round(degrees * 10) / 10
+  return { latitude: round(latitude), longitude: round(longitude) }
+}
+
+/** What follows the days: " at 9:00 AM", " at sunset", ", 10 minutes before sunrise". */
+function timeOfDay(controls: ScheduleControls) {
+  if (controls.timing === 'clock') return ` at ${clockOf(controls.time)}`
+  if (controls.offset === 0) return ` at ${controls.timing}`
+  const side = controls.offset < 0 ? 'before' : 'after'
+  return `, ${duration(Math.abs(controls.offset))} ${side} ${controls.timing}`
 }
 
 const nameOf = (day: number) =>
@@ -241,24 +359,24 @@ function describeWeekdays(weekdays: number[]) {
 }
 
 /** The schedule in words, or `null` when the controls don't make one. */
-export function describeControls(controls: CronControls) {
-  const at = `at ${clockOf(controls.time)}`
+export function describeControls(controls: ScheduleControls) {
+  const at = timeOfDay(controls)
   switch (controls.frequency) {
     case 'weekly':
       return controls.weekdays.length > 0
-        ? `${describeWeekdays(controls.weekdays)} ${at}`
+        ? `${describeWeekdays(controls.weekdays)}${at}`
         : null
     case 'monthly':
       return controls.monthDay === 'last'
-        ? `Last day of every month ${at}`
-        : `${ordinal(controls.monthDay)} of every month ${at}`
+        ? `Last day of every month${at}`
+        : `${ordinal(controls.monthDay)} of every month${at}`
     case 'nth-weekday': {
       const nth = NTHS.find((option) => option.value === controls.nth)?.label
-      return `${nth} ${nameOf(controls.nthWeekday)} of every month ${at}`
+      return `${nth} ${nameOf(controls.nthWeekday)} of every month${at}`
     }
     case 'yearly': {
       const date = new Date(2000, controls.month - 1, controls.yearDay)
-      return `Every year on ${dayAndMonth.format(date)} ${at}`
+      return `Every year on ${dayAndMonth.format(date)}${at}`
     }
     case 'custom':
       return describeCron(controls.custom)
@@ -266,7 +384,7 @@ export function describeControls(controls: CronControls) {
 }
 
 /** What the builder can't show on its own: dates that some months or years don't have. */
-export function scheduleNote(controls: CronControls) {
+export function scheduleNote(controls: ScheduleControls) {
   if (
     controls.frequency === 'monthly' &&
     typeof controls.monthDay === 'number'
@@ -285,9 +403,12 @@ export function scheduleNote(controls: CronControls) {
   return null
 }
 
-/** The schedule in words, for any expression; `null` for what the server wouldn't take either. */
-export function describeSchedule(expression: string) {
-  return describeControls(parseCron(expression))
+/** The schedule in words; `null` for what the server wouldn't take either. */
+export function describeRecurrence(recurrence: Recurrence) {
+  const controls = parseRecurrence(recurrence)
+  // Sun days the controls can't show come back as custom cron, whose words would give a clock time
+  if (recurrence.type === 'sun' && controls.frequency === 'custom') return null
+  return describeControls(controls)
 }
 
 /** `null` for what the server wouldn't take either. It takes five fields; cronstrue takes more. */

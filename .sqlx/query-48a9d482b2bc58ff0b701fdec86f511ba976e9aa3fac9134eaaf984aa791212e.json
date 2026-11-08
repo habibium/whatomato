@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE scheduled_messages\n           SET recipient_type = $3, recipient = $4, recipient_name = $5, body = $6,\n               schedule_kind = $7, run_at = $8, cron = $9, timezone = $10, template_id = $11,\n               enabled = $12, next_run_at = $13, updated_at = now()\n           WHERE id = $1 AND user_id = $2\n           RETURNING id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at, cron,\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at",
+  "query": "UPDATE scheduled_messages SET enabled = $3, next_run_at = $4, updated_at = now()\n           WHERE id = $1 AND user_id = $2\n           RETURNING id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at,\n               recurrence AS \"recurrence: Json<Recurrence>\",\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -93,12 +93,12 @@
       },
       {
         "ordinal": 8,
-        "name": "cron",
-        "type_info": "Text",
+        "name": "recurrence: Json<Recurrence>",
+        "type_info": "Jsonb",
         "origin": {
           "Table": {
             "table": "scheduled_messages",
-            "name": "cron"
+            "name": "recurrence"
           }
         }
       },
@@ -184,15 +184,6 @@
       "Left": [
         "Uuid",
         "Uuid",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Timestamptz",
-        "Text",
-        "Text",
-        "Uuid",
         "Bool",
         "Timestamptz"
       ]
@@ -216,5 +207,5 @@
       false
     ]
   },
-  "hash": "10c68dc630ea9d395e5f3dc62d11c6a54fe77dbd76f86ccf73e25d12fe80c744"
+  "hash": "48a9d482b2bc58ff0b701fdec86f511ba976e9aa3fac9134eaaf984aa791212e"
 }

@@ -8,8 +8,8 @@ use uuid::Uuid;
 use validator::{ValidationError, ValidationErrors};
 
 use super::dto::{
-    MessageInput, ScheduledMessage, SendNowRequest, SendNowResponse, ToggleRequest,
-    normalized_recipient,
+    MessageInput, NextRuns, NextRunsQuery, ScheduledMessage, SendNowRequest, SendNowResponse,
+    ToggleRequest, normalized_recipient,
 };
 use crate::{
     auth::session::Session,
@@ -18,11 +18,14 @@ use crate::{
         message_templates, scheduled_messages,
     },
     error::{AppError, ErrorBody},
-    extract::ValidatedJson,
-    scheduler::{ScheduleKind, cron, variables},
+    extract::{ValidatedJson, ValidatedQuery},
+    scheduler::{ScheduleKind, variables},
     state::AppState,
     whatsapp::supervisor::SendFailure,
 };
+
+/// Enough to see a sun schedule move from day to day
+const NEXT_RUNS: usize = 3;
 
 /// The account's scheduled messages, oldest first
 #[utoipa::path(get, path = "/", responses(
@@ -111,6 +114,24 @@ pub async fn send_now(
     Ok((StatusCode::ACCEPTED, Json(SendNowResponse { delivery_id })))
 }
 
+/// When a schedule would go out, to check it before it's saved
+#[utoipa::path(get, path = "/next-runs", params(NextRunsQuery), responses(
+    (status = OK, body = NextRuns),
+    (status = BAD_REQUEST, body = ErrorBody),
+    (status = UNAUTHORIZED, body = ErrorBody),
+    (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
+))]
+pub async fn next_runs(
+    _session: Session,
+    ValidatedQuery(query): ValidatedQuery<NextRunsQuery>,
+) -> Json<NextRuns> {
+    let recurrence = query.recurrence.normalized();
+    Json(NextRuns {
+        runs: recurrence.next_runs(&query.timezone, Utc::now(), NEXT_RUNS),
+        city: recurrence.city(&query.timezone),
+    })
+}
+
 /// One scheduled message
 #[utoipa::path(get, path = "/{id}", params(("id" = Uuid, Path)), responses(
     (status = OK, body = ScheduledMessage),
@@ -184,9 +205,9 @@ pub async fn toggle_message(
         }
         (true, ScheduleKind::Once) => message.run_at,
         (true, ScheduleKind::Recurring) => message
-            .cron
-            .as_deref()
-            .and_then(|expression| cron::next_run(expression, &message.timezone, now)),
+            .recurrence
+            .as_ref()
+            .and_then(|recurrence| recurrence.next_after(&message.timezone, now)),
     };
 
     let message =

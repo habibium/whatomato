@@ -19,7 +19,7 @@ import { PersonAvatar } from '@/components/person-avatar'
 import { SendNowDialog } from '@/components/send-now-dialog'
 import type { Contact } from '@/lib/contacts'
 import { useContactBook } from '@/lib/contacts'
-import { formatWhen, summariseCron, zoneLabel } from '@/lib/format'
+import { formatWhen, summariseRecurrence, zoneLabel } from '@/lib/format'
 import { messagesQuery, recipientDeliveriesQuery } from '@/lib/scheduler'
 import type { ScheduledMessage } from '@/lib/scheduler'
 import { formatPhoneNumber } from '@/lib/whatsapp'
@@ -221,7 +221,7 @@ function When({ message }: { message: ScheduledMessage }) {
   const zone = zoneLabel(message.timezone)
   const repeats =
     message.schedule_kind === 'recurring'
-      ? `${summariseCron(message.cron ?? '')}${zone ? `, ${zone}` : ''}`
+      ? `${summariseRecurrence(message.recurrence)}${zone ? `, ${zone}` : ''}`
       : null
   const next = message.next_run_at
     ? `${repeats ? 'Next ' : 'Once, '}${formatWhen(message.next_run_at)}`

@@ -29,6 +29,34 @@ fmt:
     cargo fmt --all
     pnpm --dir web format
 
+# Regenerate each time zone's city and coordinates, for the sun's times, from this machine's tzdata
+zone-cities:
+    #!/usr/bin/env sh
+    set -eu
+    zi=/usr/share/zoneinfo
+    out=server/src/scheduler/recurrence/zone-cities.tsv
+    {
+        echo "# From tzdata $(sed -n 's/^# version //p' "$zi/tzdata.zi"): zone.tab, plus the links to its zones. Regenerate with just zone-cities."
+        awk -F'\t' '
+            function degrees(text, width,   sign, value) {
+                sign = substr(text, 1, 1) == "-" ? -1 : 1
+                value = substr(text, 2, width) + substr(text, width + 2, 2) / 60
+                if (length(text) > width + 3) value += substr(text, width + 4, 2) / 3600
+                return sign * value
+            }
+            FNR == NR {
+                if ($0 ~ /^#/) next
+                match($2, /^[+-][0-9]+/)
+                city = $3; sub(/.*\//, "", city); gsub(/_/, " ", city)
+                row[$3] = sprintf("%.4f\t%.4f\t%s", degrees(substr($2, 1, RLENGTH), 2), degrees(substr($2, RLENGTH + 1), 3), city)
+                next
+            }
+            $1 == "L" && !($3 in row) && ($2 in row) { row[$3] = row[$2] }
+            END { for (zone in row) print zone "\t" row[zone] }
+        ' "$zi/zone.tab" FS=' ' "$zi/tzdata.zi" | LC_ALL=C sort
+    } > "$out"
+    echo "wrote $(grep -vc '^#' "$out") zones to $out"
+
 # Build frontend and backend for production
 build: build-web build-server
 

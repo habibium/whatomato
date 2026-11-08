@@ -1,7 +1,7 @@
 //! Sends messages. One task, on the server holding the WhatsApp lock: every tick it turns due
 //! schedules into deliveries, then starts at most one delivery per account.
 
-pub mod cron;
+pub mod recurrence;
 pub mod variables;
 
 use std::{collections::HashMap, future::Future, time::Duration};
@@ -72,7 +72,7 @@ impl RecipientType {
 pub enum ScheduleKind {
     /// Goes out at `run_at`
     Once,
-    /// Goes out on every match of `cron` in `timezone`
+    /// Goes out as `recurrence` says, its days read in `timezone`
     Recurring,
 }
 
@@ -226,9 +226,9 @@ async fn enqueue_due(pool: &PgPool, cipher: &Cipher, now: DateTime<Utc>) -> sqlx
         )
         .await?;
         let next_run_at = message
-            .cron
-            .as_deref()
-            .and_then(|expression| cron::next_run(expression, &message.timezone, now));
+            .recurrence
+            .as_ref()
+            .and_then(|recurrence| recurrence.next_after(&message.timezone, now));
         scheduled_messages::advance(&mut *transaction, message.id, next_run_at, now).await?;
     }
     transaction.commit().await?;
@@ -431,8 +431,10 @@ mod tests {
     async fn recurring_due(pool: &PgPool, owner: Uuid, cron: &str) -> Uuid {
         sqlx::query_scalar!(
             "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, \
-             schedule_kind, cron, timezone, next_run_at) \
-             VALUES ($1, 'contact', '15550001', 'hello', 'recurring', $2, 'UTC', $3) RETURNING id",
+             schedule_kind, recurrence, timezone, next_run_at) \
+             VALUES ($1, 'contact', '15550001', 'hello', 'recurring', \
+                     jsonb_build_object('type', 'cron', 'expression', $2::text), 'UTC', $3) \
+             RETURNING id",
             owner,
             cron,
             past(),
@@ -531,6 +533,41 @@ mod tests {
             row.next_run_at,
             Some(Utc.with_ymd_and_hms(2030, 1, 2, 9, 0, 0).unwrap())
         );
+    }
+
+    #[sqlx::test]
+    async fn a_sun_schedule_moves_to_the_next_days_sunset(pool: PgPool) {
+        let owner = user(&pool).await;
+        let message = sqlx::query_scalar!(
+            "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, \
+             schedule_kind, recurrence, timezone, next_run_at) \
+             VALUES ($1, 'contact', '15550001', 'hello', 'recurring', \
+                     '{\"type\": \"sun\", \"event\": \"sunset\", \"offset_minutes\": 0, \
+                       \"days\": \"* * *\", \"place\": null}', 'Asia/Dhaka', $2) \
+             RETURNING id",
+            owner,
+            past(),
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        // Just after sunset in Dhaka on 8 November, at 11:16 UTC
+        let now = Utc.with_ymd_and_hms(2026, 11, 8, 11, 17, 0).unwrap();
+
+        assert_eq!(
+            enqueue_due(&pool, &Cipher::new(&[0; 32]), now)
+                .await
+                .unwrap(),
+            1
+        );
+
+        let row = scheduled_messages::find(&pool, message, owner)
+            .await
+            .unwrap()
+            .unwrap();
+        let next = row.next_run_at.unwrap();
+        assert_eq!(next.date_naive(), now.date_naive().succ_opt().unwrap());
+        assert_eq!(next.format("%H").to_string(), "11");
     }
 
     #[sqlx::test]

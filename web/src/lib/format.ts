@@ -1,4 +1,5 @@
-import { clock, describeSchedule } from '@/lib/cron'
+import { clock, describeRecurrence } from '@/lib/schedule'
+import type { Recurrence } from '@/lib/schedule'
 import { BROWSER_TIME_ZONE } from '@/lib/scheduler'
 
 const DAY_MS = 86_400_000
@@ -92,7 +93,12 @@ function capitalise(text: string) {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
-/** "Monday to Thursday at 9:00 AM", "Last day of every month at 9:00 AM"; cronstrue for the rest. */
-export function summariseCron(expression: string) {
-  return describeSchedule(expression) ?? expression
+/** "Monday to Thursday at 9:00 AM", "Every day, 10 minutes before sunrise"; cronstrue for the rest. */
+export function summariseRecurrence(recurrence: Recurrence | null) {
+  if (!recurrence) return ''
+  const described = describeRecurrence(recurrence)
+  if (described) return described
+  return recurrence.type === 'cron'
+    ? recurrence.expression
+    : `${capitalise(recurrence.event)}, on ${recurrence.days}`
 }

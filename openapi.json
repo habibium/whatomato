@@ -1547,6 +1547,74 @@
         }
       }
     },
+    "/api/messages/next-runs": {
+      "get": {
+        "summary": "When a schedule would go out, to check it before it's saved",
+        "operationId": "next_runs",
+        "parameters": [
+          {
+            "name": "recurrence",
+            "in": "query",
+            "description": "A `Recurrence`, as JSON",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "description": "The IANA zone its days are read in",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextRuns"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/messages/send-now": {
       "post": {
         "summary": "Send a message straight away",
@@ -3061,13 +3129,6 @@
             "type": "string",
             "description": "Up to 4096 characters"
           },
-          "cron": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Required for `recurring`: 5 fields, minute hour day month weekday"
-          },
           "enabled": {
             "type": "boolean"
           },
@@ -3084,6 +3145,17 @@
           },
           "recipient_type": {
             "$ref": "#/components/schemas/RecipientType"
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Recurrence",
+                "description": "Required for `recurring`"
+              }
+            ]
           },
           "run_at": {
             "type": [
@@ -3106,7 +3178,7 @@
           },
           "timezone": {
             "type": "string",
-            "description": "The IANA zone `cron` is read in"
+            "description": "The IANA zone `recurrence` is read in"
           }
         }
       },
@@ -3160,6 +3232,30 @@
               "null"
             ],
             "description": "Tells the user's passkeys apart; blank or left out, it is \"Passkey\""
+          }
+        }
+      },
+      "NextRuns": {
+        "type": "object",
+        "required": [
+          "runs",
+          "city"
+        ],
+        "properties": {
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a sun schedule, the time zone's main city, which it goes by unless it names a place"
+          },
+          "runs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "Soonest first"
           }
         }
       },
@@ -3286,6 +3382,25 @@
           }
         }
       },
+      "Place": {
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "format": "double",
+            "description": "Degrees north, from -90 to 90"
+          },
+          "longitude": {
+            "type": "number",
+            "format": "double",
+            "description": "Degrees east, from -180 to 180"
+          }
+        }
+      },
       "RecipientType": {
         "type": "string",
         "enum": [
@@ -3320,6 +3435,53 @@
           }
         }
       },
+      "Recurrence": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "On every match of a cron expression",
+            "required": [
+              "expression",
+              "type"
+            ],
+            "properties": {
+              "expression": {
+                "type": "string",
+                "description": "5 fields: minute hour day month weekday"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "cron"
+                ]
+              }
+            }
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Sun",
+                "description": "On the days `days` picks, at a time that moves with the sun"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "sun"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "On the days `days` picks, at a time that moves with the sun"
+          }
+        ]
+      },
       "ScheduleKind": {
         "type": "string",
         "enum": [
@@ -3337,7 +3499,7 @@
           "body",
           "schedule_kind",
           "run_at",
-          "cron",
+          "recurrence",
           "timezone",
           "template_id",
           "enabled",
@@ -3353,12 +3515,6 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
-          },
-          "cron": {
-            "type": [
-              "string",
-              "null"
-            ]
           },
           "enabled": {
             "type": "boolean"
@@ -3393,6 +3549,16 @@
           },
           "recipient_type": {
             "$ref": "#/components/schemas/RecipientType"
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Recurrence"
+              }
+            ]
           },
           "run_at": {
             "type": [
@@ -3555,6 +3721,47 @@
           "temporary_ban",
           "outdated",
           "refused"
+        ]
+      },
+      "Sun": {
+        "type": "object",
+        "required": [
+          "event",
+          "offset_minutes",
+          "days",
+          "place"
+        ],
+        "properties": {
+          "days": {
+            "type": "string",
+            "description": "Cron's day fields: day of the month, month, weekday. `* * *` for every day."
+          },
+          "event": {
+            "$ref": "#/components/schemas/SunEvent"
+          },
+          "offset_minutes": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Minutes after the sun rises or sets, or before when negative; up to 12 hours either way"
+          },
+          "place": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Place",
+                "description": "Where the sun is watched from; `null` for the main city of the message's time zone"
+              }
+            ]
+          }
+        }
+      },
+      "SunEvent": {
+        "type": "string",
+        "enum": [
+          "sunrise",
+          "sunset"
         ]
       },
       "TemplateInput": {
