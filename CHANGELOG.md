@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.1.4] - 2026-11-08
+
+### Features
+
+- Send at sunrise or sunset, or minutes before or after, moving with the sun each day (4b4d6a9)
 ## [0.1.3] - 2026-11-08
 
 ### Features
