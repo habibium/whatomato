@@ -38,7 +38,6 @@ const styles = stylex.create({
     paddingInline: spacingVars['--spacing-3'],
   },
   highlighted: { backgroundColor: colorVars['--color-overlay-hover'] },
-  frame: { position: 'relative' },
   token: { fontFamily: typographyVars['--font-family-code'] },
 })
 
@@ -72,7 +71,6 @@ export function MessageBodyField({
 }: MessageBodyFieldProps) {
   const listID = useId()
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const frameRef = useRef<HTMLDivElement | null>(null)
   const [caret, setCaret] = useState<number | null>(null)
   const [highlighted, setHighlighted] = useState(0)
   // The `{{` whose list Escape closed; it stays closed until the cursor leaves it
@@ -190,7 +188,7 @@ export function MessageBodyField({
 
   return (
     <VStack gap={2}>
-      <VStack ref={frameRef} xstyle={styles.frame}>
+      <VariableHighlights value={value} textareaRef={textareaRef}>
         <TextArea
           ref={(element: HTMLTextAreaElement | null) => {
             textareaRef.current = element
@@ -210,12 +208,7 @@ export function MessageBodyField({
           onBlur={onBlur}
           status={status}
         />
-        <VariableHighlights
-          value={value}
-          textareaRef={textareaRef}
-          frameRef={frameRef}
-        />
-      </VStack>
+      </VariableHighlights>
       {shown !== null ? (
         <Text type="supporting" maxLines={3}>
           Goes out as “{shown.trim()}”

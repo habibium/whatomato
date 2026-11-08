@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { RefObject } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import * as stylex from '@stylexjs/stylex'
+import { VStack } from '@astryxdesign/core/VStack'
 import { colorVars, radiusVars } from '@astryxdesign/core/theme/tokens.stylex'
 
 import { isVariable } from '@/lib/variables'
@@ -20,6 +21,7 @@ interface Box {
 }
 
 const styles = stylex.create({
+  frame: { position: 'relative' },
   layer: (box: Box) => ({
     boxSizing: 'border-box',
     color: 'transparent',
@@ -57,7 +59,8 @@ const styles = stylex.create({
 interface VariableHighlightsProps {
   value: string
   textareaRef: RefObject<HTMLTextAreaElement | null>
-  frameRef: RefObject<HTMLElement | null>
+  /** The field holding the textarea. */
+  children: ReactNode
 }
 
 /**
@@ -68,8 +71,10 @@ interface VariableHighlightsProps {
 export function VariableHighlights({
   value,
   textareaRef,
-  frameRef,
+  children,
 }: VariableHighlightsProps) {
+  // Rendered here rather than by the caller: a parent's ref isn't set yet when this measures on mount
+  const frameRef = useRef<HTMLDivElement>(null)
   const layerRef = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState<Box | null>(null)
 
@@ -80,10 +85,12 @@ export function VariableHighlights({
     const measure = () => {
       const area = textarea.getBoundingClientRect()
       const outer = frame.getBoundingClientRect()
+      // A dialog scales in as it opens, which shrinks on-screen distances but not layout ones
+      const scale = outer.width / frame.offsetWidth || 1
       const computed = getComputedStyle(textarea)
       setBox({
-        top: `${area.top - outer.top + textarea.clientTop}px`,
-        left: `${area.left - outer.left + textarea.clientLeft}px`,
+        top: `${(area.top - outer.top) / scale + textarea.clientTop}px`,
+        left: `${(area.left - outer.left) / scale + textarea.clientLeft}px`,
         // The client box leaves out a scrollbar, which narrows the lines the same way
         width: `${textarea.clientWidth}px`,
         height: `${textarea.clientHeight}px`,
@@ -115,27 +122,34 @@ export function VariableHighlights({
     return () => textarea.removeEventListener('scroll', follow)
   }, [textareaRef, value])
 
-  if (!box || !value.includes('{{')) return null
-
   const parts = value.split(/(\{\{[^{}\n]*\}\})/)
   return (
-    <div ref={layerRef} aria-hidden="true" {...stylex.props(styles.layer(box))}>
-      {parts.map((part, index) =>
-        index % 2 === 1 ? (
-          <span
-            key={index}
-            {...stylex.props(
-              isVariable(part) ? styles.variable : styles.unknown,
-            )}
-          >
-            {part}
-          </span>
-        ) : (
-          part
-        ),
-      )}
-      {/* A final line break only takes up a line once something follows it */}
-      {value.endsWith('\n') ? ' ' : null}
-    </div>
+    <VStack ref={frameRef} xstyle={styles.frame}>
+      {children}
+      {box && value.includes('{{') ? (
+        <div
+          ref={layerRef}
+          aria-hidden="true"
+          {...stylex.props(styles.layer(box))}
+        >
+          {parts.map((part, index) =>
+            index % 2 === 1 ? (
+              <span
+                key={index}
+                {...stylex.props(
+                  isVariable(part) ? styles.variable : styles.unknown,
+                )}
+              >
+                {part}
+              </span>
+            ) : (
+              part
+            ),
+          )}
+          {/* A final line break only takes up a line once something follows it */}
+          {value.endsWith('\n') ? ' ' : null}
+        </div>
+      ) : null}
+    </VStack>
   )
 }
