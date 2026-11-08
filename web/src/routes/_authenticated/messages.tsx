@@ -47,6 +47,7 @@ export const Route = createFileRoute('/_authenticated/messages')({
 
 type OpenDialog =
   | { kind: 'write'; message: ScheduledMessage | null }
+  | { kind: 'duplicate'; message: ScheduledMessage }
   | { kind: 'delete'; message: ScheduledMessage }
   | { kind: 'send' }
 
@@ -213,6 +214,9 @@ function MessagesPage() {
                   messages={shown}
                   onToggle={toggle}
                   onEdit={(message) => setDialog({ kind: 'write', message })}
+                  onDuplicate={(message) =>
+                    setDialog({ kind: 'duplicate', message })
+                  }
                   onDelete={(message) => setDialog({ kind: 'delete', message })}
                 />
               ) : (
@@ -252,9 +256,15 @@ function MessagesPage() {
       </VStack>
 
       <MessageFormDialog
-        isOpen={dialog?.kind === 'write'}
+        isOpen={dialog?.kind === 'write' || dialog?.kind === 'duplicate'}
         onOpenChange={closeDialog}
         message={dialog?.kind === 'write' ? dialog.message : null}
+        copyOf={dialog?.kind === 'duplicate' ? dialog.message : null}
+        onSaved={(saved) => {
+          // A new message may land in another tab than the one on show
+          if (dialog?.kind !== 'write' || !dialog.message)
+            setView(viewOf(saved))
+        }}
       />
       <SendNowDialog
         isOpen={dialog?.kind === 'send'}
@@ -316,6 +326,7 @@ interface MessageTableProps {
   messages: ScheduledMessage[]
   onToggle: (message: ScheduledMessage, enabled: boolean) => Promise<void>
   onEdit: (message: ScheduledMessage) => void
+  onDuplicate: (message: ScheduledMessage) => void
   onDelete: (message: ScheduledMessage) => void
 }
 
@@ -324,6 +335,7 @@ function MessageTable({
   messages,
   onToggle,
   onEdit,
+  onDuplicate,
   onDelete,
 }: MessageTableProps) {
   const isNarrow = useMediaQuery('(max-width: 1099px)')
@@ -358,6 +370,7 @@ function MessageTable({
             label: viewOf(message) === 'past' ? 'Schedule again' : 'Edit',
             onClick: () => onEdit(message),
           },
+          { label: 'Duplicate', onClick: () => onDuplicate(message) },
           {
             label: 'Delete',
             variant: 'destructive',

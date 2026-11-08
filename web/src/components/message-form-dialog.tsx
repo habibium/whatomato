@@ -114,6 +114,14 @@ function toValues(
   }
 }
 
+/** Running switches a one-time message off rather than its owner, so a copy of a sent one starts on. */
+function copyValues(original: ScheduledMessage): Values {
+  const values = toValues(original, null, null)
+  const hasRun =
+    original.schedule_kind === 'once' && Boolean(original.last_run_at)
+  return hasRun ? { ...values, enabled: true } : values
+}
+
 function toInput(
   values: Values,
   timezone: string,
@@ -141,18 +149,24 @@ interface MessageFormDialogProps {
   onOpenChange: (isOpen: boolean) => void
   /** The message to edit; `null` writes a new one. */
   message: ScheduledMessage | null
+  /** A message to start a new one from, with every field as it was. */
+  copyOf?: ScheduledMessage | null
   /** A template to start a new message from. */
   template?: Template | null
   /** Who a new message goes to, with digits for a number. */
   recipient?: Recipient | null
+  /** After a save, with the message as saved. */
+  onSaved?: (message: ScheduledMessage) => void
 }
 
 export function MessageFormDialog({
   isOpen,
   onOpenChange,
   message,
+  copyOf = null,
   template = null,
   recipient = null,
+  onSaved,
 }: MessageFormDialogProps) {
   return (
     <Dialog
@@ -165,8 +179,10 @@ export function MessageFormDialog({
       {isOpen ? (
         <MessageForm
           message={message}
+          copyOf={copyOf}
           template={template}
           recipient={recipient}
+          onSaved={onSaved}
           onClose={() => onOpenChange(false)}
         />
       ) : null}
@@ -176,13 +192,17 @@ export function MessageFormDialog({
 
 function MessageForm({
   message,
+  copyOf,
   template,
   recipient,
+  onSaved,
   onClose,
 }: {
   message: ScheduledMessage | null
+  copyOf: ScheduledMessage | null
   template: Template | null
   recipient: Recipient | null
+  onSaved?: (message: ScheduledMessage) => void
   onClose: () => void
 }) {
   const queryClient = useQueryClient()
@@ -191,13 +211,15 @@ function MessageForm({
   const formRef = useRef<HTMLFormElement>(null)
   const bannerRef = useRef<HTMLDivElement>(null)
   // A message keeps the zone it was written in; cron reads in that zone wherever it's edited
-  const timezone = message?.timezone ?? BROWSER_TIME_ZONE
+  const timezone = (message ?? copyOf)?.timezone ?? BROWSER_TIME_ZONE
   const failed = message
     ? "Couldn't save your changes."
     : "Couldn't schedule the message."
 
   const form = useForm({
-    defaultValues: toValues(message, template, recipient),
+    defaultValues: copyOf
+      ? copyValues(copyOf)
+      : toValues(message, template, recipient),
     validators: { onSubmit: schema },
     canSubmitWhenInvalid: true,
     listeners: {
@@ -217,6 +239,7 @@ function MessageForm({
           queryKey: messagesQuery.queryKey,
         })
         if (result.data) {
+          onSaved?.(result.data)
           onClose()
           return
         }
@@ -273,7 +296,13 @@ function MessageForm({
       <Layout
         header={
           <DialogHeader
-            title={message ? 'Edit message' : 'New message'}
+            title={
+              message
+                ? 'Edit message'
+                : copyOf
+                  ? 'Duplicate message'
+                  : 'New message'
+            }
             subtitle="Who it goes to, what it says and when it goes out."
             onOpenChange={() => onClose()}
           />
@@ -394,7 +423,9 @@ function MessageForm({
                           status={toFieldStatus(field.state.meta)}
                         />
                         <Text type="supporting">
-                          In your time zone, {BROWSER_TIME_ZONE}.
+                          {hasPassed(field.state.value)
+                            ? `That time has passed, so pick a new one. In your time zone, ${BROWSER_TIME_ZONE}.`
+                            : `In your time zone, ${BROWSER_TIME_ZONE}.`}
                         </Text>
                       </VStack>
                     )}
@@ -458,6 +489,10 @@ function MessageForm({
       />
     </DialogForm>
   )
+}
+
+function hasPassed(runAt: string) {
+  return runAt !== '' && new Date(runAt).getTime() <= Date.now()
 }
 
 /** A long form scrolls under its pinned footer, so Save can fail on a field that's out of view. */
