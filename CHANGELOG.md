@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.5] - 2026-11-12
+
+### Features
+
+- {{sunrise}} and {{sunset}}, and moving any time by minutes, hours or days (9c18322)
+
+### Bug Fixes
+
+- Give the memory from password hashing back after each sign-up and sign-in (7147ffd)
 ## [0.1.4] - 2026-11-08
 
 ### Features
