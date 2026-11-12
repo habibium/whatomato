@@ -35,6 +35,9 @@ COPY --from=web /app/web/dist ./web/dist
 ENV PORT=8000 \
     WEB_DIR=/app/web/dist \
     RUST_LOG=warn,server=info
+# A fixed mmap threshold turns off glibc's dynamic one, which otherwise keeps each freed 19 MiB
+# Argon2 buffer in the heap instead of returning it (over 200 MiB after a dozen sign-ins on bookworm)
+ENV GLIBC_TUNABLES=glibc.malloc.mmap_threshold=131072
 USER app
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
