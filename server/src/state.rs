@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{num::NonZeroU32, sync::Arc};
 
 use sqlx::PgPool;
 use url::Url;
@@ -19,6 +19,8 @@ pub struct AppState {
     pub whatsapp: WhatsApp,
     /// `AGENT_ACCESS`: whether the agent routes and the MCP endpoint answer
     pub agent_access: bool,
+    /// `MAX_LINKED_ACCOUNTS`: how many WhatsApp accounts may be linked at once
+    pub max_linked_accounts: Option<NonZeroU32>,
 }
 
 impl AppState {

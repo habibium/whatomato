@@ -83,11 +83,23 @@ impl TestApp {
             "http://localhost:5173",
             PwnedPasswords::Listed(&[]),
             false,
+            None,
+        )
+    }
+
+    /// As a server started with `MAX_LINKED_ACCOUNTS=max`
+    pub fn with_max_linked_accounts(pool: PgPool, max: u32) -> Self {
+        Self::build(
+            pool,
+            "http://localhost:5173",
+            PwnedPasswords::Listed(&[]),
+            true,
+            std::num::NonZeroU32::new(max),
         )
     }
 
     fn with_pwned_passwords(pool: PgPool, app_url: &str, pwned_passwords: PwnedPasswords) -> Self {
-        Self::build(pool, app_url, pwned_passwords, true)
+        Self::build(pool, app_url, pwned_passwords, true, None)
     }
 
     fn build(
@@ -95,6 +107,7 @@ impl TestApp {
         app_url: &str,
         pwned_passwords: PwnedPasswords,
         agent_access: bool,
+        max_linked_accounts: Option<std::num::NonZeroU32>,
     ) -> Self {
         let outbox = Arc::default();
         let cipher = Cipher::new(&[0; 32]);
@@ -109,6 +122,7 @@ impl TestApp {
             cipher: cipher.clone(),
             whatsapp: WhatsApp::new(Context::new(pool.clone(), cipher, mailer, app_url)),
             agent_access,
+            max_linked_accounts,
         };
         let (router, _) = crate::router();
         let (mcp, _) = crate::mcp::router(state.clone(), 8000);

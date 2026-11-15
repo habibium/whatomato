@@ -38,7 +38,7 @@ async fn the_status_needs_a_session_and_starts_unlinked(pool: PgPool) {
     assert_eq!(status.status, StatusCode::OK);
     assert_eq!(
         status.body,
-        json!({ "status": "not_linked", "reason": null })
+        json!({ "status": "not_linked", "reason": null, "can_link": true })
     );
 }
 
@@ -101,7 +101,7 @@ async fn linking_and_unlinking_check_the_password(pool: PgPool) {
     let status = call(&app, Method::GET, "/status", None, Some(&session)).await;
     assert_eq!(
         status.body,
-        json!({ "status": "not_linked", "reason": null })
+        json!({ "status": "not_linked", "reason": null, "can_link": true })
     );
 }
 
@@ -279,4 +279,74 @@ async fn pictures_are_only_for_saved_contacts_and_groups(pool: PgPool) {
             .await
             .unwrap()
     );
+}
+
+async fn link_account(pool: &PgPool, user_id: uuid::Uuid, phone_number: Option<&str>) {
+    sqlx::query("INSERT INTO whatsapp_accounts (user_id, phone_number, linked_at) VALUES ($1, $2, CASE WHEN $2 IS NULL THEN NULL ELSE now() END)")
+        .bind(user_id)
+        .bind(phone_number)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+async fn can_link(app: &TestApp, session: &str) -> Value {
+    let status = call(app, Method::GET, "/status", None, Some(session)).await;
+    assert_eq!(status.status, StatusCode::OK);
+    status.body["can_link"].clone()
+}
+
+#[sqlx::test]
+async fn under_the_limit_anyone_can_link(pool: PgPool) {
+    let app = TestApp::with_max_linked_accounts(pool.clone(), 2);
+    let (grace, _) = app.signed_in("grace@example.com").await;
+    link_account(&pool, grace, Some("15550001")).await;
+
+    let (_, session) = app.signed_in("ada@example.com").await;
+    assert_eq!(can_link(&app, &session).await, json!(true));
+}
+
+#[sqlx::test]
+async fn at_the_limit_a_new_user_cannot_start_linking(pool: PgPool) {
+    let app = TestApp::with_max_linked_accounts(pool.clone(), 1);
+    let (grace, _) = app.signed_in("grace@example.com").await;
+    link_account(&pool, grace, Some("15550001")).await;
+
+    let (_, session) = app.signed_in("ada@example.com").await;
+    assert_eq!(can_link(&app, &session).await, json!(false));
+    let response = call(
+        &app,
+        Method::POST,
+        "/link",
+        Some(json!({ "password": PASSWORD })),
+        Some(&session),
+    )
+    .await;
+    assert_eq!(response.status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        response.body["error"],
+        "There's no room for another WhatsApp account on this server right now. Try again later."
+    );
+}
+
+#[sqlx::test]
+async fn a_linked_user_keeps_their_place_at_or_over_the_limit(pool: PgPool) {
+    let app = TestApp::with_max_linked_accounts(pool.clone(), 1);
+    let (grace, grace_session) = app.signed_in("grace@example.com").await;
+    let (ada, session) = app.signed_in("ada@example.com").await;
+    link_account(&pool, grace, Some("15550001")).await;
+    link_account(&pool, ada, Some("15550002")).await;
+
+    assert_eq!(can_link(&app, &session).await, json!(true));
+    assert_eq!(can_link(&app, &grace_session).await, json!(true));
+}
+
+#[sqlx::test]
+async fn an_abandoned_pairing_holds_no_place(pool: PgPool) {
+    let app = TestApp::with_max_linked_accounts(pool.clone(), 1);
+    let (grace, _) = app.signed_in("grace@example.com").await;
+    link_account(&pool, grace, None).await;
+
+    let (_, session) = app.signed_in("ada@example.com").await;
+    assert_eq!(can_link(&app, &session).await, json!(true));
 }

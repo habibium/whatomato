@@ -27,6 +27,19 @@ pub async fn all(db: impl PgExecutor<'_>) -> sqlx::Result<Vec<Account>> {
     .await
 }
 
+/// How many accounts a phone has linked, and whether the user's is one of them. A row whose
+/// pairing is under way or was abandoned has no phone number yet, so it isn't counted.
+pub async fn linked(db: impl PgExecutor<'_>, user_id: Uuid) -> sqlx::Result<(i64, bool)> {
+    let row = sqlx::query!(
+        r#"SELECT count(*) AS "linked!", coalesce(bool_or(user_id = $1), false) AS "own!"
+           FROM whatsapp_accounts WHERE phone_number IS NOT NULL"#,
+        user_id
+    )
+    .fetch_one(db)
+    .await?;
+    Ok((row.linked, row.own))
+}
+
 /// The user's account row, created if there's none
 pub async fn find_or_create(db: impl PgExecutor<'_>, user_id: Uuid) -> sqlx::Result<Account> {
     // A no-op update, because DO NOTHING returns no row on a conflict

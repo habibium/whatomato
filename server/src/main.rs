@@ -70,6 +70,7 @@ async fn main() -> anyhow::Result<()> {
         cipher,
         whatsapp: whatsapp.clone(),
         agent_access: config.agent_access,
+        max_linked_accounts: config.max_linked_accounts,
     };
 
     let (router, api) = server::router();
@@ -115,14 +116,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(Scalar::with_url("/api/docs", api))
         .nest_service("/assets", assets_router)
         .layer(Extension(ClientIpHeader(config.client_ip_header)))
-        .layer(
-            CompressionLayer::new()
-                .br(true)
-                .gzip(true)
-                .quality(CompressionLevel::Fastest)
-                // woff2 is already compressed; encoding it only adds bytes
-                .compress_when(DefaultPredicate::new().and(NotForContentType::const_new("font/"))),
-        )
+        .layer(compression())
         .layer(
             TraceLayer::new_for_http().make_span_with(|request: &Request<_>| {
                 // Path only, as query strings carry the tokens from emailed links. tower-http's own
@@ -156,6 +150,15 @@ async fn main() -> anyhow::Result<()> {
     pool.close().await;
     tracing::info!("server stopped");
     Ok(())
+}
+
+fn compression() -> CompressionLayer<impl Predicate> {
+    CompressionLayer::new()
+        .br(true)
+        .gzip(true)
+        .quality(CompressionLevel::Fastest)
+        // woff2 is already compressed; encoding it only adds bytes
+        .compress_when(DefaultPredicate::new().and(NotForContentType::const_new("font/")))
 }
 
 fn init_tracing() {

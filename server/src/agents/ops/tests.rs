@@ -69,6 +69,7 @@ fn state(pool: PgPool) -> AppState {
         cipher: cipher.clone(),
         whatsapp: WhatsApp::new(Context::new(pool, cipher, mailer, app_url)),
         agent_access: true,
+        max_linked_accounts: None,
     }
 }
 

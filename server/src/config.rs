@@ -1,4 +1,4 @@
-use std::{env, path::PathBuf};
+use std::{env, num::NonZeroU32, path::PathBuf};
 
 use anyhow::Context;
 use axum::http::HeaderName;
@@ -22,6 +22,8 @@ pub struct Config {
     pub encryption_key: [u8; 32],
     /// Whether users may connect AI agents to their accounts
     pub agent_access: bool,
+    /// How many WhatsApp accounts may be linked at once; `None` for no limit
+    pub max_linked_accounts: Option<NonZeroU32>,
 }
 
 /// Anyone can read this key, so whatever a debug build encrypts with it is as good as plaintext
@@ -32,7 +34,8 @@ impl Config {
     /// `DATABASE_URL` missing, `APP_URL` or `ENCRYPTION_KEY` missing from a release build, `PORT`,
     /// `APP_URL` or `ENCRYPTION_KEY` malformed, an https `APP_URL` without `SMTP_URL`, `SMTP_URL`
     /// without a valid `EMAIL_FROM`, a `CLIENT_IP_HEADER` that is malformed or one proxies
-    /// append to, or an `AGENT_ACCESS` other than `on` or `off`.
+    /// append to, an `AGENT_ACCESS` other than `on` or `off`, or a `MAX_LINKED_ACCOUNTS` that isn't a
+    /// positive whole number.
     pub fn from_env() -> anyhow::Result<Self> {
         let port = match env::var("PORT") {
             Ok(value) => value.parse().context("PORT must be a valid port number")?,
@@ -106,6 +109,9 @@ impl Config {
             Ok(_) => anyhow::bail!("AGENT_ACCESS must be on or off"),
         };
 
+        let max_linked_accounts =
+            parse_max_linked_accounts(env::var("MAX_LINKED_ACCOUNTS").ok().as_deref())?;
+
         Ok(Self {
             database_url: env::var("DATABASE_URL").context("DATABASE_URL is required")?,
             port,
@@ -117,6 +123,38 @@ impl Config {
             client_ip_header,
             encryption_key,
             agent_access,
+            max_linked_accounts,
         })
+    }
+}
+
+fn parse_max_linked_accounts(value: Option<&str>) -> anyhow::Result<Option<NonZeroU32>> {
+    match value {
+        None | Some("") => Ok(None),
+        Some(value) => {
+            value.trim().parse().map(Some).context(
+                "MAX_LINKED_ACCOUNTS must be a whole number above 0, or unset for no limit",
+            )
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_max_linked_accounts;
+
+    #[test]
+    fn max_linked_accounts_is_unset_or_a_positive_whole_number() {
+        assert_eq!(parse_max_linked_accounts(None).unwrap(), None);
+        assert_eq!(parse_max_linked_accounts(Some("")).unwrap(), None);
+        assert_eq!(
+            parse_max_linked_accounts(Some("50"))
+                .unwrap()
+                .map(std::num::NonZeroU32::get),
+            Some(50)
+        );
+        for bad in ["0", "-1", "1.5", "ten", "99999999999"] {
+            assert!(parse_max_linked_accounts(Some(bad)).is_err(), "{bad}");
+        }
     }
 }

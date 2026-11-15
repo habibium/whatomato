@@ -1737,11 +1737,7 @@ export interface components {
             /** Format: date-time */
             verified_at?: string | null;
         };
-        /**
-         * @description The account's link to WhatsApp. While linking, poll it every couple of seconds: the code changes
-         *     every 20 to 60 seconds.
-         */
-        WhatsAppStatus: {
+        WhatsAppLink: {
             reason: null | components["schemas"]["NotLinkedBecause"];
             /** @enum {string} */
             status: "not_linked";
@@ -1783,6 +1779,17 @@ export interface components {
              * @description When a temporary ban ends
              */
             until: string | null;
+        };
+        /**
+         * @description The account's link to WhatsApp. While linking, poll it every couple of seconds: the code changes
+         *     every 20 to 60 seconds.
+         */
+        WhatsAppStatus: components["schemas"]["WhatsAppLink"] & {
+            /**
+             * @description Whether this user may start linking now. False only while the server has as many accounts
+             *     linked as it allows and this user's isn't one of them.
+             */
+            can_link: boolean;
         };
     };
     responses: never;
@@ -4588,6 +4595,15 @@ export interface operations {
                 };
             };
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The server has as many WhatsApp accounts linked as it allows */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

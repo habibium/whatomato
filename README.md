@@ -171,6 +171,7 @@ Environment variables, or a `.env` file in development (see `.env.example`):
 | `EMAIL_FROM`       | required with SMTP                                                  | Sender, e.g. `Whatomato <no-reply@example.com>`                                                                                                                                           |
 | `ENCRYPTION_KEY`   | required in release builds; a fixed development key in debug builds | Encrypts secrets kept in the database, such as authenticator app keys and WhatsApp device keys: 32 random bytes in base64, from `openssl rand -base64 32`                                 |
 | `CLIENT_IP_HEADER` | unset                                                               | Header a trusted proxy sets to the client's address, e.g. `CF-Connecting-IP` behind Cloudflare. Unset, rate limits key on the peer address. `X-Forwarded-For` and `Forwarded` are refused |
+| `MAX_LINKED_ACCOUNTS` | unset                                                               | How many WhatsApp accounts may be linked at once. At the limit, users without a linked account can't start linking; those already linked are unaffected                                   |
 
 Migrations in `server/migrations` are embedded in the binary and applied at startup.
 

@@ -3635,6 +3635,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The server has as many WhatsApp accounts linked as it allows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
           }
         }
       }
@@ -6112,7 +6122,7 @@
           }
         }
       },
-      "WhatsAppStatus": {
+      "WhatsAppLink": {
         "oneOf": [
           {
             "type": "object",
@@ -6294,6 +6304,25 @@
                 ],
                 "format": "date-time",
                 "description": "When a temporary ban ends"
+              }
+            }
+          }
+        ]
+      },
+      "WhatsAppStatus": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WhatsAppLink"
+          },
+          {
+            "type": "object",
+            "required": [
+              "can_link"
+            ],
+            "properties": {
+              "can_link": {
+                "type": "boolean",
+                "description": "Whether this user may start linking now. False only while the server has as many accounts\nlinked as it allows and this user's isn't one of them."
               }
             }
           }

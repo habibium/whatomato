@@ -15,8 +15,17 @@ use crate::{
 /// The account's link to WhatsApp. While linking, poll it every couple of seconds: the code changes
 /// every 20 to 60 seconds.
 #[derive(Serialize, ToSchema)]
+pub(super) struct WhatsAppStatus {
+    #[serde(flatten)]
+    pub link: WhatsAppLink,
+    /// Whether this user may start linking now. False only while the server has as many accounts
+    /// linked as it allows and this user's isn't one of them.
+    pub can_link: bool,
+}
+
+#[derive(Serialize, ToSchema)]
 #[serde(tag = "status", rename_all = "snake_case")]
-pub(super) enum WhatsAppStatus {
+pub(super) enum WhatsAppLink {
     NotLinked {
         /// Why the last link or linking attempt ended, unless the user ended it. Lost on a restart.
         #[schema(required = true)]
@@ -92,7 +101,7 @@ pub(super) enum StoppedBecause {
     Refused,
 }
 
-impl WhatsAppStatus {
+impl WhatsAppLink {
     pub(super) fn new(status: Status) -> anyhow::Result<Self> {
         Ok(match status {
             Status::NotLinked => Self::NotLinked { reason: None },
@@ -257,7 +266,7 @@ mod tests {
     use crate::whatsapp::status::{Code, Pairing};
 
     fn json_of(status: Status) -> Value {
-        serde_json::to_value(WhatsAppStatus::new(status).unwrap()).unwrap()
+        serde_json::to_value(WhatsAppLink::new(status).unwrap()).unwrap()
     }
 
     #[test]

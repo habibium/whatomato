@@ -59,6 +59,10 @@ pub enum AppError {
     #[error("{0}")]
     Conflict(&'static str),
 
+    /// The instance has no room for what was asked, for now
+    #[error("{0}")]
+    Full(&'static str),
+
     /// Already decided by something else; `status` names what it is now
     #[error("{message}")]
     Decided {
@@ -154,6 +158,8 @@ impl IntoResponse for AppError {
             ),
 
             Self::Conflict(_) => (StatusCode::CONFLICT, self.to_string(), None),
+
+            Self::Full(_) => (StatusCode::SERVICE_UNAVAILABLE, self.to_string(), None),
 
             Self::Decided { message, status } => (
                 StatusCode::CONFLICT,

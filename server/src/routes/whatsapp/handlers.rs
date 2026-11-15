@@ -5,15 +5,16 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
+use uuid::Uuid;
 use whatsapp_rust::prelude::{Jid, Server};
 
 use super::dto::{
     ContactBook, ContactResponse, GroupResponse, LinkRequest, PasswordConfirmation, Unlinked,
-    WhatsAppStatus, digits,
+    WhatsAppLink, WhatsAppStatus, digits,
 };
 use crate::{
     auth::{reauth, session::Session},
-    db::whatsapp_contacts,
+    db::{whatsapp_accounts, whatsapp_contacts},
     error::{AppError, ErrorBody},
     extract::ValidatedJson,
     state::AppState,
@@ -30,8 +31,22 @@ pub async fn get_status(
     State(state): State<AppState>,
     session: Session,
 ) -> Result<Json<WhatsAppStatus>, AppError> {
-    let status = state.whatsapp.status(session.user.id);
-    Ok(Json(WhatsAppStatus::new(status)?))
+    let user_id = session.user.id;
+    let link = WhatsAppLink::new(state.whatsapp.status(user_id))?;
+    Ok(Json(WhatsAppStatus {
+        link,
+        can_link: may_link(&state, user_id).await?,
+    }))
+}
+
+/// Linked accounts hold a WhatsApp connection open, so `MAX_LINKED_ACCOUNTS` bounds them. A user
+/// already linked keeps their place even when the limit is lowered below the count.
+async fn may_link(state: &AppState, user_id: Uuid) -> Result<bool, AppError> {
+    let Some(max) = state.max_linked_accounts else {
+        return Ok(true);
+    };
+    let (linked, own) = whatsapp_accounts::linked(&state.pool, user_id).await?;
+    Ok(own || linked < i64::from(max.get()))
 }
 
 /// Start linking WhatsApp
@@ -46,6 +61,7 @@ pub async fn get_status(
     (status = CONFLICT, description = "WhatsApp is already linked or linking", body = ErrorBody),
     (status = TOO_MANY_REQUESTS, body = ErrorBody),
     (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
+    (status = SERVICE_UNAVAILABLE, description = "The server has as many WhatsApp accounts linked as it allows", body = ErrorBody),
 ))]
 pub async fn link(
     State(state): State<AppState>,
@@ -55,6 +71,11 @@ pub async fn link(
     let user = session.user;
     reauth::confirm_password(&state, user.id, payload.password).await?;
     state.rate_limits.whatsapp_link(user.id)?;
+    if !may_link(&state, user.id).await? {
+        return Err(AppError::Full(
+            "There's no room for another WhatsApp account on this server right now. Try again later.",
+        ));
+    }
 
     let method = payload
         .phone_number
