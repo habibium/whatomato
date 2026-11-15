@@ -228,7 +228,7 @@ function AgentsPage() {
         isOpen={isPauseAllOpen}
         onOpenChange={setIsPauseAllOpen}
         title="Pause every connection?"
-        description="Every agent is refused from now on, and waiting approvals stay waiting. Messages they scheduled don’t go out while they’re paused; each one skipped shows in History. Nothing is deleted. Resume each connection from this page when you’re ready."
+        description="Every agent is refused from now on, and waiting approvals stay waiting. Messages they scheduled don’t go out while they’re paused; History shows when one is skipped. Nothing is deleted. Resume each connection from this page when you’re ready."
         actionLabel="Pause all"
         actionVariant="primary"
         isActionLoading={isPausingAll}
@@ -405,11 +405,11 @@ function revokedDescription(revoked: { deleted: number; kept: number }) {
   const parts = ['Its access key no longer works.']
   if (revoked.deleted)
     parts.push(
-      `${plural(revoked.deleted)} it created ${revoked.deleted === 1 ? 'was' : 'were'} deleted.`,
+      `${plural(revoked.deleted)} it created or changed ${revoked.deleted === 1 ? 'was' : 'were'} deleted.`,
     )
   if (revoked.kept)
     parts.push(
-      `${plural(revoked.kept)} it created ${revoked.kept === 1 ? 'stays' : 'stay'} on Messages as your own.`,
+      `${plural(revoked.kept)} it created or changed ${revoked.kept === 1 ? 'stays' : 'stay'} on Messages as your own.`,
     )
   return parts.join(' ')
 }

@@ -812,7 +812,7 @@ function RevokeDialog({
             <LayoutContent>
               <VStack gap={3}>
                 <Text>
-                  It created {count} scheduled{' '}
+                  It created or changed {count} scheduled{' '}
                   {count === 1 ? 'message that is' : 'messages that are'} still
                   on Messages.
                 </Text>

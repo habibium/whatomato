@@ -298,15 +298,18 @@ No permission lifts these:
 - It can have at most 20 requests waiting for approval.
 - Over a chat's daily limit, a send is refused rather than turned into a request.
 - An agent can't schedule a message more often than once an hour. You can, from the web app.
-- A connection makes at most 120 calls a minute, and an account has at most 20 connections.
+- A connection holds at most 50 scheduled messages.
+- A connection makes at most 120 calls a minute, 20 of them chat searches, and an account has at most 20 connections.
 
-An agent's schedule is checked again each time it's due. If the connection is paused, expired or over a limit, or the chat's rule now says no, that run is skipped and shows as a failed delivery that says why.
+An agent's schedule is checked again each time it's due. If the connection is paused, expired or over a limit, or the chat's rule now says no, that run is skipped and shows as a failed delivery that says why. Skips in a row for the same reason show once.
+
+A schedule belongs to whoever last decided what it sends. One an agent changes becomes that agent's, under its limits. One you edit becomes yours.
 
 An agent can never link or unlink WhatsApp, change your account or security settings, create or change connections, approve its own requests, or read your chats.
 
 ### Pausing and revoking
 
-You can pause one connection or all of them at once, and resume them later. A paused agent can't do anything, and its schedules don't run. Revoking a connection deletes it and its waiting requests; it offers to delete the schedules the agent created too, and does so unless you untick it. The history of what it sent stays. The activity log on the Agents page lists every call each agent made.
+You can pause one connection or all of them at once, and resume them later. A paused agent can't do anything, and its schedules don't run. Revoking a connection deletes it and its waiting requests; it offers to delete the schedules the agent created or changed too, and does so unless you untick it. The history of what it sent stays. The activity log on the Agents page lists every call each agent made.
 
 > [!WARNING]
 > WhatsApp's terms don't allow automated messaging, and it bans accounts for it. An agent sending for you raises that risk, and messages to people who haven't saved your number are the riskiest. An agent can also be tricked by text it reads elsewhere, such as a web page or an email, into sending something you didn't intend, which is why every send asks you first by default. Anything you tell or show an agent, including the chat names and notes it gets from Whatomato, goes to the company that runs its model.
