@@ -95,7 +95,8 @@ const config = defineConfig({
   server: {
     allowedHosts: ['ezown-dev.naxata.com'],
     proxy: {
-      '/api': 'http://localhost:8000/',
+      '/api': process.env.API_PROXY_TARGET ?? 'http://localhost:8000/',
+      '/mcp': process.env.API_PROXY_TARGET ?? 'http://localhost:8000/',
     },
   },
   resolve: { tsconfigPaths: true },

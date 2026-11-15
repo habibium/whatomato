@@ -8,6 +8,7 @@ import {
 } from '@tanstack/react-router'
 import { AppShell } from '@astryxdesign/core/AppShell'
 import { Avatar } from '@astryxdesign/core/Avatar'
+import { Badge } from '@astryxdesign/core/Badge'
 import { DropdownMenu } from '@astryxdesign/core/DropdownMenu'
 import { HStack } from '@astryxdesign/core/HStack'
 import { Link } from '@astryxdesign/core/Link'
@@ -26,6 +27,7 @@ import {
 } from '@astryxdesign/core/theme/tokens.stylex'
 import {
   BookUser,
+  Bot,
   CalendarClock,
   FileText,
   History,
@@ -35,6 +37,7 @@ import {
 
 import { api } from '@/api/client'
 import { Wordmark } from '@/components/wordmark'
+import { agentsQuery } from '@/lib/agents'
 import { HOME_HREF, SIGNIN_HREF, setSessionUser } from '@/lib/session'
 import { CONNECTION_DOTS, formatPhoneNumber, statusQuery } from '@/lib/whatsapp'
 
@@ -102,6 +105,8 @@ function AppNav() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { data: whatsapp } = useQuery(statusQuery)
+  const { data: agents } = useQuery(agentsQuery)
+  const waiting = agents?.approvals_waiting ?? 0
   const status = whatsapp?.status
   const connection = status ? CONNECTION_DOTS[status.status] : null
   const linkedNumber =
@@ -163,6 +168,25 @@ function AppNav() {
             }
           />
         ))}
+        {agents?.enabled ? (
+          <SideNavItem
+            label="Agents"
+            href="/agents"
+            icon={Bot}
+            isSelected={
+              pathname === '/agents' || pathname.startsWith('/agents/')
+            }
+            endContent={
+              waiting > 0 ? (
+                <Badge
+                  variant="info"
+                  label={waiting}
+                  aria-label={`${waiting} waiting for approval`}
+                />
+              ) : undefined
+            }
+          />
+        ) : null}
       </SideNavSection>
       <SideNavSection title="Account">
         <SideNavItem
