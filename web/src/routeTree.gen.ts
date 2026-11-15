@@ -23,6 +23,9 @@ import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticat
 import { Route as AuthenticatedTemplatesRouteImport } from './routes/_authenticated/templates'
 import { Route as AuthenticatedWhatsappRouteImport } from './routes/_authenticated/whatsapp'
 import { Route as AuthenticatedAgentsIndexRouteImport } from './routes/_authenticated/agents.index'
+import { Route as AuthenticatedAgentsConnectionIdRouteImport } from './routes/_authenticated/agents.$connectionId'
+import { Route as AuthenticatedAgentsActivityRouteImport } from './routes/_authenticated/agents.activity'
+import { Route as AuthenticatedAgentsApprovalsRouteImport } from './routes/_authenticated/agents.approvals'
 import { Route as AuthenticatedAgentsNewRouteImport } from './routes/_authenticated/agents.new'
 import { Route as AuthenticatedContactsIndexRouteImport } from './routes/_authenticated/contacts.index'
 import { Route as AuthenticatedContactsContactIdRouteImport } from './routes/_authenticated/contacts.$contactId'
@@ -97,6 +100,24 @@ const AuthenticatedAgentsIndexRoute =
     path: '/agents/',
     getParentRoute: () => AuthenticatedRoute,
   } as any)
+const AuthenticatedAgentsConnectionIdRoute =
+  AuthenticatedAgentsConnectionIdRouteImport.update({
+    id: '/agents/$connectionId',
+    path: '/agents/$connectionId',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedAgentsActivityRoute =
+  AuthenticatedAgentsActivityRouteImport.update({
+    id: '/agents/activity',
+    path: '/agents/activity',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
+const AuthenticatedAgentsApprovalsRoute =
+  AuthenticatedAgentsApprovalsRouteImport.update({
+    id: '/agents/approvals',
+    path: '/agents/approvals',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedAgentsNewRoute = AuthenticatedAgentsNewRouteImport.update({
   id: '/agents/new',
   path: '/agents/new',
@@ -128,6 +149,9 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRoute
   '/templates': typeof AuthenticatedTemplatesRoute
   '/whatsapp': typeof AuthenticatedWhatsappRoute
+  '/agents/$connectionId': typeof AuthenticatedAgentsConnectionIdRoute
+  '/agents/activity': typeof AuthenticatedAgentsActivityRoute
+  '/agents/approvals': typeof AuthenticatedAgentsApprovalsRoute
   '/agents/new': typeof AuthenticatedAgentsNewRoute
   '/contacts/$contactId': typeof AuthenticatedContactsContactIdRoute
   '/agents/': typeof AuthenticatedAgentsIndexRoute
@@ -145,6 +169,9 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRoute
   '/templates': typeof AuthenticatedTemplatesRoute
   '/whatsapp': typeof AuthenticatedWhatsappRoute
+  '/agents/$connectionId': typeof AuthenticatedAgentsConnectionIdRoute
+  '/agents/activity': typeof AuthenticatedAgentsActivityRoute
+  '/agents/approvals': typeof AuthenticatedAgentsApprovalsRoute
   '/agents/new': typeof AuthenticatedAgentsNewRoute
   '/contacts/$contactId': typeof AuthenticatedContactsContactIdRoute
   '/agents': typeof AuthenticatedAgentsIndexRoute
@@ -165,6 +192,9 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRoute
   '/_authenticated/templates': typeof AuthenticatedTemplatesRoute
   '/_authenticated/whatsapp': typeof AuthenticatedWhatsappRoute
+  '/_authenticated/agents/$connectionId': typeof AuthenticatedAgentsConnectionIdRoute
+  '/_authenticated/agents/activity': typeof AuthenticatedAgentsActivityRoute
+  '/_authenticated/agents/approvals': typeof AuthenticatedAgentsApprovalsRoute
   '/_authenticated/agents/new': typeof AuthenticatedAgentsNewRoute
   '/_authenticated/contacts/$contactId': typeof AuthenticatedContactsContactIdRoute
   '/_authenticated/agents/': typeof AuthenticatedAgentsIndexRoute
@@ -185,6 +215,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/templates'
     | '/whatsapp'
+    | '/agents/$connectionId'
+    | '/agents/activity'
+    | '/agents/approvals'
     | '/agents/new'
     | '/contacts/$contactId'
     | '/agents/'
@@ -202,6 +235,9 @@ export interface FileRouteTypes {
     | '/settings'
     | '/templates'
     | '/whatsapp'
+    | '/agents/$connectionId'
+    | '/agents/activity'
+    | '/agents/approvals'
     | '/agents/new'
     | '/contacts/$contactId'
     | '/agents'
@@ -221,6 +257,9 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/templates'
     | '/_authenticated/whatsapp'
+    | '/_authenticated/agents/$connectionId'
+    | '/_authenticated/agents/activity'
+    | '/_authenticated/agents/approvals'
     | '/_authenticated/agents/new'
     | '/_authenticated/contacts/$contactId'
     | '/_authenticated/agents/'
@@ -337,6 +376,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAgentsIndexRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/agents/$connectionId': {
+      id: '/_authenticated/agents/$connectionId'
+      path: '/agents/$connectionId'
+      fullPath: '/agents/$connectionId'
+      preLoaderRoute: typeof AuthenticatedAgentsConnectionIdRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/agents/activity': {
+      id: '/_authenticated/agents/activity'
+      path: '/agents/activity'
+      fullPath: '/agents/activity'
+      preLoaderRoute: typeof AuthenticatedAgentsActivityRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/agents/approvals': {
+      id: '/_authenticated/agents/approvals'
+      path: '/agents/approvals'
+      fullPath: '/agents/approvals'
+      preLoaderRoute: typeof AuthenticatedAgentsApprovalsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/agents/new': {
       id: '/_authenticated/agents/new'
       path: '/agents/new'
@@ -383,6 +443,9 @@ interface AuthenticatedRouteChildren {
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRoute
   AuthenticatedTemplatesRoute: typeof AuthenticatedTemplatesRoute
   AuthenticatedWhatsappRoute: typeof AuthenticatedWhatsappRoute
+  AuthenticatedAgentsConnectionIdRoute: typeof AuthenticatedAgentsConnectionIdRoute
+  AuthenticatedAgentsActivityRoute: typeof AuthenticatedAgentsActivityRoute
+  AuthenticatedAgentsApprovalsRoute: typeof AuthenticatedAgentsApprovalsRoute
   AuthenticatedAgentsNewRoute: typeof AuthenticatedAgentsNewRoute
   AuthenticatedAgentsIndexRoute: typeof AuthenticatedAgentsIndexRoute
 }
@@ -394,6 +457,9 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedSettingsRoute: AuthenticatedSettingsRoute,
   AuthenticatedTemplatesRoute: AuthenticatedTemplatesRoute,
   AuthenticatedWhatsappRoute: AuthenticatedWhatsappRoute,
+  AuthenticatedAgentsConnectionIdRoute: AuthenticatedAgentsConnectionIdRoute,
+  AuthenticatedAgentsActivityRoute: AuthenticatedAgentsActivityRoute,
+  AuthenticatedAgentsApprovalsRoute: AuthenticatedAgentsApprovalsRoute,
   AuthenticatedAgentsNewRoute: AuthenticatedAgentsNewRoute,
   AuthenticatedAgentsIndexRoute: AuthenticatedAgentsIndexRoute,
 }

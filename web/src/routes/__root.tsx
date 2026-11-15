@@ -1,3 +1,4 @@
+import { LayerProvider } from '@astryxdesign/core/Layer'
 import { useEffect } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import {
@@ -39,27 +40,29 @@ function RootComponent() {
 
   return (
     <Theme theme={neutralTheme} mode={preference}>
-      <LinkProvider component={Link}>
-        <QueryClientProvider client={queryClient}>
-          <Outlet />
-          <TanStackDevtools
-            config={{
-              position: 'bottom-right',
-              triggerMode: 'fixed',
-            }}
-            plugins={[
-              {
-                name: 'TanStack Query',
-                render: <ReactQueryDevtoolsPanel />,
-              },
-              {
-                name: 'TanStack Router',
-                render: <TanStackRouterDevtoolsPanel />,
-              },
-            ]}
-          />
-        </QueryClientProvider>
-      </LinkProvider>
+      <LayerProvider>
+        <LinkProvider component={Link}>
+          <QueryClientProvider client={queryClient}>
+            <Outlet />
+            <TanStackDevtools
+              config={{
+                position: 'bottom-right',
+                triggerMode: 'fixed',
+              }}
+              plugins={[
+                {
+                  name: 'TanStack Query',
+                  render: <ReactQueryDevtoolsPanel />,
+                },
+                {
+                  name: 'TanStack Router',
+                  render: <TanStackRouterDevtoolsPanel />,
+                },
+              ]}
+            />
+          </QueryClientProvider>
+        </LinkProvider>
+      </LayerProvider>
     </Theme>
   )
 }

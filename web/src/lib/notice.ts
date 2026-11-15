@@ -6,5 +6,7 @@ declare module '@tanstack/react-router' {
     notice?: Notice
     /** Prefills the sign-in form after a link settled who the user is. */
     email?: string
+    /** What revoking a connection did, for the Agents page to say on arrival. */
+    revoked?: { name: string; deleted: number; kept: number }
   }
 }

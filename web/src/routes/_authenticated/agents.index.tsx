@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useLocation } from '@tanstack/react-router'
 import { AlertDialog } from '@astryxdesign/core/AlertDialog'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
@@ -21,6 +21,7 @@ import { AppFrame } from '@/components/app-frame'
 import { ListEmpty } from '@/components/list-empty'
 import { OfflineBanner } from '@/components/offline-banner'
 import { PageHeading } from '@/components/page-heading'
+import { WaitingApprovals } from '@/components/waiting-approvals'
 import { describeChats } from '@/lib/agent-grant'
 import { STATUS_DOTS, agentsQuery, presetsQuery } from '@/lib/agents'
 import type { AgentConnection, AgentPreset } from '@/lib/agents'
@@ -30,10 +31,15 @@ import { connectionProblem, toWriteProblem } from '@/lib/write-problem'
 import type { WriteProblem } from '@/lib/write-problem'
 
 export const Route = createFileRoute('/_authenticated/agents/')({
+  validateSearch: (search): { approval?: string } => ({
+    approval: typeof search.approval === 'string' ? search.approval : undefined,
+  }),
   component: AgentsPage,
 })
 
 function AgentsPage() {
+  const { approval } = Route.useSearch()
+  const revoked = useLocation({ select: (location) => location.state.revoked })
   const queryClient = useQueryClient()
   const announce = useAnnounce()
   const toast = useToast()
@@ -148,7 +154,21 @@ function AgentsPage() {
           />
         ) : null}
 
-        {/* Waiting approvals go here, above the connections; built in the next stage. */}
+        {revoked ? (
+          <Banner
+            status="success"
+            title={`${revoked.name} is revoked.`}
+            description={revokedDescription(revoked)}
+            isDismissable
+          />
+        ) : null}
+
+        {isEnabled ? (
+          <WaitingApprovals
+            waiting={overview?.approvals_waiting ?? 0}
+            markedID={approval}
+          />
+        ) : null}
 
         {overview ? (
           !overview.enabled ? (
@@ -158,11 +178,21 @@ function AgentsPage() {
               actions={<Button label="Go to messages" href="/messages" />}
             />
           ) : overview.connections.length > 0 ? (
-            <ConnectionTable
-              connections={overview.connections}
-              presets={presets.data ?? []}
-              onToggle={toggle}
-            />
+            <VStack gap={4}>
+              <ConnectionTable
+                connections={overview.connections}
+                presets={presets.data ?? []}
+                onToggle={toggle}
+              />
+              <HStack gap={4} wrap="wrap">
+                <Link href="/agents/activity" hasUnderline>
+                  Activity
+                </Link>
+                <Link href="/agents/approvals" hasUnderline>
+                  Earlier requests
+                </Link>
+              </HStack>
+            </VStack>
           ) : (
             <ListEmpty
               title="No agents connected"
@@ -365,4 +395,19 @@ function Access({
       <Text type="supporting">{describeChats(connection.grant)}</Text>
     </VStack>
   )
+}
+
+function revokedDescription(revoked: { deleted: number; kept: number }) {
+  const plural = (count: number) =>
+    `${count} scheduled ${count === 1 ? 'message' : 'messages'}`
+  const parts = ['Its access key no longer works.']
+  if (revoked.deleted)
+    parts.push(
+      `${plural(revoked.deleted)} it created ${revoked.deleted === 1 ? 'was' : 'were'} deleted.`,
+    )
+  if (revoked.kept)
+    parts.push(
+      `${plural(revoked.kept)} it created ${revoked.kept === 1 ? 'stays' : 'stay'} on Messages as your own.`,
+    )
+  return parts.join(' ')
 }

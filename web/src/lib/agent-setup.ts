@@ -78,15 +78,17 @@ export function setupSteps(
     case 'opencode':
       return [
         {
-          text: 'Add this to OpenCode’s configuration file, next to anything already under "mcp".',
+          text: 'Add this to OpenCode’s configuration file, next to anything already under "mcp" → "servers". Keep "oauth": false, or OpenCode tries a sign-in Whatomato doesn’t offer.',
           file: 'opencode.json',
           code: json({
             mcp: {
-              [SERVER_NAME]: {
-                type: 'remote',
-                url,
-                headers: { Authorization: bearer },
-                oauth: false,
+              servers: {
+                [SERVER_NAME]: {
+                  type: 'remote',
+                  url,
+                  oauth: false,
+                  headers: { Authorization: bearer },
+                },
               },
             },
           }),

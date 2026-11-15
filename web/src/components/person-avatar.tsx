@@ -7,6 +7,7 @@ import type { AvatarProps } from '@astryxdesign/core/Avatar'
 import { HStack } from '@astryxdesign/core/HStack'
 
 import { initialsOf, pictureQuery } from '@/lib/contacts'
+import { statusQuery } from '@/lib/whatsapp'
 
 const styles = stylex.create({
   box: { flexShrink: 0 },
@@ -32,9 +33,12 @@ export function PersonAvatar({
 }: PersonAvatarProps) {
   const ref = useRef<HTMLSpanElement>(null)
   const isNear = useHasBeenNear(ref)
+  // Pictures come from the phone; without a running link every one answers 404
+  const status = useQuery(statusQuery).data?.status.status
+  const isLinked = status === 'connected' || status === 'syncing'
   const picture = useQuery({
     ...pictureQuery(pictureID ?? ''),
-    enabled: Boolean(pictureID) && isNear,
+    enabled: Boolean(pictureID) && isNear && isLinked,
   })
   return (
     <HStack as="span" ref={ref} xstyle={styles.box}>

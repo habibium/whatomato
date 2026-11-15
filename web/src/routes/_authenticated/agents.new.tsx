@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useForm, useStore } from '@tanstack/react-form'
-import {
-  createFileRoute,
-  useBlocker,
-  useNavigate,
-} from '@tanstack/react-router'
-import { AlertDialog } from '@astryxdesign/core/AlertDialog'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
-import { CodeBlock } from '@astryxdesign/core/CodeBlock'
 import { Divider } from '@astryxdesign/core/Divider'
 import { Field } from '@astryxdesign/core/Field'
 import { HStack } from '@astryxdesign/core/HStack'
@@ -19,7 +13,6 @@ import {
   SegmentedControlItem,
 } from '@astryxdesign/core/SegmentedControl'
 import { Skeleton } from '@astryxdesign/core/Skeleton'
-import { Heading, Text } from '@astryxdesign/core/Text'
 import { TextInput } from '@astryxdesign/core/TextInput'
 import { VStack } from '@astryxdesign/core/VStack'
 import { z } from 'zod'
@@ -27,7 +20,7 @@ import { z } from 'zod'
 import type { components } from '@/api/schema'
 
 import { api } from '@/api/client'
-import { AgentSetupSteps } from '@/components/agent-setup-steps'
+import { KeyIssued } from '@/components/agent-key-issued'
 import { PermissionEditor } from '@/components/agent-permissions'
 import { AppFrame } from '@/components/app-frame'
 import { ConfirmPasswordDialog } from '@/components/confirm-password-dialog'
@@ -37,7 +30,7 @@ import { PageHeading } from '@/components/page-heading'
 import { SettingsSection } from '@/components/settings-section'
 import { cleanGrant } from '@/lib/agent-grant'
 import type { Grant } from '@/lib/agent-grant'
-import { agentsQuery, endpointURL, presetsQuery } from '@/lib/agents'
+import { agentsQuery, presetsQuery } from '@/lib/agents'
 import type { AgentKeyIssued, AgentPreset } from '@/lib/agents'
 import { toFieldErrors, toFieldStatus } from '@/lib/form-errors'
 import { retryAfterSeconds } from '@/lib/retry-after'
@@ -82,6 +75,7 @@ const schema = z
 type Values = z.infer<typeof schema>
 
 function NewConnectionPage() {
+  const navigate = useNavigate()
   const overview = useQuery(agentsQuery)
   const isEnabled = overview.data?.enabled
   const presets = useQuery({ ...presetsQuery, enabled: isEnabled === true })
@@ -95,7 +89,12 @@ function NewConnectionPage() {
   if (issued) {
     return (
       <AppFrame>
-        <KeyIssued issued={issued} />
+        <KeyIssued
+          issued={issued}
+          title={`${issued.connection.name} is ready`}
+          lede="Give the agent its access key, then follow the steps for it below."
+          onDone={() => navigate({ to: '/agents' })}
+        />
       </AppFrame>
     )
   }
@@ -119,7 +118,7 @@ function NewConnectionPage() {
           />
         ) : presets.data ? (
           <CreateForm presets={presets.data} onCreated={setIssued} />
-        ) : presets.isPending || overview.isPending ? (
+        ) : overview.isPending || (isEnabled === true && presets.isPending) ? (
           <VStack gap={4} aria-busy="true">
             {[0, 1, 2].map((index) => (
               <Skeleton key={index} index={index} width="100%" height={160} />
@@ -376,79 +375,6 @@ function CreateForm({ presets, onCreated }: CreateFormProps) {
         onConfirm={create}
       />
     </>
-  )
-}
-
-function KeyIssued({ issued }: { issued: AgentKeyIssued }) {
-  const navigate = useNavigate()
-  const isDone = useRef(false)
-  const blocker = useBlocker({
-    shouldBlockFn: () => !isDone.current,
-    enableBeforeUnload: () => !isDone.current,
-    withResolver: true,
-  })
-  const { connection, key } = issued
-
-  const finish = () => {
-    isDone.current = true
-    void navigate({ to: '/agents' })
-  }
-
-  return (
-    <VStack gap={8}>
-      <PageHeading
-        title={`${connection.name} is ready`}
-        lede="Give the agent its access key, then follow the steps for it below."
-      />
-
-      <SettingsSection
-        id="access-key"
-        title="Access key"
-        description="Copy it now. It won’t be shown again: Whatomato keeps only its last four characters. If it’s lost, make a new key from the connection’s page."
-      >
-        <CodeBlock
-          code={key}
-          language="plaintext"
-          title="Access key"
-          width="100%"
-          isWrapped
-        />
-        <Text type="supporting">
-          Anyone with this key can do what you allowed, so keep it out of chats,
-          screenshots and shared files.
-        </Text>
-      </SettingsSection>
-
-      <Divider />
-
-      <VStack gap={4}>
-        <VStack gap={1}>
-          <Heading level={2}>Set up your agent</Heading>
-          <Text color="secondary">
-            Pick the agent you use. Each step is ready to paste, key included.
-          </Text>
-        </VStack>
-        <AgentSetupSteps url={endpointURL()} accessKey={key} />
-      </VStack>
-
-      <Divider />
-
-      <HStack gap={2} justify="end">
-        <Button label="Done" variant="primary" clickAction={finish} />
-      </HStack>
-
-      <AlertDialog
-        isOpen={blocker.status === 'blocked'}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) blocker.reset?.()
-        }}
-        title="Leave without the key?"
-        description="The access key won’t be shown again. If you haven’t copied it, stay and copy it now; otherwise you’ll need to make a new one."
-        actionLabel="Leave"
-        cancelLabel="Stay"
-        onAction={() => blocker.proceed?.()}
-      />
-    </VStack>
   )
 }
 

@@ -15,6 +15,7 @@ import {
   groupsQuery,
   isInternational,
   isPhoneNumber,
+  statusQuery,
 } from '@/lib/whatsapp'
 
 type ChatItem = SearchableItem<{
@@ -51,7 +52,12 @@ export function ChatPicker({
   disabledMessage,
 }: ChatPickerProps) {
   const { book, byNumber } = useContactBook()
-  const groups = useQuery(groupsQuery)
+  const status = useQuery(statusQuery).data?.status.status
+  // Without a running link the server answers 409, which the console logged on every open
+  const groups = useQuery({
+    ...groupsQuery,
+    enabled: status === 'connected' || status === 'syncing',
+  })
   // Bumped after each pick, so the field empties for the next one
   const [round, setRound] = useState(0)
 

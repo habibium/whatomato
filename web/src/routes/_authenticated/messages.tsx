@@ -24,6 +24,7 @@ import { ConfirmDeleteDialog } from '@/components/confirm-dialog'
 import { FirstRun } from '@/components/first-run'
 import { MessageFormDialog } from '@/components/message-form-dialog'
 import { OfflineBanner } from '@/components/offline-banner'
+import { ByAgent } from '@/components/by-agent'
 import { PageHeading } from '@/components/page-heading'
 import { RecipientCell } from '@/components/recipient-cell'
 import { SendNowDialog } from '@/components/send-now-dialog'
@@ -487,6 +488,9 @@ function Schedule({ message }: { message: ScheduledMessage }) {
       </Text>
       {zone && message.schedule_kind === 'recurring' ? (
         <Text type="supporting">{zone}</Text>
+      ) : null}
+      {message.connection_name ? (
+        <ByAgent name={message.connection_name} />
       ) : null}
     </VStack>
   )

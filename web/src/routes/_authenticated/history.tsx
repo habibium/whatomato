@@ -17,6 +17,7 @@ import {
 } from '@astryxdesign/core/theme/tokens.stylex'
 
 import { AppFrame } from '@/components/app-frame'
+import { ByAgent } from '@/components/by-agent'
 import { DeliveryStatus } from '@/components/delivery-status'
 import { PersonAvatar } from '@/components/person-avatar'
 import { ListEmpty } from '@/components/list-empty'
@@ -205,6 +206,9 @@ function DeliveryRow({ delivery }: { delivery: Delivery }) {
           <Text color="secondary" maxLines={1}>
             {delivery.body}
           </Text>
+          {delivery.connection_name ? (
+            <ByAgent name={delivery.connection_name} />
+          ) : null}
           {delivery.error ? (
             // Text's own colour outranks xstyle, so a failure's red comes from around it
             <VStack xstyle={isFailed ? styles.failure : undefined}>
