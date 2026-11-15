@@ -8,7 +8,102 @@ Run it yourself with the image described under [Self-hosting](#self-hosting), or
 
 ## Hosted service
 
-The maintainer runs a hosted instance at https://whatomato.habibium.com. It runs the same image that is published from this repository.
+I run a hosted instance at https://whatomato.habibium.com. It runs the same image that is published from this repository.
+
+## Self-hosting
+
+Each release publishes the image as `ghcr.io/habibium/whatomato`, built for `linux/amd64`. It needs a Postgres database (the tests run against 18), and for anything past a trial on your own machine, a domain served over HTTPS and an SMTP server: with an `https` `APP_URL` the server won't start without `SMTP_URL`.
+
+A `compose.yaml` that runs it with a database of its own:
+
+```yaml
+services:
+  whatomato:
+    image: ghcr.io/habibium/whatomato:latest
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://whatomato:${POSTGRES_PASSWORD}@db:5432/whatomato
+      APP_URL: https://whatomato.example.com
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      SMTP_URL: ${SMTP_URL}
+      EMAIL_FROM: Whatomato <no-reply@example.com>
+    ports:
+      - "127.0.0.1:8000:8000"
+    # each WhatsApp client flushes its keys on the way down
+    stop_grace_period: 30s
+
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: whatomato
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: whatomato
+    volumes:
+      - db:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whatomato"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  db:
+```
+
+The secrets go in a `.env` file beside it:
+
+```sh
+# openssl rand -hex 32 (hex, because it goes into DATABASE_URL)
+POSTGRES_PASSWORD=
+# openssl rand -base64 32
+ENCRYPTION_KEY=
+SMTP_URL=smtps://user:password@smtp.example.com:465
+```
+
+Then `docker compose up -d`. The server applies its migrations as it starts, and `docker compose ps` reports it healthy once `/api/health` answers, which includes reaching the database. Open `APP_URL` and sign up. [Configuration](#configuration) describes every variable.
+
+Sign-up is open to anyone who can reach the instance and no setting closes it, so an instance meant for a few people needs its access limited in front of it. Run one container per database: [Running it](#running-it) explains why, and what a deploy has to respect.
+
+To try it on your own machine first, set `APP_URL` to `http://localhost:8000` and leave `SMTP_URL` empty. The server then writes each email to its log instead of sending it, so the verification link is in `docker compose logs whatomato`.
+
+### HTTPS
+
+The server speaks plain HTTP, so TLS belongs to a reverse proxy in front of it, which is why the example publishes the port on loopback only. Two settings have to agree with the proxy:
+
+- `APP_URL` is the public URL exactly as users open it. Links in emails are built from it, `https` makes the cookies `Secure`, and passkeys are bound to its host, which has to be a domain name rather than an IP address.
+- `CLIENT_IP_HEADER` names a header the proxy overwrites with the client's address. Without it every visitor arrives from the proxy's address and shares one rate limit.
+
+With [Caddy](https://caddyserver.com), which obtains the certificate itself:
+
+```caddyfile
+whatomato.example.com {
+	reverse_proxy 127.0.0.1:8000 {
+		header_up X-Real-IP {remote_host}
+	}
+}
+```
+
+and `CLIENT_IP_HEADER: X-Real-IP` added to the container's environment.
+
+### Upgrading
+
+```sh
+docker compose pull && docker compose up -d
+```
+
+`latest` follows the stable releases, `0.1` the patch releases of one minor version, and a full version such as `0.1.5` never moves; the [changelog](CHANGELOG.md) says what each release changed. Pending migrations run when the new version starts. They only go forward: an older image won't start on a database a newer one has migrated.
+
+### Backups
+
+Dump the database with `docker compose exec -T db pg_dump -U whatomato whatomato > whatomato.sql`, and keep `ENCRYPTION_KEY` somewhere other than with the dumps, since the two together reveal every secret it protects. A restore brings back the accounts, templates, schedules and history, but not the WhatsApp links: follow [After losing the key or restoring a backup](#after-losing-the-key-or-restoring-a-backup).
+
+### Other architectures
+
+The published image is `linux/amd64` only. On anything else, such as arm64, build it from a checkout with `docker build -t whatomato .` and set `image: whatomato`.
 
 ## Prerequisites
 
