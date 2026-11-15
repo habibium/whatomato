@@ -1502,3 +1502,274 @@ fn operations_can_run_on_any_thread() {
     }
     let _ = futures;
 }
+
+/// Runs `calls` operations at once on a runtime of several threads, each with its own pool
+/// connection, and gives how many succeeded and the pool for checking after
+fn at_once<F, Fut>(
+    pool_options: sqlx::postgres::PgPoolOptions,
+    connect_options: sqlx::postgres::PgConnectOptions,
+    grant: Grant,
+    calls: usize,
+    call: F,
+) -> (usize, Uuid, PgPool)
+where
+    F: Fn(Arc<AppState>, Arc<Caller>) -> Fut + Send + 'static,
+    Fut: Future<Output = bool> + Send + 'static,
+{
+    std::thread::spawn(move || {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async move {
+                let pool = pool_options
+                    .max_connections(16)
+                    .connect_with(connect_options)
+                    .await
+                    .unwrap();
+                let state = Arc::new(state(pool.clone()));
+                let owner = user(&pool).await;
+                connected(&state, owner);
+                let caller = Arc::new(connect(&state, owner, &grant).await);
+                let start = Arc::new(tokio::sync::Barrier::new(calls));
+                let mut tasks = tokio::task::JoinSet::new();
+                for _ in 0..calls {
+                    let (state, caller, start) = (state.clone(), caller.clone(), start.clone());
+                    let call = call(state, caller);
+                    tasks.spawn(async move {
+                        start.wait().await;
+                        call.await
+                    });
+                }
+                let passed = tasks.join_all().await.into_iter().filter(|ok| *ok).count();
+                (passed, owner, pool)
+            })
+    })
+    .join()
+    .unwrap()
+}
+
+#[sqlx::test]
+async fn sends_at_the_same_moment_pass_a_daily_limit_only_as_often_as_it_allows(
+    pool_options: sqlx::postgres::PgPoolOptions,
+    connect_options: sqlx::postgres::PgConnectOptions,
+) {
+    let grant = with_rule(
+        Preset::SendWithoutAsking.grant(),
+        ADA,
+        SendLevel::Yes,
+        Some(3),
+    );
+    let (passed, owner, pool) = at_once(
+        pool_options,
+        connect_options,
+        grant,
+        30,
+        |state, caller| async move {
+            send_message(&state, &caller, send_to(ADA, "Hello"))
+                .await
+                .is_ok()
+        },
+    );
+
+    assert_eq!(passed, 3);
+    assert_eq!(delivery_rows(&pool, owner).await.len(), 3);
+}
+
+#[sqlx::test]
+async fn asks_at_the_same_moment_stop_at_the_waiting_cap(
+    pool_options: sqlx::postgres::PgPoolOptions,
+    connect_options: sqlx::postgres::PgConnectOptions,
+) {
+    let grant = Preset::AskBeforeSending.grant();
+    let (passed, owner, pool) = at_once(
+        pool_options,
+        connect_options,
+        grant,
+        40,
+        |state, caller| async move {
+            send_message(&state, &caller, send_to(ADA, "Hello"))
+                .await
+                .is_ok_and(|sent| sent.outcome == SendOutcome::WaitingForApproval)
+        },
+    );
+
+    assert_eq!(passed, crate::agents::WAITING_MAX as usize);
+    let waiting = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!" FROM agent_approvals WHERE user_id = $1"#,
+        owner
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(waiting, i64::from(crate::agents::WAITING_MAX));
+}
+
+#[sqlx::test]
+async fn schedules_asked_for_at_the_same_moment_stop_at_the_waiting_cap(
+    pool_options: sqlx::postgres::PgPoolOptions,
+    connect_options: sqlx::postgres::PgConnectOptions,
+) {
+    let grant = Preset::AskBeforeSending.grant();
+    let (passed, _, _) = at_once(
+        pool_options,
+        connect_options,
+        grant,
+        40,
+        |state, caller| async move {
+            schedule_message(&state, &caller, once_at(ADA, tomorrow()))
+                .await
+                .is_ok_and(|asked| asked.outcome == ScheduleOutcome::WaitingForApproval)
+        },
+    );
+
+    assert_eq!(passed, crate::agents::WAITING_MAX as usize);
+}
+
+fn every(expression: &str) -> ScheduleInput {
+    ScheduleInput {
+        schedule_kind: ScheduleKind::Recurring,
+        run_at: None,
+        recurrence: Some(Recurrence::Cron {
+            expression: expression.to_owned(),
+        }),
+        ..once_at(ADA, tomorrow())
+    }
+}
+
+#[sqlx::test]
+async fn an_agent_may_schedule_at_most_hourly(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let caller = connect(&state, owner, &Preset::FullAccess.grant()).await;
+
+    for expression in ["* * * * *", "*/30 * * * *", "0-5 9 * * *", "0,59 9 * * 1"] {
+        match schedule_message(&state, &caller, every(expression)).await {
+            Err(OpError::Invalid(problems)) => {
+                let problem = problems.join(" ");
+                assert!(problem.contains("once an hour"), "{expression}: {problem}");
+                assert!(problem.contains("web app"), "{expression}: {problem}");
+            }
+            other => panic!("{expression}: {other:?}"),
+        }
+    }
+    for expression in ["0 * * * *", "0 9 * * *", "30 8,9 * * *"] {
+        let made = schedule_message(&state, &caller, every(expression)).await;
+        assert_eq!(
+            made.unwrap().outcome,
+            ScheduleOutcome::Created,
+            "{expression}"
+        );
+    }
+    let sun = ScheduleInput {
+        recurrence: Some(
+            serde_json::from_value(json!({
+                "type": "sun", "event": "sunset", "offset_minutes": 10, "days": "* * *",
+                "place": null,
+            }))
+            .unwrap(),
+        ),
+        timezone: Some("Asia/Dhaka".to_owned()),
+        ..every("0 9 * * *")
+    };
+    assert_eq!(
+        schedule_message(&state, &caller, sun)
+            .await
+            .unwrap()
+            .outcome,
+        ScheduleOutcome::Created
+    );
+
+    let hourly = schedule_message(&state, &caller, every("0 * * * *"))
+        .await
+        .unwrap()
+        .schedule
+        .unwrap();
+    let denser = UpdateScheduleInput {
+        recurrence: Some(Recurrence::Cron {
+            expression: "*/10 * * * *".to_owned(),
+        }),
+        ..update(hourly.id)
+    };
+    assert!(matches!(
+        update_scheduled_message(&state, &caller, denser).await,
+        Err(OpError::Invalid(_))
+    ));
+}
+
+#[sqlx::test]
+async fn find_chats_is_limited_to_20_searches_a_minute(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    save_contact(&state, owner, ADA, "Ada Lovelace").await;
+    let caller = connect(&state, owner, &Preset::AskBeforeSending.grant()).await;
+    let search = || FindChatsInput {
+        query: "ada".to_owned(),
+    };
+
+    for _ in 0..20 {
+        find_chats(&state, &caller, search()).await.unwrap();
+    }
+    let error = find_chats(&state, &caller, search()).await.unwrap_err();
+    assert!(matches!(error, OpError::TooOften(_)), "{error:?}");
+    assert!(error.to_string().contains("Wait a minute"), "{error}");
+    assert_eq!(
+        last_activity(&state, &caller).await,
+        (
+            "find_chats".to_owned(),
+            Outcome::Denied,
+            Some("too_often".to_owned())
+        )
+    );
+
+    // Each connection has its own
+    let other = connect(&state, owner, &Preset::AskBeforeSending.grant()).await;
+    find_chats(&state, &other, search()).await.unwrap();
+}
+
+#[sqlx::test]
+async fn a_chats_rule_holds_for_every_spelling_of_its_number(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    connected(&state, owner);
+    let grant = with_rule(Preset::FullAccess.grant(), ADA, SendLevel::No, None);
+    let caller = connect(&state, owner, &grant).await;
+
+    for spelling in [format!("00{ADA}"), format!("+{ADA}"), format!("+00 {ADA}")] {
+        refused_with(
+            send_message(&state, &caller, send_to(&spelling, "Hello")).await,
+            "sending_off",
+        );
+    }
+    assert!(matches!(
+        send_message(&state, &caller, send_to("01700000001", "Hello")).await,
+        Err(OpError::Invalid(_))
+    ));
+}
+
+#[sqlx::test]
+async fn a_group_rule_cant_be_dodged_by_a_second_spelling(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    connected(&state, owner);
+    let grant = with_rule(Preset::FullAccess.grant(), GROUP, SendLevel::No, None);
+    let caller = connect(&state, owner, &grant).await;
+
+    let padded = SendInput {
+        recipient: format!(" {GROUP} "),
+        ..send_to(GROUP, "Hello")
+    };
+    refused_with(send_message(&state, &caller, padded).await, "sending_off");
+    let device = GROUP.replace("@g.us", ":1@g.us");
+    let agent = GROUP.replace("@g.us", ".1@g.us");
+    for spelling in [device, agent] {
+        assert!(
+            matches!(
+                send_message(&state, &caller, send_to(&spelling, "Hello")).await,
+                Err(OpError::Invalid(_))
+            ),
+            "{spelling}"
+        );
+    }
+}

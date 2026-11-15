@@ -41,12 +41,56 @@ pub struct KeyMatch {
 }
 
 /// What [`decide`](crate::agents::decide) needs counted, over the last 24 hours. A send counts
-/// once queued, and while it waits for approval.
+/// once queued, and while it waits for approval; a skipped run never does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Counts {
     pub chat_sends: u32,
     pub connection_sends: u32,
     pub waiting_approvals: u32,
+}
+
+/// A connection as read under its lock
+pub struct Locked {
+    pub grant: serde_json::Value,
+    pub paused: bool,
+    pub expired: bool,
+}
+
+/// Locks the connection's row until the transaction ends, so its counts can't change between a
+/// decision and the insert it allows. `FOR NO KEY UPDATE` leaves inserts that reference the row
+/// free. `None` when there's no such connection.
+pub async fn lock(db: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option<Locked>> {
+    sqlx::query_as!(
+        Locked,
+        r#"SELECT "grant", paused_at IS NOT NULL AS "paused!",
+               coalesce(expires_at <= now(), false) AS "expired!"
+           FROM agent_connections WHERE id = $1 FOR NO KEY UPDATE"#,
+        id
+    )
+    .fetch_optional(db)
+    .await
+}
+
+/// [`lock`] without waiting: `None` also while another transaction holds it
+pub async fn try_lock(db: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<Option<Locked>> {
+    sqlx::query_as!(
+        Locked,
+        r#"SELECT "grant", paused_at IS NOT NULL AS "paused!",
+               coalesce(expires_at <= now(), false) AS "expired!"
+           FROM agent_connections WHERE id = $1 FOR NO KEY UPDATE SKIP LOCKED"#,
+        id
+    )
+    .fetch_optional(db)
+    .await
+}
+
+pub async fn exists(db: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<bool> {
+    sqlx::query_scalar!(
+        r#"SELECT EXISTS (SELECT 1 FROM agent_connections WHERE id = $1) AS "exists!""#,
+        id
+    )
+    .fetch_one(db)
+    .await
 }
 
 /// `None` when the user already has [`MAX_PER_USER`] connections
@@ -344,7 +388,8 @@ pub async fn usage(db: impl PgExecutor<'_>, connection_id: Uuid) -> sqlx::Result
     let row = sqlx::query!(
         r#"SELECT
                (SELECT count(*) FROM deliveries
-                WHERE connection_id = $1 AND created_at > now() - interval '24 hours')
+                WHERE connection_id = $1 AND NOT skipped
+                    AND created_at > now() - interval '24 hours')
                + (SELECT count(*) FROM agent_approvals
                   WHERE connection_id = $1 AND kind = 'send' AND status = 'waiting'
                       AND expires_at > now()) AS "sends!",
@@ -367,7 +412,8 @@ pub async fn usage_all(
     let rows = sqlx::query!(
         r#"SELECT c.id,
                (SELECT count(*) FROM deliveries d
-                WHERE d.connection_id = c.id AND d.created_at > now() - interval '24 hours')
+                WHERE d.connection_id = c.id AND NOT d.skipped
+                    AND d.created_at > now() - interval '24 hours')
                + (SELECT count(*) FROM agent_approvals a
                   WHERE a.connection_id = c.id AND a.kind = 'send' AND a.status = 'waiting'
                       AND a.expires_at > now()) AS "sends!",
@@ -397,7 +443,8 @@ pub async fn counts(
     let row = sqlx::query!(
         r#"WITH sends AS (
                SELECT recipient_type, recipient FROM deliveries
-               WHERE connection_id = $1 AND created_at > now() - interval '24 hours'
+               WHERE connection_id = $1 AND NOT skipped
+                   AND created_at > now() - interval '24 hours'
                UNION ALL
                SELECT recipient_type, recipient FROM agent_approvals
                WHERE connection_id = $1 AND kind = 'send' AND status = 'waiting'

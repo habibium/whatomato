@@ -3,6 +3,7 @@
 
 pub(crate) mod alerts;
 pub mod decide;
+pub(crate) mod firing;
 pub mod grant;
 pub mod key;
 // Crate-wide, since its signatures carry database rows

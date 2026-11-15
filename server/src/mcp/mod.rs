@@ -41,6 +41,9 @@ use crate::{
     state::AppState,
 };
 
+/// Far over a tool call's needs: a message is at most 4,096 characters, 24 kB even escaped
+const BODY_LIMIT: usize = 64 * 1024;
+
 const NO_KEY: &str = "This needs a working Whatomato access key, sent as `Authorization: Bearer \
                       <key>`. The account's owner creates connections and their keys in the \
                       Whatomato web app.";
@@ -57,6 +60,7 @@ pub fn router(state: AppState, port: u16) -> (Router, CancellationToken) {
         .with_json_response(true)
         .with_allowed_hosts(sites.host_names())
         .with_allowed_origins(sites.origins())
+        .with_max_request_body_bytes(BODY_LIMIT)
         .with_cancellation_token(shutdown.child_token());
     let service = StreamableHttpService::new(
         move || Ok(tools.clone()),
@@ -66,6 +70,9 @@ pub fn router(state: AppState, port: u16) -> (Router, CancellationToken) {
     let router = Router::new()
         .nest_service("/mcp", service)
         .layer(middleware::from_fn_with_state(state.clone(), bearer))
+        // Outside the key check, so a too-long `Content-Length` costs no lookup; a body without
+        // one is cut off by rmcp as it streams, with the same limit
+        .layer(middleware::from_fn(declared_length))
         .layer(middleware::from_fn_with_state(sites, same_site))
         .layer(middleware::from_fn_with_state(state, switch))
         .layer(SetResponseHeaderLayer::overriding(
@@ -167,6 +174,22 @@ impl Sites {
     }
 }
 
+/// Refuses a body declared longer than [`BODY_LIMIT`] before it's read
+async fn declared_length(request: Request, next: Next) -> Response {
+    let declared = request
+        .headers()
+        .get(header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok()?.parse::<u64>().ok());
+    if declared.is_some_and(|length| length > BODY_LIMIT as u64) {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({ "error": "This request is too large. A tool call needs far less." })),
+        )
+            .into_response();
+    }
+    next.run(request).await
+}
+
 /// Refuses another site's page, key or not, so it sits outside [`bearer`]
 async fn same_site(State(sites): State<Arc<Sites>>, request: Request, next: Next) -> Response {
     if !sites.allows_host(request.uri(), request.headers()) {
@@ -196,17 +219,22 @@ enum Refusal {
 /// Finds the connection behind the bearer key, limits its requests, and hands the [`Caller`] on in
 /// the request's extensions. Keys are never logged.
 async fn bearer(State(state): State<AppState>, mut request: Request, next: Next) -> Response {
-    let caller = match authenticate(&state, request.headers()).await {
+    let ip = ClientIp
+        .extract(&request)
+        .unwrap_or(IpAddr::V6(Ipv6Addr::UNSPECIFIED));
+    let key_hash = presented(request.headers()).map(key::hash);
+    // Before the lookup, so a wrong key from an address over its limit costs no query
+    if let Err(limited) = state.rate_limits.agent_key_blocked(ip, key_hash.as_ref()) {
+        return limited.into_response();
+    }
+    let caller = match authenticate(&state, key_hash).await {
         Ok(caller) => caller,
         Err(Refusal::Internal(error)) => return AppError::Db(error).into_response(),
         Err(refusal) => {
-            if matches!(refusal, Refusal::NoKey) {
-                let ip = ClientIp
-                    .extract(&request)
-                    .unwrap_or(IpAddr::V6(Ipv6Addr::UNSPECIFIED));
-                if let Err(limited) = state.rate_limits.agent_key_failure(ip) {
-                    return limited.into_response();
-                }
+            if matches!(refusal, Refusal::NoKey)
+                && let Err(limited) = state.rate_limits.agent_key_failure(ip)
+            {
+                return limited.into_response();
             }
             let presented = request.headers().contains_key(header::AUTHORIZATION);
             let message = match &refusal {
@@ -227,19 +255,24 @@ async fn bearer(State(state): State<AppState>, mut request: Request, next: Next)
     next.run(request).await
 }
 
-async fn authenticate(state: &AppState, headers: &HeaderMap) -> Result<Caller, Refusal> {
-    let presented = headers
+/// The access key in `Authorization`, if it's shaped like one
+fn presented(headers: &HeaderMap) -> Option<&str> {
+    headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.split_once(' '))
         .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
         .map(|(_, key)| key.trim())
         .filter(|key| key::is_access_key(key))
-        .ok_or(Refusal::NoKey)?;
-    let found = agent_connections::find_by_key(&state.pool, &key::hash(presented))
+}
+
+async fn authenticate(state: &AppState, key_hash: Option<[u8; 32]>) -> Result<Caller, Refusal> {
+    let key_hash = key_hash.ok_or(Refusal::NoKey)?;
+    let found = agent_connections::find_by_key(&state.pool, &key_hash)
         .await
         .map_err(Refusal::Internal)?
         .ok_or(Refusal::NoKey)?;
+    state.rate_limits.agent_key_worked(key_hash);
     Caller::from_key_match(&state.app_url, found).map_err(|error| match error {
         OpError::Refused {
             code: "paused" | "expired",

@@ -1,15 +1,16 @@
 //! `schedule_message`, `list_scheduled_messages`, `update_scheduled_message` and
 //! `delete_scheduled_message`
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use validator::ValidationErrors;
 
 use super::{
-    Caller, More, OpError, Page, Trace, approval_url, ask, chat_facts, facts, fit,
+    Caller, More, OpError, Page, Trace, approval_url, ask, chat_facts, facts, fit, lock,
     review::{Request, ScheduleRequest},
+    tell_owner,
 };
 use crate::{
     agents::{
@@ -119,7 +120,15 @@ const WAITING: &str = "This waits for the owner's approval; nothing has changed 
                        owner the approval_url to approve it, and check get_approval to see whether \
                        they have. It expires if nobody answers within 24 hours.";
 
-/// Checks a request as the web app's form does, with the recipient as given
+/// An agent may not schedule more often than this; the owner can, in the web app
+const AGENT_MIN_GAP: TimeDelta = TimeDelta::hours(1);
+/// Upcoming runs looked at for [`AGENT_MIN_GAP`]. A cron with one minute value runs at least an
+/// hour apart; with two or more, the first two runs of any day are under an hour apart. 100 runs
+/// span several whole days either way, so no burst hides behind sparse runs.
+const GAP_RUNS: usize = 100;
+
+/// Checks a request as the web app's form does, with the recipient as given, and that it repeats
+/// no more than hourly
 async fn check(
     state: &AppState,
     caller: &Caller,
@@ -134,7 +143,25 @@ async fn check(
         &mut errors,
     )
     .await?;
-    Ok(draft::finish(errors)?)
+    draft::finish(errors)?;
+    if too_frequent(request) {
+        return Err(OpError::invalid(
+            "`recurrence` would send more often than once an hour, and an agent may not schedule \
+             messages that often. The owner can make a more frequent schedule in the Whatomato \
+             web app.",
+        ));
+    }
+    Ok(())
+}
+
+fn too_frequent(request: &ScheduleRequest) -> bool {
+    let (ScheduleKind::Recurring, Some(recurrence)) = (request.schedule_kind, &request.recurrence)
+    else {
+        return false;
+    };
+    recurrence
+        .shortest_gap(&request.timezone, Utc::now(), GAP_RUNS)
+        .is_some_and(|gap| gap < AGENT_MIN_GAP)
 }
 
 /// Schedules a message once or repeating, or asks the owner to approve it first
@@ -179,7 +206,9 @@ async fn run_schedule(
     };
     let known = chat_facts(state, caller, chat).await?;
     trace.chat(chat.recipient_type, chat.recipient, known.name.as_deref());
-    let facts = facts(state, caller, chat, known.saved).await?;
+    let mut transaction = state.pool.begin().await?;
+    lock(&mut transaction, caller).await?;
+    let facts = facts(&mut transaction, caller, chat, known.saved).await?;
     let decision = decide(&caller.grant, Action::CreateSchedule(chat), &facts);
     request.recipient_name = known.name;
 
@@ -187,12 +216,13 @@ async fn run_schedule(
         Decision::Deny(reason) => Err(caller.refused(reason)),
         Decision::Allow | Decision::AllowOwn => {
             let message = scheduled_messages::create(
-                &state.pool,
+                &mut *transaction,
                 caller.user_id(),
                 Some(caller.id()),
                 request.draft().fields(&request.recipient),
             )
             .await?;
+            transaction.commit().await?;
             Ok(ScheduleResult {
                 outcome: ScheduleOutcome::Created,
                 message: "The message is scheduled. next_run_at says when it next goes out.",
@@ -202,9 +232,17 @@ async fn run_schedule(
             })
         }
         Decision::Ask => {
-            let id = ask(state, caller, &Request::ScheduleCreate(request)).await?;
+            let approval = ask(
+                &mut transaction,
+                state,
+                caller,
+                &Request::ScheduleCreate(request),
+            )
+            .await?;
+            transaction.commit().await?;
+            tell_owner(state, caller, &approval).await;
             trace.asked = true;
-            Ok(waiting(state, id))
+            Ok(waiting(state, approval.id))
         }
     }
 }
@@ -420,7 +458,9 @@ async fn run_update(
         .name
         .or_else(|| same_chat.then_some(same_chat_name).flatten());
     trace.chat(chat.recipient_type, chat.recipient, name.as_deref());
-    let facts = facts(state, caller, chat, known.saved).await?;
+    let mut transaction = state.pool.begin().await?;
+    lock(&mut transaction, caller).await?;
+    let facts = facts(&mut transaction, caller, chat, known.saved).await?;
     let decision = decide(
         &caller.grant,
         Action::UpdateSchedule { chat, owner },
@@ -432,13 +472,14 @@ async fn run_update(
         Decision::Deny(reason) => Err(caller.refused(reason)),
         Decision::Allow | Decision::AllowOwn => {
             let message = scheduled_messages::update(
-                &state.pool,
+                &mut *transaction,
                 message.id,
                 caller.user_id(),
                 request.draft().fields(&request.recipient),
             )
             .await?
             .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
+            transaction.commit().await?;
             Ok(ScheduleResult {
                 outcome: ScheduleOutcome::Updated,
                 message: "The scheduled message is changed. next_run_at says when it next goes \
@@ -453,9 +494,11 @@ async fn run_update(
                 scheduled_message_id: message.id,
                 schedule: request,
             };
-            let id = ask(state, caller, &request).await?;
+            let approval = ask(&mut transaction, state, caller, &request).await?;
+            transaction.commit().await?;
+            tell_owner(state, caller, &approval).await;
             trace.asked = true;
-            Ok(waiting(state, id))
+            Ok(waiting(state, approval.id))
         }
     }
 }

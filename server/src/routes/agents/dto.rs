@@ -50,6 +50,20 @@ pub(super) enum ConnectionStatus {
     Unusable,
 }
 
+impl ConnectionStatus {
+    const fn new(readable: bool, paused: bool, expired: bool) -> Self {
+        if !readable {
+            Self::Unusable
+        } else if expired {
+            Self::Expired
+        } else if paused {
+            Self::Paused
+        } else {
+            Self::Active
+        }
+    }
+}
+
 /// An AI agent connection. Never holds the key, only its last characters.
 #[derive(Serialize, ToSchema)]
 pub(super) struct AgentConnection {
@@ -105,15 +119,8 @@ impl AgentConnection {
             })
             .ok();
         let expired = connection.expires_at.is_some_and(|at| at <= Utc::now());
-        let status = if grant.is_none() {
-            ConnectionStatus::Unusable
-        } else if expired {
-            ConnectionStatus::Expired
-        } else if connection.paused_at.is_some() {
-            ConnectionStatus::Paused
-        } else {
-            ConnectionStatus::Active
-        };
+        let status =
+            ConnectionStatus::new(grant.is_some(), connection.paused_at.is_some(), expired);
         Self {
             id: connection.id,
             name: connection.name,
@@ -351,6 +358,9 @@ pub(super) struct AgentApproval {
     pub id: Uuid,
     pub connection_id: Uuid,
     pub connection_name: String,
+    /// Where the connection that asked stands now. Approving doesn't depend on it: the owner's
+    /// yes goes ahead even for a paused or expired connection.
+    pub connection_status: ConnectionStatus,
     pub kind: ApprovalKind,
     pub status: ApprovalStatus,
     pub recipient_type: RecipientType,
@@ -393,13 +403,22 @@ impl AgentApproval {
         let Listed {
             approval,
             connection_name,
+            connection_paused,
+            connection_expired,
+            connection_grant,
             delivery_status,
         } = listed;
         let waiting = approval.status == ApprovalStatus::Waiting;
+        let readable = Grant::parse(&connection_grant).is_ok();
         Self {
             id: approval.id,
             connection_id: approval.connection_id,
             connection_name,
+            connection_status: ConnectionStatus::new(
+                readable,
+                connection_paused,
+                connection_expired,
+            ),
             kind: approval.kind,
             status: approval.status,
             recipient_type: approval.recipient_type,
@@ -498,6 +517,7 @@ fn reason_text(code: &str) -> Option<&'static str> {
         "invalid_input" => "Its request had a problem, so nothing was done.",
         "not_found" => "What it asked for wasn't found.",
         "whatsapp_not_ready" => "WhatsApp wasn't ready to send.",
+        "too_often" => "It searched chats more often than it may, so it was asked to wait.",
         "internal" => "Something went wrong on the server.",
         _ => return None,
     })

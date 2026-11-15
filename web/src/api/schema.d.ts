@@ -63,6 +63,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agents/approvals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One approval, waiting or answered */
+        get: operations["get_agent_approval"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agents/approvals/{id}/approve": {
         parameters: {
             query?: never;
@@ -1047,6 +1064,11 @@ export interface components {
             /** Format: uuid */
             connection_id: string;
             connection_name: string;
+            /**
+             * @description Where the connection that asked stands now. Approving doesn't depend on it: the owner's
+             *     yes goes ahead even for a paused or expired connection.
+             */
+            connection_status: components["schemas"]["ConnectionStatus"];
             /** Format: date-time */
             created_at: string;
             /**
@@ -2014,6 +2036,52 @@ export interface operations {
                 };
             };
             /** @description Agent access is off on this server */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_agent_approval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentApproval"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Agent access is off, or there's no such approval */
             404: {
                 headers: {
                     [name: string]: unknown;

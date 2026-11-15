@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO agent_connections (user_id, name, key_hash, key_hint, \"grant\")\n               VALUES ($1, 'Agent', '\\x01', 'abcd', '{}') RETURNING id",
+  "query": "INSERT INTO agent_connections (user_id, name, key_hash, key_hint, \"grant\")\n               VALUES ($1, 'Agent', $2, 'abcd', $3) RETURNING id",
   "describe": {
     "columns": [
       {
@@ -17,12 +17,14 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Bytea",
+        "Jsonb"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "932c995ba3dfad9615c39865ab65c9cb9c58194fcf7fca47d586dbf1a0d2ffb4"
+  "hash": "31eafc6ed2d50e8846de224cb8c03d475d8d61e48bdd80765e2fee61c52f4304"
 }

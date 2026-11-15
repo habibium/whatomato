@@ -8,7 +8,7 @@ mod sun;
 
 use std::{iter, str::FromStr};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use chrono_tz::Tz;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -52,6 +52,21 @@ impl Recurrence {
         })
         .take(count)
         .collect()
+    }
+
+    /// The shortest time between two of its next `runs` runs after `after`; `None` with fewer
+    /// than two
+    #[must_use]
+    pub fn shortest_gap(
+        &self,
+        timezone: &str,
+        after: DateTime<Utc>,
+        runs: usize,
+    ) -> Option<TimeDelta> {
+        self.next_runs(timezone, after, runs)
+            .windows(2)
+            .map(|pair| pair[1] - pair[0])
+            .min()
     }
 
     /// Why it can't schedule anything in `timezone`, if so

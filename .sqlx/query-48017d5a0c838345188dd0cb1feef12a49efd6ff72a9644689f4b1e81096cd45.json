@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE deliveries SET status = 'sending', attempts = attempts + 1\n           WHERE id IN (\n               SELECT DISTINCT ON (user_id) id FROM deliveries\n               WHERE status = 'pending' AND next_attempt_at <= now() AND user_id <> ALL($1)\n               ORDER BY user_id, next_attempt_at, created_at\n           )\n           RETURNING id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               body, attempts",
+  "query": "UPDATE deliveries SET status = 'sending', attempts = attempts + 1\n           WHERE id IN (\n               SELECT DISTINCT ON (user_id) id FROM deliveries\n               WHERE status = 'pending' AND next_attempt_at <= now() AND user_id <> ALL($1)\n               ORDER BY user_id, next_attempt_at, created_at\n           )\n           RETURNING id, user_id, connection_id,\n               recipient_type AS \"recipient_type: RecipientType\", recipient, body, attempts",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "connection_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "connection_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "recipient_type: RecipientType",
         "type_info": "Text",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "recipient",
         "type_info": "Text",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "body",
         "type_info": "Text",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "attempts",
         "type_info": "Int4",
         "origin": {
@@ -78,11 +89,12 @@
     "nullable": [
       false,
       false,
+      true,
       false,
       false,
       false,
       false
     ]
   },
-  "hash": "123df2b3d7de77ddb303096c947a6e0d8bc9e8930fb72621500bdc7ef738a45a"
+  "hash": "48017d5a0c838345188dd0cb1feef12a49efd6ff72a9644689f4b1e81096cd45"
 }

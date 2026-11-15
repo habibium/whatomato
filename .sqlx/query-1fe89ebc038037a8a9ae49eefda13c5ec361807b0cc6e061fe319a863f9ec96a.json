@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id,\n               (SELECT count(*) FROM deliveries d\n                WHERE d.connection_id = c.id AND NOT d.skipped\n                    AND d.created_at > now() - interval '24 hours')\n               + (SELECT count(*) FROM agent_approvals a\n                  WHERE a.connection_id = c.id AND a.kind = 'send' AND a.status = 'waiting'\n                      AND a.expires_at > now()) AS \"sends!\",\n               (SELECT count(*) FROM agent_approvals a\n                WHERE a.connection_id = c.id AND a.status = 'waiting' AND a.expires_at > now())\n                   AS \"waiting!\"\n           FROM agent_connections c WHERE c.user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "agent_connections",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "sends!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "waiting!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "1fe89ebc038037a8a9ae49eefda13c5ec361807b0cc6e061fe319a863f9ec96a"
+}

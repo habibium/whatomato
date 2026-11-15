@@ -293,6 +293,16 @@ pub async fn find_chats(
     result
 }
 
+/// Counts a search against the connection's limit
+fn searched(state: &AppState, caller: &Caller) -> Result<(), OpError> {
+    state.rate_limits.agent_search(caller.id()).map_err(|_| {
+        OpError::TooOften(
+            "This connection has searched chats 20 times in the last minute, the most it may. \
+             Wait a minute, then search again.",
+        )
+    })
+}
+
 async fn run_find_chats(
     state: &AppState,
     caller: &Caller,
@@ -301,6 +311,7 @@ async fn run_find_chats(
     if let Decision::Deny(reason) = decide(&caller.grant, Action::FindChats, &Facts::default()) {
         return Err(caller.refused(reason));
     }
+    searched(state, caller)?;
     let query = input.query.trim().to_lowercase();
     let length = query.chars().count();
     if length < QUERY_MIN {

@@ -119,6 +119,10 @@ pub async fn find_for_connection(
 pub struct Listed {
     pub approval: Approval,
     pub connection_name: String,
+    pub connection_paused: bool,
+    pub connection_expired: bool,
+    /// The connection's grant as stored
+    pub connection_grant: serde_json::Value,
     /// Where the delivery it became stands, if it became one that still exists
     pub delivery_status: Option<DeliveryStatus>,
 }
@@ -139,7 +143,9 @@ pub async fn list(
                CASE WHEN a.status = 'waiting' AND a.expires_at <= now() THEN 'expired'
                    ELSE a.status END AS "status!: ApprovalStatus",
                a.delivery_id, a.scheduled_message_id, a.created_at, a.expires_at, a.decided_at,
-               c.name AS connection_name,
+               c.name AS connection_name, c.paused_at IS NOT NULL AS "connection_paused!",
+               coalesce(c.expires_at <= now(), false) AS "connection_expired!",
+               c."grant" AS connection_grant,
                d.status AS "delivery_status?: DeliveryStatus"
            FROM agent_approvals a
            JOIN agent_connections c ON c.id = a.connection_id
@@ -174,6 +180,9 @@ pub async fn list(
                 decided_at: row.decided_at,
             },
             connection_name: row.connection_name,
+            connection_paused: row.connection_paused,
+            connection_expired: row.connection_expired,
+            connection_grant: row.connection_grant,
             delivery_status: row.delivery_status,
         })
         .collect())

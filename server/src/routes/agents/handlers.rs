@@ -403,6 +403,22 @@ pub async fn list_agent_approvals(
     }))
 }
 
+/// One approval, waiting or answered
+#[utoipa::path(get, path = "/approvals/{id}", params(("id" = Uuid, Path)), responses(
+    (status = OK, body = AgentApproval),
+    (status = UNAUTHORIZED, body = ErrorBody),
+    (status = NOT_FOUND, description = "Agent access is off, or there's no such approval", body = ErrorBody),
+    (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
+))]
+pub async fn get_agent_approval(
+    _: Enabled,
+    State(state): State<AppState>,
+    session: Session,
+    Path(id): Path<Uuid>,
+) -> Result<Json<AgentApproval>, AppError> {
+    answered(&state, id, session.user.id).await
+}
+
 /// Approve what an agent asked, optionally with your own text
 ///
 /// The request is checked as if it were made now, as the scheduling form checks it; one that

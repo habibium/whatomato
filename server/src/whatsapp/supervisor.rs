@@ -130,6 +130,8 @@ pub struct Group {
 pub enum Recipient {
     /// A phone number's digits
     Number(String),
+    /// A phone number's digits, refused when WhatsApp has the person under another number
+    ExactNumber(String),
     /// A group's id
     Group(String),
 }
@@ -150,6 +152,11 @@ pub enum SendFailure {
     Stopped,
     #[error("This number isn't on WhatsApp")]
     NotOnWhatsApp,
+    #[error(
+        "Not sent: WhatsApp has this person under the number +{0}. A message an agent sends goes \
+         only to a number written exactly as WhatsApp has it, so that the chat's rules apply."
+    )]
+    OtherNumber(String),
     #[error("WhatsApp rejected this message (error {0})")]
     Rejected(String),
     #[error("WhatsApp didn't confirm this message, so it may or may not have gone out")]
@@ -1020,7 +1027,8 @@ async fn send_and_confirm(
     body: String,
 ) -> Result<(), SendFailure> {
     let jid = match to {
-        Recipient::Number(number) => registered(&client, number).await?,
+        Recipient::Number(number) => registered(&client, number, false).await?,
+        Recipient::ExactNumber(number) => registered(&client, number, true).await?,
         Recipient::Group(id) => id.parse::<Jid>().map_err(|_| SendFailure::Failed)?,
     };
 
@@ -1046,18 +1054,34 @@ async fn send_and_confirm(
 }
 
 /// The address WhatsApp has for `number`. Without this check a send to a number that isn't on
-/// WhatsApp looks like it worked.
-async fn registered(client: &Client, number: String) -> Result<Jid, SendFailure> {
-    let asked = [Jid::pn(number)];
+/// WhatsApp looks like it worked. WhatsApp may answer with another number for the same person (a
+/// country's old and new numbering); `exact` refuses that.
+async fn registered(client: &Client, number: String, exact: bool) -> Result<Jid, SendFailure> {
+    let asked = [Jid::pn(number.clone())];
     let answers = timeout(REQUEST_LIMIT, client.contacts().is_on_whatsapp(&asked))
         .await
         .map_err(|_| SendFailure::Unreachable)?
         .map_err(|_| SendFailure::Unreachable)?;
-    answers
+    let answer = answers
         .into_iter()
         .find(|answer| answer.is_registered)
-        .map(|answer| answer.jid)
-        .ok_or(SendFailure::NotOnWhatsApp)
+        .ok_or(SendFailure::NotOnWhatsApp)?;
+    if exact {
+        same_number(&number, &answer.jid, answer.pn_jid.as_ref())?;
+    }
+    Ok(answer.jid)
+}
+
+/// Refuses an answer naming another number than `number`. One that names none (an account
+/// known only by its LID) passes, as nothing shows it's another person.
+fn same_number(number: &str, jid: &Jid, pn_jid: Option<&Jid>) -> Result<(), SendFailure> {
+    let known = if jid.is_pn() { Some(jid) } else { pn_jid };
+    match known {
+        Some(known) if known.user != number => {
+            Err(SendFailure::OtherNumber(known.user.to_string()))
+        }
+        _ => Ok(()),
+    }
 }
 
 async fn pulse_presence(client: Arc<Client>, first_in: Duration) {
@@ -1130,4 +1154,25 @@ fn translate(event: &LibraryEvent) -> Option<Event> {
         },
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_exact_send_refuses_another_number_for_the_same_person() {
+        let asked = "5511912345678";
+        assert!(same_number(asked, &Jid::pn(asked), None).is_ok());
+
+        let other = same_number(asked, &Jid::pn("551112345678"), None).unwrap_err();
+        assert!(matches!(&other, SendFailure::OtherNumber(number) if number == "551112345678"));
+        assert!(!other.can_retry());
+        assert!(other.to_string().contains("+551112345678"));
+
+        let lid = Jid::lid("100000001");
+        assert!(same_number(asked, &lid, Some(&Jid::pn(asked))).is_ok());
+        assert!(same_number(asked, &lid, Some(&Jid::pn("551112345678"))).is_err());
+        assert!(same_number(asked, &lid, None).is_ok());
+    }
 }

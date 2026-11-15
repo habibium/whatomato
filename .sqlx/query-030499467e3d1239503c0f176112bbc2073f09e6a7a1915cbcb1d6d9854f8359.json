@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE deliveries SET status = 'failed', attempts = 1, error = 'WhatsApp said no' WHERE connection_id = $1 AND NOT skipped",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "030499467e3d1239503c0f176112bbc2073f09e6a7a1915cbcb1d6d9854f8359"
+}

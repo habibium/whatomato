@@ -60,7 +60,12 @@ async fn main() -> anyhow::Result<()> {
     ));
     whatsapp.boot().await?;
     whatsapp.refresh_version_daily();
-    let scheduler = Scheduler::spawn(pool.clone(), cipher.clone(), whatsapp.clone());
+    let scheduler = Scheduler::spawn(
+        pool.clone(),
+        cipher.clone(),
+        whatsapp.clone(),
+        config.agent_access,
+    );
     let state = AppState {
         pool: pool.clone(),
         mailer,

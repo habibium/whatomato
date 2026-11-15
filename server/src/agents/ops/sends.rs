@@ -7,9 +7,9 @@ use uuid::Uuid;
 use validator::ValidationErrors;
 
 use super::{
-    Caller, More, OpError, Page, Trace, approval_url, ask, chat_facts, facts,
+    Caller, More, OpError, Page, Trace, approval_url, ask, chat_facts, facts, lock,
     review::{Request, SendRequest},
-    whatsapp_ready,
+    tell_owner, whatsapp_ready,
 };
 use crate::{
     agents::{
@@ -95,28 +95,31 @@ async fn run_send(
     };
     let known = chat_facts(state, caller, chat).await?;
     trace.chat(input.recipient_type, &recipient, known.name.as_deref());
-    let facts = facts(state, caller, chat, known.saved).await?;
+    // Filled in before the lock, since it reads the database through the pool
+    let to = variables::To {
+        recipient_type: input.recipient_type,
+        recipient: &recipient,
+        recipient_name: known.name.as_deref(),
+    };
+    let body = draft::body_now(
+        &state.pool,
+        &state.cipher,
+        caller.user_id(),
+        &to,
+        &input.body,
+        input.timezone.as_deref(),
+    )
+    .await;
 
+    let mut transaction = state.pool.begin().await?;
+    lock(&mut transaction, caller).await?;
+    let facts = facts(&mut transaction, caller, chat, known.saved).await?;
     match decide(&caller.grant, Action::Send(chat), &facts) {
         Decision::Deny(reason) => Err(caller.refused(reason)),
         Decision::Allow | Decision::AllowOwn => {
             whatsapp_ready(state, caller.user_id())?;
-            let to = variables::To {
-                recipient_type: input.recipient_type,
-                recipient: &recipient,
-                recipient_name: known.name.as_deref(),
-            };
-            let body = draft::body_now(
-                &state.pool,
-                &state.cipher,
-                caller.user_id(),
-                &to,
-                &input.body,
-                input.timezone.as_deref(),
-            )
-            .await;
             let delivery_id = deliveries::create(
-                &state.pool,
+                &mut *transaction,
                 NewDelivery {
                     user_id: caller.user_id(),
                     scheduled_message_id: None,
@@ -128,6 +131,7 @@ async fn run_send(
                 },
             )
             .await?;
+            transaction.commit().await?;
             Ok(SendResult {
                 outcome: SendOutcome::Queued,
                 message: "The message is queued and goes out shortly. It hasn't been sent yet; \
@@ -145,7 +149,9 @@ async fn run_send(
                 body: input.body.trim().to_owned(),
                 timezone: input.timezone,
             });
-            let id = ask(state, caller, &request).await?;
+            let approval = ask(&mut transaction, state, caller, &request).await?;
+            transaction.commit().await?;
+            tell_owner(state, caller, &approval).await;
             trace.asked = true;
             Ok(SendResult {
                 outcome: SendOutcome::WaitingForApproval,
@@ -153,8 +159,8 @@ async fn run_send(
                           the owner the approval_url to approve it, and check get_approval to see \
                           whether they have. It expires if nobody answers within 24 hours.",
                 delivery_id: None,
-                approval_id: Some(id),
-                approval_url: Some(approval_url(&state.app_url, id)),
+                approval_id: Some(approval.id),
+                approval_url: Some(approval_url(&state.app_url, approval.id)),
             })
         }
     }

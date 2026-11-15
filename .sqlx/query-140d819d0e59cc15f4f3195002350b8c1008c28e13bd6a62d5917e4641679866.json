@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO deliveries (user_id, connection_id, recipient_type, recipient, body) SELECT $1, $2, 'contact', '15550001', 'earlier' FROM generate_series(1, $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "140d819d0e59cc15f4f3195002350b8c1008c28e13bd6a62d5917e4641679866"
+}

@@ -314,6 +314,65 @@
         }
       }
     },
+    "/api/agents/approvals/{id}": {
+      "get": {
+        "summary": "One approval, waiting or answered",
+        "operationId": "get_agent_approval",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentApproval"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent access is off, or there's no such approval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/agents/approvals/{id}/approve": {
       "post": {
         "summary": "Approve what an agent asked, optionally with your own text",
@@ -4107,6 +4166,7 @@
           "id",
           "connection_id",
           "connection_name",
+          "connection_status",
           "kind",
           "status",
           "recipient_type",
@@ -4138,6 +4198,10 @@
           },
           "connection_name": {
             "type": "string"
+          },
+          "connection_status": {
+            "$ref": "#/components/schemas/ConnectionStatus",
+            "description": "Where the connection that asked stands now. Approving doesn't depend on it: the owner's\nyes goes ahead even for a paused or expired connection."
           },
           "created_at": {
             "type": "string",

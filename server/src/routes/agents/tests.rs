@@ -849,6 +849,7 @@ async fn another_users_connections_approvals_and_activity_are_not_found(pool: Pg
             Some(json!({})),
         ),
         (Method::POST, format!("/approvals/{approval}/reject"), None),
+        (Method::GET, format!("/approvals/{approval}"), None),
         (
             Method::GET,
             format!("/activity?connection_id={claude}"),
@@ -984,6 +985,7 @@ async fn with_agent_access_off_only_the_overview_answers(pool: PgPool) {
         ),
         (Method::DELETE, format!("/{claude}"), None),
         (Method::GET, "/approvals".to_owned(), None),
+        (Method::GET, format!("/approvals/{id}"), None),
         (
             Method::POST,
             format!("/approvals/{id}/approve"),
@@ -1041,4 +1043,90 @@ async fn a_connection_whose_grant_cannot_be_read_is_shown_unusable(pool: PgPool)
     assert!(first["grant_problem"].is_string());
     assert_eq!(first["summary"], json!([]));
     assert_eq!(listed.body["connections"][1]["status"], "active");
+}
+
+#[sqlx::test]
+async fn an_approval_shows_its_connections_status_and_stays_approvable(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (owner, session) = app.signed_in("ada@example.com").await;
+    connected(&app, owner);
+    let claude = connection(&app, owner, "Claude").await;
+    let approval = ask(&app, owner, claude, "See you at nine").await;
+    let status = |response: &TestResponse| response.body["connection_status"].clone();
+
+    let listed = call(&app, Method::GET, "/approvals", None, &session).await;
+    assert_eq!(listed.body["items"][0]["connection_status"], "active");
+    let one = call(
+        &app,
+        Method::GET,
+        &format!("/approvals/{approval}"),
+        None,
+        &session,
+    )
+    .await;
+    assert_eq!(one.status, StatusCode::OK);
+    assert_eq!(one.body["id"], approval.to_string());
+    assert_eq!(one.body["request"]["body"], "See you at nine");
+    assert_eq!(status(&one), "active");
+
+    let path = format!("/approvals/{approval}");
+    call(
+        &app,
+        Method::POST,
+        &format!("/{claude}/pause"),
+        None,
+        &session,
+    )
+    .await;
+    assert_eq!(
+        status(&call(&app, Method::GET, &path, None, &session).await),
+        "paused"
+    );
+    sqlx::query!(
+        "UPDATE agent_connections SET expires_at = now() - interval '1 minute' WHERE id = $1",
+        claude
+    )
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        status(&call(&app, Method::GET, &path, None, &session).await),
+        "expired"
+    );
+    sqlx::query!(
+        r#"UPDATE agent_connections SET "grant" = '{"version": 99}' WHERE id = $1"#,
+        claude
+    )
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        status(&call(&app, Method::GET, &path, None, &session).await),
+        "unusable"
+    );
+
+    // The owner's yes is final, whatever became of the connection
+    let approved = call(
+        &app,
+        Method::POST,
+        &format!("{path}/approve"),
+        Some(json!({})),
+        &session,
+    )
+    .await;
+    assert_eq!(approved.status, StatusCode::OK, "{}", approved.body);
+    assert_eq!(approved.body["status"], "approved");
+    let answered = call(&app, Method::GET, &path, None, &session).await;
+    assert_eq!(answered.body["status"], "approved");
+    assert!(answered.body["delivery_id"].is_string());
+
+    let missing = call(
+        &app,
+        Method::GET,
+        &format!("/approvals/{}", Uuid::new_v4()),
+        None,
+        &session,
+    )
+    .await;
+    assert_eq!(missing.status, StatusCode::NOT_FOUND);
 }

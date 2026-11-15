@@ -624,3 +624,15 @@ async fn a_preview_names_what_is_wrong_and_still_gives_the_values(pool: PgPool) 
     let response = app.call(Method::GET, &path, None, None).await;
     assert_eq!(response.status, StatusCode::UNAUTHORIZED);
 }
+
+#[sqlx::test]
+async fn the_owner_may_schedule_more_often_than_agents_may(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (_, session) = app.signed_in("ada@example.com").await;
+
+    let cron = json!({ "type": "cron", "expression": "* * * * *" });
+    let message = create(&app, with(recurring(), "recurrence", cron), &session).await;
+
+    assert_eq!(message["recurrence"]["expression"], "* * * * *");
+    assert_eq!(message["enabled"], true);
+}

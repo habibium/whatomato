@@ -318,6 +318,8 @@ pub async fn approve(
     if let Some(body) = body {
         body.trim().clone_into(request.body_mut());
     }
+    // Deliberately not checked against the grant, the limits or a pause: the owner's yes is final,
+    // and the page shows the connection's status so they can see a paused or expired one
     let filled = check_now(state, user_id, &request).await?;
 
     let mut transaction = state.pool.begin().await?;

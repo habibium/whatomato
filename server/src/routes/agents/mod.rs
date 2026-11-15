@@ -13,6 +13,7 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::list_agent_presets))
         .routes(routes!(handlers::pause_all_agents))
         .routes(routes!(handlers::list_agent_approvals))
+        .routes(routes!(handlers::get_agent_approval))
         .routes(routes!(handlers::list_agent_activity))
         .routes(routes!(handlers::approve_agent_request))
         .routes(routes!(handlers::reject_agent_request))

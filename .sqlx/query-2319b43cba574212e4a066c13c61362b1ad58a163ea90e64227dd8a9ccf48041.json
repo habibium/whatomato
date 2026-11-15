@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT a.id, a.connection_id, a.user_id, a.kind AS \"kind: ApprovalKind\",\n               a.recipient_type AS \"recipient_type: RecipientType\", a.recipient, a.recipient_name,\n               a.payload,\n               CASE WHEN a.status = 'waiting' AND a.expires_at <= now() THEN 'expired'\n                   ELSE a.status END AS \"status!: ApprovalStatus\",\n               a.delivery_id, a.scheduled_message_id, a.created_at, a.expires_at, a.decided_at,\n               c.name AS connection_name,\n               d.status AS \"delivery_status?: DeliveryStatus\"\n           FROM agent_approvals a\n           JOIN agent_connections c ON c.id = a.connection_id\n           LEFT JOIN deliveries d ON d.id = a.delivery_id\n           WHERE a.user_id = $1 AND ($2::uuid IS NULL OR a.id = $2)\n           ORDER BY (a.status = 'waiting' AND a.expires_at > now()) DESC, a.created_at DESC, a.id\n           LIMIT $3 OFFSET $4",
+  "query": "SELECT a.id, a.connection_id, a.user_id, a.kind AS \"kind: ApprovalKind\",\n               a.recipient_type AS \"recipient_type: RecipientType\", a.recipient, a.recipient_name,\n               a.payload,\n               CASE WHEN a.status = 'waiting' AND a.expires_at <= now() THEN 'expired'\n                   ELSE a.status END AS \"status!: ApprovalStatus\",\n               a.delivery_id, a.scheduled_message_id, a.created_at, a.expires_at, a.decided_at,\n               c.name AS connection_name, c.paused_at IS NOT NULL AS \"connection_paused!\",\n               coalesce(c.expires_at <= now(), false) AS \"connection_expired!\",\n               c.\"grant\" AS connection_grant,\n               d.status AS \"delivery_status?: DeliveryStatus\"\n           FROM agent_approvals a\n           JOIN agent_connections c ON c.id = a.connection_id\n           LEFT JOIN deliveries d ON d.id = a.delivery_id\n           WHERE a.user_id = $1 AND ($2::uuid IS NULL OR a.id = $2)\n           ORDER BY (a.status = 'waiting' AND a.expires_at > now()) DESC, a.created_at DESC, a.id\n           LIMIT $3 OFFSET $4",
   "describe": {
     "columns": [
       {
@@ -165,6 +165,29 @@
       },
       {
         "ordinal": 15,
+        "name": "connection_paused!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 16,
+        "name": "connection_expired!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 17,
+        "name": "connection_grant",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "agent_connections",
+            "name": "grant"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
         "name": "delivery_status?: DeliveryStatus",
         "type_info": "Text",
         "origin": {
@@ -199,8 +222,11 @@
       false,
       true,
       false,
+      null,
+      null,
+      false,
       false
     ]
   },
-  "hash": "4c39e66d852cc3a9ac728450a2235b97946dcd16c52e6449b7de87f62c58e03b"
+  "hash": "2319b43cba574212e4a066c13c61362b1ad58a163ea90e64227dd8a9ccf48041"
 }

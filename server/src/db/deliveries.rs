@@ -35,6 +35,8 @@ pub struct NewDelivery<'a> {
 pub struct Claimed {
     pub id: Uuid,
     pub user_id: Uuid,
+    /// The agent connection that caused it, if one did
+    pub connection_id: Option<Uuid>,
     pub recipient_type: RecipientType,
     pub recipient: String,
     pub body: String,
@@ -55,6 +57,30 @@ pub async fn create(db: impl PgExecutor<'_>, delivery: NewDelivery<'_>) -> sqlx:
         delivery.recipient,
         delivery.recipient_name,
         delivery.body,
+    )
+    .fetch_one(db)
+    .await
+}
+
+/// Records a run that was skipped before any attempt, failed with `error`
+pub async fn create_skipped(
+    db: impl PgExecutor<'_>,
+    delivery: NewDelivery<'_>,
+    error: &str,
+) -> sqlx::Result<Uuid> {
+    sqlx::query_scalar!(
+        "INSERT INTO deliveries \
+         (user_id, scheduled_message_id, connection_id, recipient_type, recipient, \
+          recipient_name, body, status, error, skipped) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'failed', $8, true) RETURNING id",
+        delivery.user_id,
+        delivery.scheduled_message_id,
+        delivery.connection_id,
+        delivery.recipient_type.as_str(),
+        delivery.recipient,
+        delivery.recipient_name,
+        delivery.body,
+        error,
     )
     .fetch_one(db)
     .await
@@ -144,8 +170,8 @@ pub async fn claim(db: impl PgExecutor<'_>, busy: &[Uuid]) -> sqlx::Result<Vec<C
                WHERE status = 'pending' AND next_attempt_at <= now() AND user_id <> ALL($1)
                ORDER BY user_id, next_attempt_at, created_at
            )
-           RETURNING id, user_id, recipient_type AS "recipient_type: RecipientType", recipient,
-               body, attempts"#,
+           RETURNING id, user_id, connection_id,
+               recipient_type AS "recipient_type: RecipientType", recipient, body, attempts"#,
         busy,
     )
     .fetch_all(db)

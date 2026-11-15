@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status, skipped, error, connection_id FROM deliveries WHERE scheduled_message_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "skipped",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "skipped"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "error"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "connection_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "connection_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "2db63cbe7dca3be9f2dbc399ea5cb3ba7341ea04092fb1369d3d412bf371219d"
+}

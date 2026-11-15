@@ -439,6 +439,9 @@ async fn failed_keys_are_limited_per_address_and_working_keys_are_not(pool: PgPo
     let owner = user(&app).await;
     let (key, _) = connection(&app, owner, &Preset::AskBeforeSending.grant()).await;
     let unknown = AccessKey::generate().unwrap().value;
+    // An agent at work shares the address: a key that has worked keeps working while it's refused
+    let before = legacy(&app, Some(&key), "tools/list", json!({})).await;
+    assert_eq!(before.status, StatusCode::OK);
 
     let mut statuses = Vec::new();
     for _ in 0..21 {
@@ -930,4 +933,77 @@ async fn a_request_notes_when_the_connection_was_last_used(pool: PgPool) {
     let response = legacy(&app, Some(&key), "tools/list", json!({})).await;
     assert_eq!(response.status, StatusCode::OK);
     assert!(last_used().await.is_some());
+}
+
+#[sqlx::test]
+async fn a_body_over_the_limit_is_refused_before_the_key_is_looked_at(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let owner = user(&app).await;
+    let (key, _) = connection(&app, owner, &Preset::FullAccess.grant()).await;
+    let text = "a".repeat(super::BODY_LIMIT);
+    let body =
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": { "pad": text } })
+            .to_string();
+
+    // A declared length is refused whatever the key: no key would otherwise get 401
+    for key in [None, Some(key.as_str())] {
+        let request = post(key)
+            .header("mcp-protocol-version", LEGACY)
+            .header(header::CONTENT_LENGTH, body.len())
+            .body(Body::from(body.clone()))
+            .unwrap();
+        assert_eq!(
+            app.send(request).await.status,
+            StatusCode::PAYLOAD_TOO_LARGE
+        );
+    }
+    // Without one, it's cut off as it's read
+    let request = post(Some(&key))
+        .header("mcp-protocol-version", LEGACY)
+        .body(Body::from(body))
+        .unwrap();
+    assert_eq!(
+        app.send(request).await.status,
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
+
+    // A message of 4,096 characters fits even with each one escaped as a surrogate pair
+    let message = "\\ud83d\\ude00".repeat(4096);
+    let body = format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"whoami","arguments":{{}},"pad":"{message}"}}}}"#
+    );
+    let request = post(Some(&key))
+        .header("mcp-protocol-version", LEGACY)
+        .header(header::CONTENT_LENGTH, body.len())
+        .body(Body::from(body))
+        .unwrap();
+    assert_eq!(app.send(request).await.status, StatusCode::OK);
+}
+
+#[sqlx::test]
+async fn an_address_over_the_failure_limit_costs_no_lookup(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let owner = user(&app).await;
+    let (worked, _) = connection(&app, owner, &Preset::FullAccess.grant()).await;
+    let (unused, _) = connection(&app, owner, &Preset::FullAccess.grant()).await;
+    assert_eq!(
+        legacy(&app, Some(&worked), "tools/list", json!({}))
+            .await
+            .status,
+        StatusCode::OK
+    );
+    let wrong = AccessKey::generate().unwrap().value;
+    for _ in 0..21 {
+        legacy(&app, Some(&wrong), "tools/list", json!({})).await;
+    }
+
+    // Without a database, a lookup would fail with 500; a refusal before it doesn't
+    app.pool.close().await;
+    for key in [Some(wrong.as_str()), Some(unused.as_str()), None] {
+        let refused = legacy(&app, key, "tools/list", json!({})).await;
+        assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
+    }
+    // A key that has worked still reaches the lookup
+    let looked_up = legacy(&app, Some(&worked), "tools/list", json!({})).await;
+    assert_eq!(looked_up.status, StatusCode::INTERNAL_SERVER_ERROR);
 }

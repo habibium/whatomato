@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE agent_connections SET \"grant\" = '{\"version\": 99}' WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "505899af954c3bec8cfc5bf3fa24d2b3c5534a3c306992828ac151d0e757f030"
+}
