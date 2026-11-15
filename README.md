@@ -89,6 +89,8 @@ whatomato.example.com {
 
 and `CLIENT_IP_HEADER: X-Real-IP` added to the container's environment.
 
+Agents connect at `/mcp`, outside `/api`, so a proxy that routes by path has to send `/mcp` to the server as it does `/api`, with the `Authorization` header intact and without caching or buffering the answers. `AGENT_ACCESS=off` turns [agent access](#agent-access) off instead.
+
 ### Upgrading
 
 ```sh
@@ -172,6 +174,7 @@ Environment variables, or a `.env` file in development (see `.env.example`):
 | `ENCRYPTION_KEY`   | required in release builds; a fixed development key in debug builds | Encrypts secrets kept in the database, such as authenticator app keys and WhatsApp device keys: 32 random bytes in base64, from `openssl rand -base64 32`                                 |
 | `CLIENT_IP_HEADER` | unset                                                               | Header a trusted proxy sets to the client's address, e.g. `CF-Connecting-IP` behind Cloudflare. Unset, rate limits key on the peer address. `X-Forwarded-For` and `Forwarded` are refused |
 | `MAX_LINKED_ACCOUNTS` | unset                                                               | How many WhatsApp accounts may be linked at once. At the limit, users without a linked account can't start linking; those already linked are unaffected                                   |
+| `AGENT_ACCESS`     | `on`                                                                | `off` turns agent access off: `/mcp` and the agent routes answer 404 and no agent's schedule runs                                                                                         |
 
 Migrations in `server/migrations` are embedded in the binary and applied at startup.
 
@@ -216,6 +219,8 @@ Everything secret is encrypted with `ENCRYPTION_KEY` (XChaCha20-Poly1305), bound
 
 What a user writes is not encrypted: templates, scheduled messages and the delivery history keep the message text and the recipient in plain columns, so a database dump does show those. Deleting a schedule keeps its history.
 
+For [agent access](#agent-access), Postgres keeps each connection with only the SHA-256 hash of its key and the key's last 4 characters, and its permissions as they were saved, chat names and notes included, unencrypted. A request waiting for approval keeps its recipient in the clear and its text sealed with `ENCRYPTION_KEY`, and goes when its connection is revoked. The activity log records every call an agent makes, with the chat it named and the outcome but never the message text, and is deleted after 90 days. Messages an agent sends or schedules are kept like any other, with the connection that made them.
+
 Unlinking asks WhatsApp to remove the device, then deletes the account's row and, through the cascade, every key. When WhatsApp can't be reached the keys go anyway, and the page tells the user to remove the device from their phone. A link, an unlink, a removal from the phone, another session taking over the keys and a temporary ban each email the owner.
 
 ### Staying linked
@@ -254,6 +259,57 @@ DELETE FROM whatsapp_accounts;
 Start the server, tell users to link again, and have them remove the old device under Linked devices on the phone.
 
 Never start a server on a copy of the database while the original runs, such as for a restore drill, unless the copy has had that `DELETE`: the advisory lock only covers one database, so the copy would connect with the same keys and take the accounts over.
+
+## Agent access
+
+You can let an AI agent, such as Claude Code, Codex, OpenCode, Antigravity or Cursor, use your account. Depending on what you allow, it can find chats by name, send a message, schedule messages, and check whether they went out. It can't read your chats, since Whatomato doesn't store the messages you receive. This is optional: if you never create a connection, nothing changes.
+
+### Connecting an agent
+
+On the Agents page, create a connection: give it a name, choose its permissions and enter your password. The page then shows its access key once, so copy it before you leave. Below the key are the setup steps for each client. Agents talk to Whatomato over MCP, the protocol these tools use to reach outside services, at your site's address followed by `/mcp`. For Claude Code it's one command:
+
+```sh
+claude mcp add --transport http whatomato https://whatomato.example.com/mcp \
+  --header "Authorization: Bearer $WHATOMATO_KEY"
+```
+
+### Permissions
+
+A connection starts from one of these, which you can then change:
+
+- Ask before sending, the default: the agent can find chats, read templates and manage its own schedules, and every send waits for you.
+- View only: it can find chats, read templates and see what it sent, but not send or schedule.
+- Send without asking: it sends without asking, up to 20 messages a day per chat.
+- Full access: it sends without asking, messages people who aren't saved contacts, and manages every schedule and delivery, not just its own.
+
+A connection covers all chats or only the ones you select. Each chat has a rule: whether the agent may send there (no, ask me first, or yes), an optional daily limit, and an optional note for the agent, such as "reply in Bangla". The agent sees the note, but nothing enforces it. A separate setting covers people who aren't saved contacts: never, ask me first, or allowed.
+
+Any change to a connection's permissions asks for your password again and emails you. A connection can also be given an expiry date.
+
+### Approvals
+
+When a send or a schedule needs your approval, it appears at the top of the Agents page with the recipient and the whole text, and you get an email, at most one an hour. You can approve it, edit the text and then approve it, or reject it. Your approval is final, even if you've since changed the connection's permissions or paused it, so the request shows whether the connection is still active. A request nobody answers expires after 24 hours.
+
+### Limits
+
+No permission lifts these:
+
+- A connection sends at most 200 messages in 24 hours, counting the requests still waiting for approval.
+- It can have at most 20 requests waiting for approval.
+- Over a chat's daily limit, a send is refused rather than turned into a request.
+- An agent can't schedule a message more often than once an hour. You can, from the web app.
+- A connection makes at most 120 calls a minute, and an account has at most 20 connections.
+
+An agent's schedule is checked again each time it's due. If the connection is paused, expired or over a limit, or the chat's rule now says no, that run is skipped and shows as a failed delivery that says why.
+
+An agent can never link or unlink WhatsApp, change your account or security settings, create or change connections, approve its own requests, or read your chats.
+
+### Pausing and revoking
+
+You can pause one connection or all of them at once, and resume them later. A paused agent can't do anything, and its schedules don't run. Revoking a connection deletes it and its waiting requests; it offers to delete the schedules the agent created too, and does so unless you untick it. The history of what it sent stays. The activity log on the Agents page lists every call each agent made.
+
+> [!WARNING]
+> WhatsApp's terms don't allow automated messaging, and it bans accounts for it. An agent sending for you raises that risk, and messages to people who haven't saved your number are the riskiest. An agent can also be tricked by text it reads elsewhere, such as a web page or an email, into sending something you didn't intend, which is why every send asks you first by default. Anything you tell or show an agent, including the chat names and notes it gets from Whatomato, goes to the company that runs its model.
 
 ## License
 
