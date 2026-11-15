@@ -7,6 +7,8 @@ use crate::scheduler::{RecipientType, ScheduleKind, recurrence::Recurrence};
 pub struct Message {
     pub id: Uuid,
     pub user_id: Uuid,
+    /// The agent connection that created it, if one did
+    pub connection_id: Option<Uuid>,
     pub recipient_type: RecipientType,
     pub recipient: String,
     pub recipient_name: Option<String>,
@@ -38,15 +40,23 @@ pub struct Fields<'a> {
     pub next_run_at: Option<DateTime<Utc>>,
 }
 
-pub async fn list(db: impl PgExecutor<'_>, user_id: Uuid) -> sqlx::Result<Vec<Message>> {
+/// The user's messages, oldest first; only those `connection_id` created if it's given
+pub async fn list(
+    db: impl PgExecutor<'_>,
+    user_id: Uuid,
+    connection_id: Option<Uuid>,
+) -> sqlx::Result<Vec<Message>> {
     sqlx::query_as!(
         Message,
-        r#"SELECT id, user_id, recipient_type AS "recipient_type: RecipientType", recipient,
+        r#"SELECT id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
                recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
                recurrence AS "recurrence: Json<Recurrence>",
                timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at
-           FROM scheduled_messages WHERE user_id = $1 ORDER BY created_at, id"#,
-        user_id
+           FROM scheduled_messages
+           WHERE user_id = $1 AND ($2::uuid IS NULL OR connection_id = $2)
+           ORDER BY created_at, id"#,
+        user_id,
+        connection_id,
     )
     .fetch_all(db)
     .await
@@ -59,7 +69,7 @@ pub async fn find(
 ) -> sqlx::Result<Option<Message>> {
     sqlx::query_as!(
         Message,
-        r#"SELECT id, user_id, recipient_type AS "recipient_type: RecipientType", recipient,
+        r#"SELECT id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
                recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
                recurrence AS "recurrence: Json<Recurrence>",
                timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at
@@ -71,17 +81,20 @@ pub async fn find(
     .await
 }
 
+/// `connection_id` is the agent connection creating it, if one is
 pub async fn create(
     db: impl PgExecutor<'_>,
     user_id: Uuid,
+    connection_id: Option<Uuid>,
     fields: Fields<'_>,
 ) -> sqlx::Result<Message> {
     sqlx::query_as!(
         Message,
         r#"INSERT INTO scheduled_messages (user_id, recipient_type, recipient, recipient_name, body,
-               schedule_kind, run_at, recurrence, timezone, template_id, enabled, next_run_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-           RETURNING id, user_id, recipient_type AS "recipient_type: RecipientType", recipient,
+               schedule_kind, run_at, recurrence, timezone, template_id, enabled, next_run_at,
+               connection_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           RETURNING id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
                recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
                recurrence AS "recurrence: Json<Recurrence>",
                timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at"#,
@@ -97,6 +110,7 @@ pub async fn create(
         fields.template_id,
         fields.enabled,
         fields.next_run_at,
+        connection_id,
     )
     .fetch_one(db)
     .await
@@ -115,7 +129,7 @@ pub async fn update(
                schedule_kind = $7, run_at = $8, recurrence = $9, timezone = $10, template_id = $11,
                enabled = $12, next_run_at = $13, updated_at = now()
            WHERE id = $1 AND user_id = $2
-           RETURNING id, user_id, recipient_type AS "recipient_type: RecipientType", recipient,
+           RETURNING id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
                recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
                recurrence AS "recurrence: Json<Recurrence>",
                timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at"#,
@@ -148,7 +162,7 @@ pub async fn set_enabled(
         Message,
         r#"UPDATE scheduled_messages SET enabled = $3, next_run_at = $4, updated_at = now()
            WHERE id = $1 AND user_id = $2
-           RETURNING id, user_id, recipient_type AS "recipient_type: RecipientType", recipient,
+           RETURNING id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
                recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
                recurrence AS "recurrence: Json<Recurrence>",
                timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at"#,
@@ -182,7 +196,7 @@ pub async fn lock_due(
 ) -> sqlx::Result<Vec<Message>> {
     sqlx::query_as!(
         Message,
-        r#"SELECT id, user_id, recipient_type AS "recipient_type: RecipientType", recipient,
+        r#"SELECT id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
                recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
                recurrence AS "recurrence: Json<Recurrence>",
                timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at

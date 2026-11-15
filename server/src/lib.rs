@@ -1,3 +1,4 @@
+pub mod agents;
 mod auth;
 pub mod config;
 pub mod crypto;

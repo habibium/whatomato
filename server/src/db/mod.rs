@@ -1,3 +1,10 @@
+// Stage 2 of agent access calls these; until then only the cleanup and tests do
+#[allow(dead_code, reason = "used by the agent access API, still to come")]
+pub mod agent_activity;
+#[allow(dead_code, reason = "used by the agent access API, still to come")]
+pub mod agent_approvals;
+#[allow(dead_code, reason = "used by the agent access API, still to come")]
+pub mod agent_connections;
 pub mod deliveries;
 pub mod message_templates;
 pub mod passkey_ceremonies;
@@ -10,14 +17,19 @@ pub mod users;
 pub mod whatsapp_accounts;
 pub mod whatsapp_contacts;
 
+#[cfg(test)]
+mod agent_tests;
+
 use std::time::Duration;
 
 use sqlx::PgPool;
 
 use crate::auth::two_factor::SETUP_TTL;
 
-/// Hourly sweep of expired sessions, email links, passkey ceremonies, second-factor challenges and
-/// two-step setups. Queries already ignore expired rows; this only keeps the tables from growing.
+/// Hourly sweep of expired rows and of agent activity past 90 days.
+///
+/// Covers sessions, email links, passkey ceremonies, second-factor challenges, two-step setups and
+/// agent approvals. Queries already ignore expired rows; this only keeps the tables from growing.
 pub fn spawn_cleanup(pool: PgPool) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_hours(1));
@@ -28,16 +40,21 @@ pub fn spawn_cleanup(pool: PgPool) {
                 tokens::delete_expired(&pool),
                 passkey_ceremonies::delete_expired(&pool),
                 two_factor::delete_expired_challenges(&pool),
-                two_factor::delete_expired_setups(&pool, SETUP_TTL)
+                two_factor::delete_expired_setups(&pool, SETUP_TTL),
+                agent_approvals::expire_overdue(&pool),
+                agent_activity::delete_old(&pool)
             ) {
-                Ok((sessions, tokens, ceremonies, challenges, setups)) => {
+                Ok((sessions, tokens, ceremonies, challenges, setups, approvals, activity)) => {
                     tracing::debug!(
                         sessions,
                         tokens,
                         ceremonies,
                         challenges,
                         setups,
-                        "deleted expired sessions, tokens, passkey ceremonies, challenges and setups"
+                        approvals,
+                        activity,
+                        "deleted expired sessions, tokens, passkey ceremonies, challenges and \
+                         setups, expired agent approvals and dropped old agent activity"
                     );
                 }
                 Err(error) => {

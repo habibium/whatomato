@@ -7,6 +7,9 @@ use crate::scheduler::{DeliveryStatus, RecipientType};
 pub struct Delivery {
     pub id: Uuid,
     pub scheduled_message_id: Option<Uuid>,
+    /// The agent connection that caused it, if one did
+    #[allow(dead_code, reason = "read once agent access has its API")]
+    pub connection_id: Option<Uuid>,
     pub recipient_type: RecipientType,
     pub recipient: String,
     pub recipient_name: Option<String>,
@@ -20,6 +23,7 @@ pub struct Delivery {
 pub struct NewDelivery<'a> {
     pub user_id: Uuid,
     pub scheduled_message_id: Option<Uuid>,
+    pub connection_id: Option<Uuid>,
     pub recipient_type: RecipientType,
     pub recipient: &'a str,
     pub recipient_name: Option<&'a str>,
@@ -40,10 +44,12 @@ pub struct Claimed {
 pub async fn create(db: impl PgExecutor<'_>, delivery: NewDelivery<'_>) -> sqlx::Result<Uuid> {
     sqlx::query_scalar!(
         "INSERT INTO deliveries \
-         (user_id, scheduled_message_id, recipient_type, recipient, recipient_name, body) \
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+         (user_id, scheduled_message_id, connection_id, recipient_type, recipient, \
+          recipient_name, body) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
         delivery.user_id,
         delivery.scheduled_message_id,
+        delivery.connection_id,
         delivery.recipient_type.as_str(),
         delivery.recipient,
         delivery.recipient_name,
@@ -53,23 +59,34 @@ pub async fn create(db: impl PgExecutor<'_>, delivery: NewDelivery<'_>) -> sqlx:
     .await
 }
 
-/// A page of the user's deliveries, newest first, to `recipient` alone if it's given
+/// Narrows a listing of the user's deliveries
+#[derive(Clone, Copy, Default)]
+pub struct Filter<'a> {
+    pub recipient: Option<&'a str>,
+    /// Only what this agent connection caused
+    pub connection_id: Option<Uuid>,
+}
+
+/// A page of the user's deliveries that pass `filter`, newest first
 pub async fn page(
     db: impl PgExecutor<'_>,
     user_id: Uuid,
-    recipient: Option<&str>,
+    filter: Filter<'_>,
     limit: i64,
     offset: i64,
 ) -> sqlx::Result<Vec<Delivery>> {
     sqlx::query_as!(
         Delivery,
-        r#"SELECT id, scheduled_message_id, recipient_type AS "recipient_type: RecipientType",
-               recipient, recipient_name, body, status AS "status: DeliveryStatus", error,
-               created_at, sent_at
-           FROM deliveries WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)
-           ORDER BY created_at DESC, id LIMIT $3 OFFSET $4"#,
+        r#"SELECT id, scheduled_message_id, connection_id,
+               recipient_type AS "recipient_type: RecipientType", recipient, recipient_name, body,
+               status AS "status: DeliveryStatus", error, created_at, sent_at
+           FROM deliveries
+           WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)
+               AND ($3::uuid IS NULL OR connection_id = $3)
+           ORDER BY created_at DESC, id LIMIT $4 OFFSET $5"#,
         user_id,
-        recipient,
+        filter.recipient,
+        filter.connection_id,
         limit,
         offset,
     )
@@ -80,13 +97,15 @@ pub async fn page(
 pub async fn count(
     db: impl PgExecutor<'_>,
     user_id: Uuid,
-    recipient: Option<&str>,
+    filter: Filter<'_>,
 ) -> sqlx::Result<i64> {
     sqlx::query_scalar!(
         r#"SELECT count(*) AS "count!" FROM deliveries
-           WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)"#,
+           WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)
+               AND ($3::uuid IS NULL OR connection_id = $3)"#,
         user_id,
-        recipient
+        filter.recipient,
+        filter.connection_id,
     )
     .fetch_one(db)
     .await

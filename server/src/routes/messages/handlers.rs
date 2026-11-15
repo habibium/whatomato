@@ -37,7 +37,7 @@ pub async fn list_messages(
     State(state): State<AppState>,
     session: Session,
 ) -> Result<Json<Vec<ScheduledMessage>>, AppError> {
-    let messages = scheduled_messages::list(&state.pool, session.user.id).await?;
+    let messages = scheduled_messages::list(&state.pool, session.user.id, None).await?;
     Ok(Json(messages.into_iter().map(Into::into).collect()))
 }
 
@@ -58,7 +58,7 @@ pub async fn create_message(
     check_template(&state, &input, user_id).await?;
     let recipient = normalized_recipient(input.recipient_type, &input.recipient);
     let message =
-        scheduled_messages::create(&state.pool, user_id, input.fields(&recipient)).await?;
+        scheduled_messages::create(&state.pool, user_id, None, input.fields(&recipient)).await?;
     Ok((StatusCode::CREATED, Json(message.into())))
 }
 
@@ -108,6 +108,7 @@ pub async fn send_now(
         NewDelivery {
             user_id,
             scheduled_message_id: None,
+            connection_id: None,
             recipient_type: input.recipient_type,
             recipient: &recipient,
             recipient_name,

@@ -113,10 +113,13 @@ async fn list_deliveries(
     ValidatedQuery(page): ValidatedQuery<Page>,
 ) -> Result<Json<DeliveryPage>, AppError> {
     let user_id = session.user.id;
-    let recipient = page.recipient.as_deref();
+    let filter = deliveries::Filter {
+        recipient: page.recipient.as_deref(),
+        connection_id: None,
+    };
     let (items, total) = tokio::try_join!(
-        deliveries::page(&state.pool, user_id, recipient, page.limit, page.offset),
-        deliveries::count(&state.pool, user_id, recipient),
+        deliveries::page(&state.pool, user_id, filter, page.limit, page.offset),
+        deliveries::count(&state.pool, user_id, filter),
     )?;
     Ok(Json(DeliveryPage {
         items: items.into_iter().map(Into::into).collect(),

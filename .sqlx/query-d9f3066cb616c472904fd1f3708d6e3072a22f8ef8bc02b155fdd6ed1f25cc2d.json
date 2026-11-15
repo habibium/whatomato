@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, recipient_name, body,\n               schedule_kind, run_at, recurrence, timezone, template_id, enabled, next_run_at)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)\n           RETURNING id, user_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at,\n               recurrence AS \"recurrence: Json<Recurrence>\",\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at",
+  "query": "SELECT id, user_id, connection_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at,\n               recurrence AS \"recurrence: Json<Recurrence>\",\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at\n           FROM scheduled_messages WHERE enabled AND next_run_at <= $1\n           ORDER BY next_run_at LIMIT $2 FOR UPDATE SKIP LOCKED",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,17 @@
       },
       {
         "ordinal": 2,
+        "name": "connection_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "scheduled_messages",
+            "name": "connection_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
         "name": "recipient_type: RecipientType",
         "type_info": "Text",
         "origin": {
@@ -37,7 +48,7 @@
         }
       },
       {
-        "ordinal": 3,
+        "ordinal": 4,
         "name": "recipient",
         "type_info": "Text",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "recipient_name",
         "type_info": "Text",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "body",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "schedule_kind: ScheduleKind",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "run_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "recurrence: Json<Recurrence>",
         "type_info": "Jsonb",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "timezone",
         "type_info": "Text",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "template_id",
         "type_info": "Uuid",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "enabled",
         "type_info": "Bool",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "next_run_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "last_run_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -182,23 +193,14 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
         "Timestamptz",
-        "Jsonb",
-        "Text",
-        "Uuid",
-        "Bool",
-        "Timestamptz"
+        "Int8"
       ]
     },
     "nullable": [
       false,
       false,
+      true,
       false,
       false,
       true,
@@ -215,5 +217,5 @@
       false
     ]
   },
-  "hash": "dab0f6e5d53c12579bff08501ed77d127dd89440ab7745bf17caf412fab42164"
+  "hash": "d9f3066cb616c472904fd1f3708d6e3072a22f8ef8bc02b155fdd6ed1f25cc2d"
 }

@@ -16,6 +16,7 @@ use tokio::{
 };
 use utoipa::ToSchema;
 use uuid::Uuid;
+use whatsapp_rust::prelude::Jid;
 
 use crate::{
     crypto::Cipher,
@@ -62,6 +63,38 @@ impl RecipientType {
         match self {
             Self::Contact => "contact",
             Self::Group => "group",
+        }
+    }
+
+    /// How `recipient` is stored: digits for a contact, as given for a group
+    #[must_use]
+    pub fn normalized(self, recipient: &str) -> String {
+        match self {
+            Self::Contact => recipient.chars().filter(char::is_ascii_digit).collect(),
+            Self::Group => recipient.trim().to_owned(),
+        }
+    }
+
+    /// Why `recipient` can't be a recipient of this type, if so
+    #[must_use]
+    pub fn problem(self, recipient: &str) -> Option<&'static str> {
+        match self {
+            Self::Contact => {
+                let only_formatting = recipient
+                    .chars()
+                    .all(|c| c.is_ascii_digit() || matches!(c, '+' | ' ' | '-' | '(' | ')'));
+                // E.164 allows up to 15 digits, country code included; fewer than 8 can't be a full number
+                let length = self.normalized(recipient).len();
+                (!only_formatting || !(8..=15).contains(&length))
+                    .then_some("must be a phone number with its country code")
+            }
+            Self::Group => {
+                let is_group = recipient
+                    .trim()
+                    .parse::<Jid>()
+                    .is_ok_and(|jid| jid.server.as_str() == "g.us");
+                (!is_group).then_some("must be one of your WhatsApp groups")
+            }
         }
     }
 }
@@ -222,6 +255,7 @@ async fn enqueue_due(pool: &PgPool, cipher: &Cipher, now: DateTime<Utc>) -> sqlx
             NewDelivery {
                 user_id: message.user_id,
                 scheduled_message_id: Some(message.id),
+                connection_id: message.connection_id,
                 recipient_type: message.recipient_type,
                 recipient: &message.recipient,
                 recipient_name: message.recipient_name.as_deref(),
@@ -454,6 +488,7 @@ mod tests {
             NewDelivery {
                 user_id: owner,
                 scheduled_message_id: None,
+                connection_id: None,
                 recipient_type: RecipientType::Contact,
                 recipient: "15550001",
                 recipient_name: None,
@@ -488,6 +523,45 @@ mod tests {
     }
 
     #[sqlx::test]
+    async fn a_firing_schedule_carries_its_agent_connection(pool: PgPool) {
+        let owner = user(&pool).await;
+        let connection = sqlx::query_scalar!(
+            r#"INSERT INTO agent_connections (user_id, name, key_hash, key_hint, "grant")
+               VALUES ($1, 'Agent', '\x01', 'abcd', '{}') RETURNING id"#,
+            owner
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let by_agent = once_due(&pool, owner).await;
+        once_due(&pool, owner).await;
+        sqlx::query!(
+            "UPDATE scheduled_messages SET connection_id = $1 WHERE id = $2",
+            connection,
+            by_agent
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        enqueue_due(&pool, &Cipher::new(&[0; 32]), Utc::now())
+            .await
+            .unwrap();
+
+        let mut rows = sqlx::query!(
+            "SELECT scheduled_message_id, connection_id FROM deliveries WHERE user_id = $1",
+            owner
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        rows.sort_by_key(|row| row.scheduled_message_id != Some(by_agent));
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].connection_id, Some(connection));
+        assert_eq!(rows[1].connection_id, None);
+    }
+
+    #[sqlx::test]
     async fn a_one_time_message_queues_once_and_switches_off(pool: PgPool) {
         let owner = user(&pool).await;
         let message = once_due(&pool, owner).await;
@@ -512,7 +586,12 @@ mod tests {
         assert!(!row.enabled);
         assert_eq!(row.next_run_at, None);
         assert!(row.last_run_at.is_some());
-        assert_eq!(deliveries::count(&pool, owner, None).await.unwrap(), 1);
+        assert_eq!(
+            deliveries::count(&pool, owner, deliveries::Filter::default())
+                .await
+                .unwrap(),
+            1
+        );
     }
 
     #[sqlx::test]

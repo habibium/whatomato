@@ -5,7 +5,6 @@ use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 use validator::{Validate, ValidationError, ValidationErrors};
-use whatsapp_rust::prelude::Jid;
 
 use crate::{
     db::scheduled_messages::{Fields, Message},
@@ -288,14 +287,7 @@ pub(super) struct SendNowResponse {
 
 /// How `recipient` is stored: digits for a contact, as given for a group
 pub(super) fn normalized_recipient(recipient_type: RecipientType, recipient: &str) -> String {
-    match recipient_type {
-        RecipientType::Contact => digits(recipient),
-        RecipientType::Group => recipient.trim().to_owned(),
-    }
-}
-
-fn digits(number: &str) -> String {
-    number.chars().filter(char::is_ascii_digit).collect()
+    recipient_type.normalized(recipient)
 }
 
 fn check_recipient(
@@ -304,29 +296,8 @@ fn check_recipient(
     name: Option<&str>,
     errors: &mut ValidationErrors,
 ) {
-    match recipient_type {
-        RecipientType::Contact => {
-            let only_formatting = recipient
-                .chars()
-                .all(|c| c.is_ascii_digit() || matches!(c, '+' | ' ' | '-' | '(' | ')'));
-            // E.164 allows up to 15 digits, country code included; fewer than 8 can't be a full number
-            if !only_formatting || !(8..=15).contains(&digits(recipient).len()) {
-                add(
-                    errors,
-                    "recipient",
-                    "must be a phone number with its country code",
-                );
-            }
-        }
-        RecipientType::Group => {
-            let is_group = recipient
-                .trim()
-                .parse::<Jid>()
-                .is_ok_and(|jid| jid.server.as_str() == "g.us");
-            if !is_group {
-                add(errors, "recipient", "must be one of your WhatsApp groups");
-            }
-        }
+    if let Some(problem) = recipient_type.problem(recipient) {
+        add(errors, "recipient", problem);
     }
     if name.is_some_and(|name| name.trim().chars().count() > NAME_MAX) {
         add(errors, "recipient_name", "must be at most 255 characters");

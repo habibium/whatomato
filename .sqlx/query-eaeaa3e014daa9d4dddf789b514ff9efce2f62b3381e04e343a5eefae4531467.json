@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE agent_connections SET last_used_at = now() - interval '61 seconds' WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eaeaa3e014daa9d4dddf789b514ff9efce2f62b3381e04e343a5eefae4531467"
+}

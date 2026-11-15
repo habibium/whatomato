@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT count(*) AS \"count!\" FROM deliveries\n           WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)",
+  "query": "SELECT count(*) AS \"count!\" FROM agent_approvals\n           WHERE user_id = $1 AND status = 'waiting' AND expires_at > now()",
   "describe": {
     "columns": [
       {
@@ -12,13 +12,12 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid",
-        "Text"
+        "Uuid"
       ]
     },
     "nullable": [
       null
     ]
   },
-  "hash": "d806d0a26642781a30217d15a7a4f0a6ffebfa1dbc187e7087c9c7f414276256"
+  "hash": "94f14d53c4af126362939121afe01b09d061b3078464e768326c609e69bb3112"
 }

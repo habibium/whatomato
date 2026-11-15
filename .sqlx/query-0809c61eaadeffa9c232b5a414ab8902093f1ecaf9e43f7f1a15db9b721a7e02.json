@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE agent_activity SET created_at = now() - interval '91 days' WHERE connection_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0809c61eaadeffa9c232b5a414ab8902093f1ecaf9e43f7f1a15db9b721a7e02"
+}

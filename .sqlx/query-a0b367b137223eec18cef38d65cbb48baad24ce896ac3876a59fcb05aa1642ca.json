@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE agent_connections SET paused_at = now(), updated_at = now() WHERE user_id = $1 AND paused_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a0b367b137223eec18cef38d65cbb48baad24ce896ac3876a59fcb05aa1642ca"
+}

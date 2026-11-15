@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM agent_activity WHERE created_at < now() - interval '90 days'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "182f94d404035f28ad90a1711d7378c54d64812930c146cefa6b9e753ed42dcb"
+}

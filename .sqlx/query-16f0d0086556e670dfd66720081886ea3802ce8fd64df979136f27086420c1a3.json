@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, scheduled_message_id, recipient_type AS \"recipient_type: RecipientType\",\n               recipient, recipient_name, body, status AS \"status: DeliveryStatus\", error,\n               created_at, sent_at\n           FROM deliveries WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)\n           ORDER BY created_at DESC, id LIMIT $3 OFFSET $4",
+  "query": "UPDATE agent_connections SET key_hash = $3, key_hint = $4, updated_at = now()\n           WHERE id = $1 AND user_id = $2\n           RETURNING id, user_id, name, key_hint, \"grant\", paused_at, expires_at, last_used_at,\n               created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -9,85 +9,85 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "deliveries",
+            "table": "agent_connections",
             "name": "id"
           }
         }
       },
       {
         "ordinal": 1,
-        "name": "scheduled_message_id",
+        "name": "user_id",
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "deliveries",
-            "name": "scheduled_message_id"
+            "table": "agent_connections",
+            "name": "user_id"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "recipient_type: RecipientType",
+        "name": "name",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "deliveries",
-            "name": "recipient_type"
+            "table": "agent_connections",
+            "name": "name"
           }
         }
       },
       {
         "ordinal": 3,
-        "name": "recipient",
+        "name": "key_hint",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "deliveries",
-            "name": "recipient"
+            "table": "agent_connections",
+            "name": "key_hint"
           }
         }
       },
       {
         "ordinal": 4,
-        "name": "recipient_name",
-        "type_info": "Text",
+        "name": "grant",
+        "type_info": "Jsonb",
         "origin": {
           "Table": {
-            "table": "deliveries",
-            "name": "recipient_name"
+            "table": "agent_connections",
+            "name": "grant"
           }
         }
       },
       {
         "ordinal": 5,
-        "name": "body",
-        "type_info": "Text",
+        "name": "paused_at",
+        "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "deliveries",
-            "name": "body"
+            "table": "agent_connections",
+            "name": "paused_at"
           }
         }
       },
       {
         "ordinal": 6,
-        "name": "status: DeliveryStatus",
-        "type_info": "Text",
+        "name": "expires_at",
+        "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "deliveries",
-            "name": "status"
+            "table": "agent_connections",
+            "name": "expires_at"
           }
         }
       },
       {
         "ordinal": 7,
-        "name": "error",
-        "type_info": "Text",
+        "name": "last_used_at",
+        "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "deliveries",
-            "name": "error"
+            "table": "agent_connections",
+            "name": "last_used_at"
           }
         }
       },
@@ -97,19 +97,19 @@
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "deliveries",
+            "table": "agent_connections",
             "name": "created_at"
           }
         }
       },
       {
         "ordinal": 9,
-        "name": "sent_at",
+        "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
-            "table": "deliveries",
-            "name": "sent_at"
+            "table": "agent_connections",
+            "name": "updated_at"
           }
         }
       }
@@ -117,23 +117,23 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Text",
-        "Int8",
-        "Int8"
+        "Uuid",
+        "Bytea",
+        "Text"
       ]
     },
     "nullable": [
       false,
-      true,
+      false,
+      false,
       false,
       false,
       true,
-      false,
-      false,
+      true,
       true,
       false,
-      true
+      false
     ]
   },
-  "hash": "91cbaf1b864dc5950cf4ceff55e0bf29269b37ddb17c7389e84014705b2acf87"
+  "hash": "16f0d0086556e670dfd66720081886ea3802ce8fd64df979136f27086420c1a3"
 }

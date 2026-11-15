@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO agent_connections (user_id, name, key_hash, key_hint, \"grant\")\n               VALUES ($1, 'Agent', '\\x01', 'abcd', '{}') RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "agent_connections",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "932c995ba3dfad9615c39865ab65c9cb9c58194fcf7fca47d586dbf1a0d2ffb4"
+}
