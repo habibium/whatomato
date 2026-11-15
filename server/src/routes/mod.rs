@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod auth;
 pub mod deliveries;
 pub mod health;

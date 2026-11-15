@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n               SELECT 1 FROM agent_approvals\n               WHERE user_id = $1 AND id <> $2 AND created_at > $3::timestamptz - interval '1 hour'\n                   AND (created_at, id) < ($3::timestamptz, $2)\n           ) AS \"exists!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "6ebb339d96519b00263e18618a8840867e8a83e23d7f12de1d0db86061e0383e"
+}

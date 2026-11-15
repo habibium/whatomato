@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, connection_id, user_id, kind AS \"kind: ApprovalKind\",\n               recipient_type AS \"recipient_type: RecipientType\", recipient, recipient_name,\n               payload,\n               CASE WHEN status = 'waiting' AND expires_at <= now() THEN 'expired' ELSE status END\n                   AS \"status!: ApprovalStatus\",\n               delivery_id, scheduled_message_id, created_at, expires_at, decided_at\n           FROM agent_approvals WHERE user_id = $1\n           ORDER BY (status = 'waiting' AND expires_at > now()) DESC, created_at DESC, id\n           LIMIT $2 OFFSET $3",
+  "query": "SELECT a.id, a.connection_id, a.user_id, a.kind AS \"kind: ApprovalKind\",\n               a.recipient_type AS \"recipient_type: RecipientType\", a.recipient, a.recipient_name,\n               a.payload,\n               CASE WHEN a.status = 'waiting' AND a.expires_at <= now() THEN 'expired'\n                   ELSE a.status END AS \"status!: ApprovalStatus\",\n               a.delivery_id, a.scheduled_message_id, a.created_at, a.expires_at, a.decided_at,\n               c.name AS connection_name,\n               d.status AS \"delivery_status?: DeliveryStatus\"\n           FROM agent_approvals a\n           JOIN agent_connections c ON c.id = a.connection_id\n           LEFT JOIN deliveries d ON d.id = a.delivery_id\n           WHERE a.user_id = $1 AND ($2::uuid IS NULL OR a.id = $2)\n           ORDER BY (a.status = 'waiting' AND a.expires_at > now()) DESC, a.created_at DESC, a.id\n           LIMIT $3 OFFSET $4",
   "describe": {
     "columns": [
       {
@@ -151,10 +151,33 @@
             "name": "decided_at"
           }
         }
+      },
+      {
+        "ordinal": 14,
+        "name": "connection_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agent_connections",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "delivery_status?: DeliveryStatus",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "status"
+          }
+        }
       }
     ],
     "parameters": {
       "Left": [
+        "Uuid",
         "Uuid",
         "Int8",
         "Int8"
@@ -174,8 +197,10 @@
       true,
       false,
       false,
-      true
+      true,
+      false,
+      false
     ]
   },
-  "hash": "922b96f58ee05292f1ee861db2bc473c496088bdd01067cc24ba108d1d45bc84"
+  "hash": "4c39e66d852cc3a9ac728450a2235b97946dcd16c52e6449b7de87f62c58e03b"
 }

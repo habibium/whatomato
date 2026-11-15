@@ -10,6 +10,1070 @@
     "version": "0.1.5"
   },
   "paths": {
+    "/api/agents": {
+      "get": {
+        "summary": "Whether agent access is on, the account's agent connections and how many approvals wait",
+        "description": "Answers even when agent access is off on this server, with `enabled: false`.",
+        "operationId": "list_agents",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentsOverview"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Connect an AI agent",
+        "description": "Checks the permissions, then the password, and answers with the access key, shown this once.\nEmails the owner.",
+        "operationId": "create_agent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConnection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentKeyIssued"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A field is missing or out of range, or the password is incorrect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent access is off on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The account already has 20 connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The permissions have problems, one sentence each under `details.grant`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/activity": {
+      "get": {
+        "summary": "What agents did, newest first, for one connection when `connection_id` is given",
+        "operationId": "list_agent_activity",
+        "parameters": [
+          {
+            "name": "connection_id",
+            "in": "query",
+            "description": "Only this connection's",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1 to 100, 50 by default",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentActivityPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent access is off, or there's no such connection",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/approvals": {
+      "get": {
+        "summary": "What agents asked to do, waiting first, then newest first, each with the whole text",
+        "operationId": "list_agent_approvals",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "1 to 100, 50 by default",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentApprovalPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent access is off on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/approvals/{id}/approve": {
+      "post": {
+        "summary": "Approve what an agent asked, optionally with your own text",
+        "description": "The request is checked as if it were made now, as the scheduling form checks it; one that\ncan't go ahead stays waiting, so it can still be rejected. A send joins the queue; a schedule\nis created or changed.",
+        "operationId": "approve_agent_request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentApproval"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "It's no longer waiting; `details.status` says what it is now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "It can't go ahead now, one sentence each under `details.request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/approvals/{id}/reject": {
+      "post": {
+        "summary": "Reject what an agent asked",
+        "operationId": "reject_agent_request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentApproval"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "It's no longer waiting; `details.status` says what it is now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/pause-all": {
+      "post": {
+        "summary": "Pause every connection of the account at once",
+        "operationId": "pause_all_agents",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentsPaused"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent access is off on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/presets": {
+      "get": {
+        "summary": "The permission presets, in the order to offer them",
+        "operationId": "list_agent_presets",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentPreset"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent access is off on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/{id}": {
+      "get": {
+        "summary": "One connection, with how many of its scheduled messages still exist",
+        "operationId": "get_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConnectionDetail"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Revoke a connection",
+        "description": "Its key stops working and its waiting approvals go. Its activity stays, under its name. The\nscheduled messages it created are deleted with `delete_schedules=true`, else kept as the\nowner's own.",
+        "operationId": "revoke_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "delete_schedules",
+            "in": "query",
+            "description": "Also delete the scheduled messages it created. Left out, they're kept as your own.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRevoked"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Rename a connection, change its permissions, or both",
+        "description": "A rename alone needs nothing more. New permissions need the password and email the owner when\nthey differ from the old ones.",
+        "operationId": "update_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateConnection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConnection"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Nothing to change, a field is out of range, or the password is missing or incorrect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The permissions have problems, one sentence each under `details.grant`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/{id}/pause": {
+      "post": {
+        "summary": "Pause a connection: every request it makes is refused until it's resumed",
+        "operationId": "pause_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConnection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/{id}/resume": {
+      "post": {
+        "summary": "Resume a paused connection",
+        "operationId": "resume_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentConnection"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/{id}/rotate-key": {
+      "post": {
+        "summary": "Replace a connection's key",
+        "description": "The old key stops working at once. Answers with the new key, shown this once, and emails the\nowner.",
+        "operationId": "rotate_agent_key",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentKeyIssued"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The password is incorrect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/forgot-password": {
       "post": {
         "summary": "Request a password reset",
@@ -2914,6 +3978,535 @@
   },
   "components": {
     "schemas": {
+      "AgentActivity": {
+        "type": "object",
+        "description": "One call an agent made. Never holds message text.",
+        "required": [
+          "id",
+          "connection_id",
+          "connection_name",
+          "tool",
+          "recipient_type",
+          "recipient",
+          "recipient_name",
+          "outcome",
+          "reason",
+          "reason_text",
+          "created_at"
+        ],
+        "properties": {
+          "connection_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Empty once the connection is revoked; `connection_name` still says which it was"
+          },
+          "connection_name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/Outcome"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A stable code for why it was refused or failed, such as `chat_limit`"
+          },
+          "reason_text": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`reason` in a sentence"
+          },
+          "recipient": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipient_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipient_type": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RecipientType",
+                "description": "The chat it was about; the three are empty when no chat was involved"
+              }
+            ]
+          },
+          "tool": {
+            "type": "string",
+            "description": "The tool it called, such as `send_message`"
+          }
+        }
+      },
+      "AgentActivityPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentActivity"
+            },
+            "description": "Newest first"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AgentApproval": {
+        "type": "object",
+        "description": "What an agent asked to do, waiting for the owner or answered",
+        "required": [
+          "id",
+          "connection_id",
+          "connection_name",
+          "kind",
+          "status",
+          "recipient_type",
+          "recipient",
+          "recipient_name",
+          "request",
+          "problem",
+          "can_approve",
+          "can_reject",
+          "created_at",
+          "expires_at",
+          "decided_at",
+          "delivery_id",
+          "delivery_status",
+          "scheduled_message_id"
+        ],
+        "properties": {
+          "can_approve": {
+            "type": "boolean",
+            "description": "Whether approving it can be tried: it's waiting and could be read"
+          },
+          "can_reject": {
+            "type": "boolean",
+            "description": "Whether it's still waiting, so it can be rejected"
+          },
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "connection_name": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decided_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When it was approved, rejected or expired"
+          },
+          "delivery_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The message approving it queued; empty until then, or once that's deleted"
+          },
+          "delivery_status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeliveryState",
+                "description": "Where that message stands"
+              }
+            ]
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it expires unanswered, 24 hours after it was made"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ApprovalKind"
+          },
+          "problem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why `request` is empty, in a sentence; empty when it isn't"
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "recipient_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipient_type": {
+            "$ref": "#/components/schemas/RecipientType"
+          },
+          "request": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Requested",
+                "description": "The whole request; empty when it couldn't be read, and then it can only be rejected"
+              }
+            ]
+          },
+          "scheduled_message_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The scheduled message approving it created or changed; empty until then, or once it's\ndeleted"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ApprovalStatus"
+          }
+        }
+      },
+      "AgentApprovalPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentApproval"
+            },
+            "description": "Waiting first, then newest first"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AgentConnection": {
+        "type": "object",
+        "description": "An AI agent connection. Never holds the key, only its last characters.",
+        "required": [
+          "id",
+          "name",
+          "key_hint",
+          "status",
+          "grant",
+          "grant_problem",
+          "preset",
+          "summary",
+          "paused_at",
+          "expires_at",
+          "last_used_at",
+          "created_at",
+          "updated_at",
+          "usage"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When it stops working; empty for never"
+          },
+          "grant": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Grant",
+                "description": "What it may do; empty when the stored permissions can't be read"
+              }
+            ]
+          },
+          "grant_problem": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why `grant` is empty, in a sentence; empty when it isn't"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "key_hint": {
+            "type": "string",
+            "description": "The key's last 4 characters, to tell keys apart"
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "To the minute; empty until an agent first uses it"
+          },
+          "name": {
+            "type": "string"
+          },
+          "paused_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When it was paused; empty while it isn't"
+          },
+          "preset": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Preset",
+                "description": "The preset `grant` equals; empty for custom permissions"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/ConnectionStatus"
+          },
+          "summary": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What it may do, in a few sentences"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When its name, permissions, key or pause last changed"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage"
+          }
+        }
+      },
+      "AgentConnectionDetail": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/AgentConnection"
+          },
+          {
+            "type": "object",
+            "required": [
+              "schedules"
+            ],
+            "properties": {
+              "schedules": {
+                "type": "integer",
+                "format": "int64",
+                "description": "Scheduled messages it created that still exist, which revoking can delete or keep"
+              }
+            }
+          }
+        ],
+        "description": "One connection, with what revoking it would leave behind"
+      },
+      "AgentKeyIssued": {
+        "type": "object",
+        "description": "A connection with its key. The key is shown here once and can't be read again.",
+        "required": [
+          "connection",
+          "key"
+        ],
+        "properties": {
+          "connection": {
+            "$ref": "#/components/schemas/AgentConnection"
+          },
+          "key": {
+            "type": "string",
+            "description": "The whole access key, for the agent's `Authorization: Bearer` header. Only its hint is\nkept, so it can't be shown again; a lost key is replaced by rotating it."
+          }
+        }
+      },
+      "AgentPreset": {
+        "type": "object",
+        "description": "A starting point for a connection's permissions",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "grant"
+        ],
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "What it lets an agent do, in a sentence"
+          },
+          "grant": {
+            "$ref": "#/components/schemas/Grant"
+          },
+          "id": {
+            "$ref": "#/components/schemas/Preset"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentRevoked": {
+        "type": "object",
+        "description": "What revoking did with the scheduled messages the connection created",
+        "required": [
+          "schedules_deleted",
+          "schedules_kept"
+        ],
+        "properties": {
+          "schedules_deleted": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "schedules_kept": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Kept, and now shown as your own",
+            "minimum": 0
+          }
+        }
+      },
+      "AgentsOverview": {
+        "type": "object",
+        "description": "The Agents page: whether agent access is on, the connections and how many approvals wait",
+        "required": [
+          "enabled",
+          "connections",
+          "approvals_waiting"
+        ],
+        "properties": {
+          "approvals_waiting": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Approvals waiting for an answer, for the count in the navigation"
+          },
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentConnection"
+            },
+            "description": "Oldest first"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this server lets AI agents connect at all. When false, `connections` is empty,\n`approvals_waiting` is 0 and every other route under `/api/agents` answers 404."
+          }
+        }
+      },
+      "AgentsPaused": {
+        "type": "object",
+        "required": [
+          "paused"
+        ],
+        "properties": {
+          "paused": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How many were running and are now paused",
+            "minimum": 0
+          }
+        }
+      },
+      "ApprovalKind": {
+        "type": "string",
+        "enum": [
+          "send",
+          "schedule_create",
+          "schedule_update"
+        ]
+      },
+      "ApprovalStatus": {
+        "type": "string",
+        "enum": [
+          "waiting",
+          "approved",
+          "rejected",
+          "expired"
+        ]
+      },
+      "ApproveRequest": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The text to send instead of the agent's, checked as the scheduling form checks it. Left\nout, the agent's text goes as written."
+          }
+        }
+      },
       "AuthenticatorCode": {
         "type": "object",
         "required": [
@@ -2926,6 +4519,95 @@
           }
         }
       },
+      "Chat": {
+        "type": "object",
+        "description": "A chat named as the scheduler names a recipient",
+        "required": [
+          "type",
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "As stored: digits for a contact, the group's id for a group"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Only a label for the owner"
+          },
+          "type": {
+            "$ref": "#/components/schemas/RecipientType"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChatRule": {
+        "type": "object",
+        "description": "A rule for one chat. Its fields are spelled out rather than flattened from [`Rule`], since\nserde can't refuse unknown fields through a flatten.",
+        "required": [
+          "chat",
+          "send",
+          "daily_limit",
+          "note"
+        ],
+        "properties": {
+          "chat": {
+            "$ref": "#/components/schemas/Chat"
+          },
+          "daily_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "send": {
+            "$ref": "#/components/schemas/SendLevel"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Chats": {
+        "type": "object",
+        "required": [
+          "scope",
+          "default",
+          "rules",
+          "strangers"
+        ],
+        "properties": {
+          "default": {
+            "$ref": "#/components/schemas/Rule",
+            "description": "Every chat's rule under scope `all`; under `selected`, only what a newly added chat starts with"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatRule"
+            },
+            "description": "A chat's own rule, replacing `default`. Under scope `selected`, the chats in scope."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/Scope"
+          },
+          "strangers": {
+            "$ref": "#/components/schemas/Strangers",
+            "description": "People who aren't saved contacts and have no rule of their own"
+          }
+        },
+        "additionalProperties": false
+      },
       "ConfirmPasskeyChange": {
         "type": "object",
         "description": "The account password, asked again before a passkey is added or removed",
@@ -2937,6 +4619,16 @@
             "type": "string"
           }
         }
+      },
+      "ConnectionStatus": {
+        "type": "string",
+        "description": "Whether a connection can be used now",
+        "enum": [
+          "active",
+          "paused",
+          "expired",
+          "unusable"
+        ]
       },
       "ContactBook": {
         "type": "object",
@@ -2998,6 +4690,43 @@
           }
         }
       },
+      "Contacts": {
+        "type": "string",
+        "enum": [
+          "none",
+          "find"
+        ]
+      },
+      "CreateConnection": {
+        "type": "object",
+        "required": [
+          "name",
+          "grant",
+          "password"
+        ],
+        "properties": {
+          "expires_in_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Days until it stops working, 1 to 365; left out, it never expires",
+            "minimum": 0
+          },
+          "grant": {
+            "$ref": "#/components/schemas/Grant"
+          },
+          "name": {
+            "type": "string",
+            "description": "1 to 60 characters, such as the agent's or the computer's name"
+          },
+          "password": {
+            "type": "string",
+            "description": "The account's password, asked again"
+          }
+        }
+      },
       "Credentials": {
         "type": "object",
         "required": [
@@ -3012,6 +4741,13 @@
             "type": "string"
           }
         }
+      },
+      "Deliveries": {
+        "type": "string",
+        "enum": [
+          "own",
+          "all"
+        ]
       },
       "DeliveryPage": {
         "type": "object",
@@ -3047,6 +4783,8 @@
         "required": [
           "id",
           "scheduled_message_id",
+          "connection_id",
+          "connection_name",
           "recipient_type",
           "recipient",
           "recipient_name",
@@ -3059,6 +4797,21 @@
         "properties": {
           "body": {
             "type": "string"
+          },
+          "connection_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The AI agent connection that caused it; empty when you did, or once it's revoked"
+          },
+          "connection_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "That connection's name, to show \"by <name>\"; empty along with `connection_id`"
           },
           "created_at": {
             "type": "string",
@@ -3179,6 +4932,41 @@
             "type": "string"
           }
         }
+      },
+      "Grant": {
+        "type": "object",
+        "required": [
+          "version",
+          "contacts",
+          "schedules",
+          "templates",
+          "deliveries",
+          "chats"
+        ],
+        "properties": {
+          "chats": {
+            "$ref": "#/components/schemas/Chats"
+          },
+          "contacts": {
+            "$ref": "#/components/schemas/Contacts"
+          },
+          "deliveries": {
+            "$ref": "#/components/schemas/Deliveries"
+          },
+          "schedules": {
+            "$ref": "#/components/schemas/Schedules"
+          },
+          "templates": {
+            "$ref": "#/components/schemas/Templates"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Always 1 for now",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
       },
       "GroupResponse": {
         "type": "object",
@@ -3380,6 +5168,16 @@
           "logged_out"
         ]
       },
+      "Outcome": {
+        "type": "string",
+        "description": "How a tool call ended, for the activity log",
+        "enum": [
+          "allowed",
+          "asked",
+          "denied",
+          "failed"
+        ]
+      },
       "PairingMethod": {
         "type": "string",
         "enum": [
@@ -3514,6 +5312,16 @@
           }
         }
       },
+      "Preset": {
+        "type": "string",
+        "description": "A starting value for the editor. The stored grant doesn't remember which one it came from.",
+        "enum": [
+          "ask_before_sending",
+          "view_only",
+          "send_without_asking",
+          "full_access"
+        ]
+      },
       "Preview": {
         "type": "object",
         "required": [
@@ -3637,6 +5445,156 @@
           }
         ]
       },
+      "Requested": {
+        "type": "object",
+        "description": "An approval's request as the owner sees it: who it goes to, the whole text, and for a schedule\nwhen it runs",
+        "required": [
+          "kind",
+          "recipient_type",
+          "recipient",
+          "recipient_name",
+          "body",
+          "timezone",
+          "schedule"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "The whole text, as the agent wrote it; variables are filled in when it goes out"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ApprovalKind"
+          },
+          "recipient": {
+            "type": "string"
+          },
+          "recipient_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipient_type": {
+            "$ref": "#/components/schemas/RecipientType"
+          },
+          "schedule": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RequestedSchedule",
+                "description": "For a schedule"
+              }
+            ]
+          },
+          "timezone": {
+            "type": "string",
+            "description": "The IANA zone its times and variables read in"
+          }
+        }
+      },
+      "RequestedSchedule": {
+        "type": "object",
+        "required": [
+          "scheduled_message_id",
+          "schedule_kind",
+          "run_at",
+          "recurrence",
+          "enabled",
+          "next_runs",
+          "city"
+        ],
+        "properties": {
+          "city": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "For a sun schedule, the city it watches the sun from unless it names a place"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "next_runs": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "When it would go out, soonest first"
+          },
+          "recurrence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Recurrence"
+              }
+            ]
+          },
+          "run_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "schedule_kind": {
+            "$ref": "#/components/schemas/ScheduleKind"
+          },
+          "scheduled_message_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The scheduled message it changes; empty for a new one"
+          }
+        }
+      },
+      "RotateKeyRequest": {
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "Rule": {
+        "type": "object",
+        "required": [
+          "send",
+          "daily_limit",
+          "note"
+        ],
+        "properties": {
+          "daily_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Sends a day by this connection in one chat",
+            "minimum": 0
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Guidance the agent sees; not enforced"
+          },
+          "send": {
+            "$ref": "#/components/schemas/SendLevel"
+          }
+        },
+        "additionalProperties": false
+      },
       "ScheduleKind": {
         "type": "string",
         "enum": [
@@ -3648,6 +5606,8 @@
         "type": "object",
         "required": [
           "id",
+          "connection_id",
+          "connection_name",
           "recipient_type",
           "recipient",
           "recipient_name",
@@ -3666,6 +5626,21 @@
         "properties": {
           "body": {
             "type": "string"
+          },
+          "connection_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The AI agent connection that created it; empty when you did, or once it's revoked"
+          },
+          "connection_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "That connection's name, to show \"by <name>\"; empty along with `connection_id`"
           },
           "created_at": {
             "type": "string",
@@ -3741,6 +5716,21 @@
           }
         }
       },
+      "Schedules": {
+        "type": "string",
+        "enum": [
+          "none",
+          "own",
+          "all"
+        ]
+      },
+      "Scope": {
+        "type": "string",
+        "enum": [
+          "all",
+          "selected"
+        ]
+      },
       "SecondFactor": {
         "oneOf": [
           {
@@ -3751,6 +5741,14 @@
           }
         ],
         "description": "The second step of a sign-in: a code from the authenticator app, or a recovery code"
+      },
+      "SendLevel": {
+        "type": "string",
+        "enum": [
+          "no",
+          "ask",
+          "yes"
+        ]
       },
       "SendNowRequest": {
         "type": "object",
@@ -3878,6 +5876,14 @@
           "refused"
         ]
       },
+      "Strangers": {
+        "type": "string",
+        "enum": [
+          "never",
+          "ask",
+          "allowed"
+        ]
+      },
       "Sun": {
         "type": "object",
         "required": [
@@ -3935,6 +5941,13 @@
             "description": "Up to 100 characters"
           }
         }
+      },
+      "Templates": {
+        "type": "string",
+        "enum": [
+          "none",
+          "read"
+        ]
       },
       "ToggleRequest": {
         "type": "object",
@@ -3996,6 +6009,73 @@
           "removed_from_phone": {
             "type": "boolean",
             "description": "False when WhatsApp couldn't be told, so the device still shows under Linked devices on the\nphone until it's removed there"
+          }
+        }
+      },
+      "UpdateConnection": {
+        "type": "object",
+        "description": "A new name, new permissions, or both",
+        "properties": {
+          "grant": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Grant",
+                "description": "Needs `password`"
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "1 to 60 characters"
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The account's password, asked again; needed only with `grant`"
+          }
+        }
+      },
+      "Usage": {
+        "type": "object",
+        "description": "How much of its limits a connection has used",
+        "required": [
+          "sends_last_24_hours",
+          "daily_ceiling",
+          "approvals_waiting",
+          "approvals_waiting_max"
+        ],
+        "properties": {
+          "approvals_waiting": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Its requests waiting for approval",
+            "minimum": 0
+          },
+          "approvals_waiting_max": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The most that may wait at once; past it, its next request is refused",
+            "minimum": 0
+          },
+          "daily_ceiling": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The most any connection may send in 24 hours",
+            "minimum": 0
+          },
+          "sends_last_24_hours": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Messages it sent or queued in the last 24 hours, counting those waiting for approval",
+            "minimum": 0
           }
         }
       },

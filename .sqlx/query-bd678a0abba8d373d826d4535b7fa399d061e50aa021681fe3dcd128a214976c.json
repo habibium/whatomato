@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE agent_approvals SET created_at = created_at - interval '2 hours' WHERE user_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bd678a0abba8d373d826d4535b7fa399d061e50aa021681fe3dcd128a214976c"
+}

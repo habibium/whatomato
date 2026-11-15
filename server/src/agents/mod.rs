@@ -1,14 +1,15 @@
 //! Agent access: what a connected AI agent may do in its owner's account. The grant, the pure
 //! decision over it, and access keys. Nothing here knows about HTTP or MCP.
 
+pub(crate) mod alerts;
 pub mod decide;
 pub mod grant;
 pub mod key;
-// Crate-wide, since its signatures carry database rows; the owner's API and the MCP endpoint, still
-// to come, are what call it
+// Crate-wide, since its signatures carry database rows. The owner's API uses only `review` and
+// `account::summary`; the tools are for the MCP endpoint, still to come.
 #[allow(
     dead_code,
-    reason = "called by the agent API and the MCP endpoint, still to come"
+    reason = "the agent tools are called by the MCP endpoint, still to come"
 )]
 pub(crate) mod ops;
 

@@ -28,7 +28,7 @@ use self::{
     review::Request,
 };
 use super::{
-    Grant, Outcome, Reason,
+    Grant, Outcome, Reason, alerts,
     decide::{ChatRef, Facts},
 };
 use crate::{
@@ -38,6 +38,7 @@ use crate::{
         agent_connections::{self, Connection, KeyMatch},
         whatsapp_contacts,
     },
+    email::templates::AgentAlert,
     scheduler::{RecipientType, draft::NAME_MAX},
     state::AppState,
     whatsapp::{contacts::open_names, status::Status},
@@ -487,7 +488,7 @@ async fn ask(state: &AppState, caller: &Caller, request: &Request) -> Result<Uui
     let id = Uuid::new_v4();
     let payload = review::seal(&state.cipher, id, request)?;
     let (recipient_type, recipient, recipient_name) = request.chat();
-    agent_approvals::create(
+    let approval = agent_approvals::create(
         &state.pool,
         NewApproval {
             id,
@@ -501,5 +502,18 @@ async fn ask(state: &AppState, caller: &Caller, request: &Request) -> Result<Uui
     )
     .await?
     .ok_or_else(|| anyhow!("the connection was revoked while it asked"))?;
+    match review::should_email(&state.pool, &approval).await {
+        Ok(true) => {
+            let alert = AgentAlert::ApprovalWaiting {
+                name: &caller.connection.name,
+                approval_id: id,
+            };
+            alerts::send(state, caller.user_id(), alert).await;
+        }
+        Ok(false) => {}
+        Err(error) => {
+            tracing::error!(?error, "couldn't tell whether to email about an approval");
+        }
+    }
     Ok(id)
 }

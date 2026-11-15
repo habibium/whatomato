@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, scheduled_message_id, connection_id,\n               recipient_type AS \"recipient_type: RecipientType\", recipient, recipient_name, body,\n               status AS \"status: DeliveryStatus\", error, created_at, sent_at\n           FROM deliveries\n           WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)\n               AND ($3::uuid IS NULL OR connection_id = $3)\n           ORDER BY created_at DESC, id LIMIT $4 OFFSET $5",
+  "query": "SELECT d.id, d.scheduled_message_id, d.connection_id, c.name AS \"connection_name?\",\n               d.recipient_type AS \"recipient_type: RecipientType\", d.recipient,\n               d.recipient_name, d.body, d.status AS \"status: DeliveryStatus\", d.error,\n               d.created_at, d.sent_at\n           FROM deliveries d LEFT JOIN agent_connections c ON c.id = d.connection_id\n           WHERE d.user_id = $1 AND ($2::text IS NULL OR d.recipient = $2)\n               AND ($3::uuid IS NULL OR d.connection_id = $3)\n           ORDER BY d.created_at DESC, d.id LIMIT $4 OFFSET $5",
   "describe": {
     "columns": [
       {
@@ -38,6 +38,17 @@
       },
       {
         "ordinal": 3,
+        "name": "connection_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agent_connections",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
         "name": "recipient_type: RecipientType",
         "type_info": "Text",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "recipient",
         "type_info": "Text",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "recipient_name",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "body",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "status: DeliveryStatus",
         "type_info": "Text",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "error",
         "type_info": "Text",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "sent_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -140,6 +151,7 @@
       true,
       false,
       false,
+      false,
       true,
       false,
       false,
@@ -148,5 +160,5 @@
       true
     ]
   },
-  "hash": "20ece11c06368f16b34b17ee2bb20f8bed599eb0d3e211ddd5774ddc0f98a2fa"
+  "hash": "08824f55d18acef720bb39194dee1538956f90b4de498245b41373322a75348b"
 }

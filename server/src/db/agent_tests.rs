@@ -4,7 +4,7 @@ use uuid::Uuid;
 use super::{
     agent_activity::{self, ActivityChat, NewActivity},
     agent_approvals::{self, Became, NewApproval},
-    agent_connections::{self, Connection, MAX_PER_USER, NewConnection},
+    agent_connections::{self, Connection, MAX_PER_USER, NewConnection, Revoked},
     deliveries::{self, Filter, NewDelivery},
 };
 use crate::{
@@ -380,11 +380,13 @@ async fn an_overdue_approval_reads_expired_and_cannot_be_approved(pool: PgPool) 
     );
 
     // Waiting first, although the overdue one is newer
-    let listed = agent_approvals::list(&pool, owner, 10, 0).await.unwrap();
+    let listed = agent_approvals::list(&pool, owner, None, 10, 0)
+        .await
+        .unwrap();
     assert_eq!(
         listed
             .iter()
-            .map(|approval| approval.id)
+            .map(|listed| listed.approval.id)
             .collect::<Vec<_>>(),
         [waiting, overdue]
     );
@@ -466,15 +468,20 @@ async fn revoking_keeps_history_and_optionally_its_schedules(pool: PgPool) {
     };
     assert_eq!(deliveries::count(&pool, owner, filter).await.unwrap(), 1);
 
+    assert_eq!(
+        agent_connections::delete(&pool, agent.id, owner, false)
+            .await
+            .unwrap(),
+        Some(Revoked {
+            schedules_deleted: 0,
+            schedules_kept: 1
+        })
+    );
     assert!(
         agent_connections::delete(&pool, agent.id, owner, false)
             .await
             .unwrap()
-    );
-    assert!(
-        !agent_connections::delete(&pool, agent.id, owner, false)
-            .await
-            .unwrap()
+            .is_none()
     );
 
     let kept = super::scheduled_messages::find(&pool, its, owner)
@@ -488,7 +495,7 @@ async fn revoking_keeps_history_and_optionally_its_schedules(pool: PgPool) {
     assert_eq!(delivered[0].id, delivery);
     assert_eq!(delivered[0].connection_id, None);
     assert_eq!(
-        agent_approvals::list(&pool, owner, 10, 0)
+        agent_approvals::list(&pool, owner, None, 10, 0)
             .await
             .unwrap()
             .len(),
@@ -518,9 +525,10 @@ async fn revoking_with_its_schedules_deletes_only_those(pool: PgPool) {
     // Another user can't revoke it
     let stranger = user(&pool).await;
     assert!(
-        !agent_connections::delete(&pool, agent.id, stranger, true)
+        agent_connections::delete(&pool, agent.id, stranger, true)
             .await
             .unwrap()
+            .is_none()
     );
     assert!(
         super::scheduled_messages::find(&pool, its, owner)
@@ -529,10 +537,14 @@ async fn revoking_with_its_schedules_deletes_only_those(pool: PgPool) {
             .is_some()
     );
 
-    assert!(
+    assert_eq!(
         agent_connections::delete(&pool, agent.id, owner, true)
             .await
-            .unwrap()
+            .unwrap(),
+        Some(Revoked {
+            schedules_deleted: 1,
+            schedules_kept: 0
+        })
     );
     assert!(
         super::scheduled_messages::find(&pool, its, owner)

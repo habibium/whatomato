@@ -21,6 +21,12 @@ use crate::{
 #[derive(Serialize, ToSchema)]
 pub(super) struct ScheduledMessage {
     pub id: Uuid,
+    /// The AI agent connection that created it; empty when you did, or once it's revoked
+    #[schema(required = true)]
+    pub connection_id: Option<Uuid>,
+    /// That connection's name, to show "by <name>"; empty along with `connection_id`
+    #[schema(required = true)]
+    pub connection_name: Option<String>,
     pub recipient_type: RecipientType,
     pub recipient: String,
     #[schema(required = true)]
@@ -48,6 +54,8 @@ impl From<Message> for ScheduledMessage {
     fn from(message: Message) -> Self {
         Self {
             id: message.id,
+            connection_id: message.connection_id,
+            connection_name: message.connection_name,
             recipient_type: message.recipient_type,
             recipient: message.recipient,
             recipient_name: message.recipient_name,

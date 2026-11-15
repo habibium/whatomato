@@ -59,6 +59,20 @@ pub enum AppError {
     #[error("{0}")]
     Conflict(&'static str),
 
+    /// Already decided by something else; `status` names what it is now
+    #[error("{message}")]
+    Decided {
+        message: &'static str,
+        status: &'static str,
+    },
+
+    /// Well-formed but can't be carried out; each problem is a sentence, under `field`
+    #[error("{}", .problems.join(" "))]
+    Unprocessable {
+        field: &'static str,
+        problems: Vec<String>,
+    },
+
     #[error("{}", .0.body_text())]
     Json(#[from] JsonRejection),
 
@@ -140,6 +154,18 @@ impl IntoResponse for AppError {
             ),
 
             Self::Conflict(_) => (StatusCode::CONFLICT, self.to_string(), None),
+
+            Self::Decided { message, status } => (
+                StatusCode::CONFLICT,
+                message.to_owned(),
+                Some(HashMap::from([("status".into(), vec![status.into()])])),
+            ),
+
+            Self::Unprocessable { field, problems } => (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                problems.join(" "),
+                Some(HashMap::from([(field.into(), problems)])),
+            ),
 
             Self::InvalidToken | Self::PasskeyRejected | Self::Json(_) | Self::Query(_) => {
                 (StatusCode::BAD_REQUEST, self.to_string(), None)

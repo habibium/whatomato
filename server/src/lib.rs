@@ -52,6 +52,10 @@ pub fn router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
                     routes::templates::router().layer(rate_limit::client_ip_layer()),
                 )
                 .nest("/deliveries", routes::deliveries::router())
+                .nest(
+                    "/agents",
+                    routes::agents::router().layer(rate_limit::client_ip_layer()),
+                )
                 // on the nested router so unknown /api paths 404 instead of falling
                 // through to the SPA fallback in main.rs
                 .fallback(routes::not_found)

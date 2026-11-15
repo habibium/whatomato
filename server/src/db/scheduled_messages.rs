@@ -9,6 +9,8 @@ pub struct Message {
     pub user_id: Uuid,
     /// The agent connection that created it, if one did
     pub connection_id: Option<Uuid>,
+    /// That connection's name; empty when the owner made it or the connection is gone
+    pub connection_name: Option<String>,
     pub recipient_type: RecipientType,
     pub recipient: String,
     pub recipient_name: Option<String>,
@@ -48,13 +50,14 @@ pub async fn list(
 ) -> sqlx::Result<Vec<Message>> {
     sqlx::query_as!(
         Message,
-        r#"SELECT id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
-               recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
-               recurrence AS "recurrence: Json<Recurrence>",
-               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at
-           FROM scheduled_messages
-           WHERE user_id = $1 AND ($2::uuid IS NULL OR connection_id = $2)
-           ORDER BY created_at, id"#,
+        r#"SELECT m.id, m.user_id, m.connection_id, c.name AS "connection_name?",
+               m.recipient_type AS "recipient_type: RecipientType", m.recipient,
+               m.recipient_name, m.body, m.schedule_kind AS "schedule_kind: ScheduleKind",
+               m.run_at, m.recurrence AS "recurrence: Json<Recurrence>", m.timezone,
+               m.template_id, m.enabled, m.next_run_at, m.last_run_at, m.created_at, m.updated_at
+           FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id
+           WHERE m.user_id = $1 AND ($2::uuid IS NULL OR m.connection_id = $2)
+           ORDER BY m.created_at, m.id"#,
         user_id,
         connection_id,
     )
@@ -69,11 +72,13 @@ pub async fn find(
 ) -> sqlx::Result<Option<Message>> {
     sqlx::query_as!(
         Message,
-        r#"SELECT id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
-               recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
-               recurrence AS "recurrence: Json<Recurrence>",
-               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at
-           FROM scheduled_messages WHERE id = $1 AND user_id = $2"#,
+        r#"SELECT m.id, m.user_id, m.connection_id, c.name AS "connection_name?",
+               m.recipient_type AS "recipient_type: RecipientType", m.recipient,
+               m.recipient_name, m.body, m.schedule_kind AS "schedule_kind: ScheduleKind",
+               m.run_at, m.recurrence AS "recurrence: Json<Recurrence>", m.timezone,
+               m.template_id, m.enabled, m.next_run_at, m.last_run_at, m.created_at, m.updated_at
+           FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id
+           WHERE m.id = $1 AND m.user_id = $2"#,
         id,
         user_id
     )
@@ -94,7 +99,9 @@ pub async fn create(
                schedule_kind, run_at, recurrence, timezone, template_id, enabled, next_run_at,
                connection_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-           RETURNING id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
+           RETURNING id, user_id, connection_id,
+               (SELECT name FROM agent_connections WHERE id = connection_id) AS "connection_name?",
+               recipient_type AS "recipient_type: RecipientType", recipient,
                recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
                recurrence AS "recurrence: Json<Recurrence>",
                timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at"#,
@@ -129,7 +136,9 @@ pub async fn update(
                schedule_kind = $7, run_at = $8, recurrence = $9, timezone = $10, template_id = $11,
                enabled = $12, next_run_at = $13, updated_at = now()
            WHERE id = $1 AND user_id = $2
-           RETURNING id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
+           RETURNING id, user_id, connection_id,
+               (SELECT name FROM agent_connections WHERE id = connection_id) AS "connection_name?",
+               recipient_type AS "recipient_type: RecipientType", recipient,
                recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
                recurrence AS "recurrence: Json<Recurrence>",
                timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at"#,
@@ -162,7 +171,9 @@ pub async fn set_enabled(
         Message,
         r#"UPDATE scheduled_messages SET enabled = $3, next_run_at = $4, updated_at = now()
            WHERE id = $1 AND user_id = $2
-           RETURNING id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
+           RETURNING id, user_id, connection_id,
+               (SELECT name FROM agent_connections WHERE id = connection_id) AS "connection_name?",
+               recipient_type AS "recipient_type: RecipientType", recipient,
                recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
                recurrence AS "recurrence: Json<Recurrence>",
                timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at"#,
@@ -196,7 +207,9 @@ pub async fn lock_due(
 ) -> sqlx::Result<Vec<Message>> {
     sqlx::query_as!(
         Message,
-        r#"SELECT id, user_id, connection_id, recipient_type AS "recipient_type: RecipientType", recipient,
+        r#"SELECT id, user_id, connection_id,
+               (SELECT name FROM agent_connections WHERE id = connection_id) AS "connection_name?",
+               recipient_type AS "recipient_type: RecipientType", recipient,
                recipient_name, body, schedule_kind AS "schedule_kind: ScheduleKind", run_at,
                recurrence AS "recurrence: Json<Recurrence>",
                timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at

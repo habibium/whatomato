@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     agents::{ApprovalKind, ApprovalStatus},
-    scheduler::RecipientType,
+    scheduler::{DeliveryStatus, RecipientType},
 };
 
 pub struct Approval {
@@ -115,29 +115,76 @@ pub async fn find_for_connection(
     .await
 }
 
-/// A page of the user's approvals, those still waiting first, then newest first
+/// An approval as its owner's list shows it
+pub struct Listed {
+    pub approval: Approval,
+    pub connection_name: String,
+    /// Where the delivery it became stands, if it became one that still exists
+    pub delivery_status: Option<DeliveryStatus>,
+}
+
+/// A page of the user's approvals, those still waiting first, then newest first; only `id` when
+/// it's given
 pub async fn list(
     db: impl PgExecutor<'_>,
     user_id: Uuid,
+    id: Option<Uuid>,
     limit: i64,
     offset: i64,
-) -> sqlx::Result<Vec<Approval>> {
-    sqlx::query_as!(
-        Approval,
-        r#"SELECT id, connection_id, user_id, kind AS "kind: ApprovalKind",
-               recipient_type AS "recipient_type: RecipientType", recipient, recipient_name,
-               payload,
-               CASE WHEN status = 'waiting' AND expires_at <= now() THEN 'expired' ELSE status END
-                   AS "status!: ApprovalStatus",
-               delivery_id, scheduled_message_id, created_at, expires_at, decided_at
-           FROM agent_approvals WHERE user_id = $1
-           ORDER BY (status = 'waiting' AND expires_at > now()) DESC, created_at DESC, id
-           LIMIT $2 OFFSET $3"#,
+) -> sqlx::Result<Vec<Listed>> {
+    let rows = sqlx::query!(
+        r#"SELECT a.id, a.connection_id, a.user_id, a.kind AS "kind: ApprovalKind",
+               a.recipient_type AS "recipient_type: RecipientType", a.recipient, a.recipient_name,
+               a.payload,
+               CASE WHEN a.status = 'waiting' AND a.expires_at <= now() THEN 'expired'
+                   ELSE a.status END AS "status!: ApprovalStatus",
+               a.delivery_id, a.scheduled_message_id, a.created_at, a.expires_at, a.decided_at,
+               c.name AS connection_name,
+               d.status AS "delivery_status?: DeliveryStatus"
+           FROM agent_approvals a
+           JOIN agent_connections c ON c.id = a.connection_id
+           LEFT JOIN deliveries d ON d.id = a.delivery_id
+           WHERE a.user_id = $1 AND ($2::uuid IS NULL OR a.id = $2)
+           ORDER BY (a.status = 'waiting' AND a.expires_at > now()) DESC, a.created_at DESC, a.id
+           LIMIT $3 OFFSET $4"#,
         user_id,
+        id,
         limit,
         offset,
     )
     .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| Listed {
+            approval: Approval {
+                id: row.id,
+                connection_id: row.connection_id,
+                user_id: row.user_id,
+                kind: row.kind,
+                recipient_type: row.recipient_type,
+                recipient: row.recipient,
+                recipient_name: row.recipient_name,
+                payload: row.payload,
+                status: row.status,
+                delivery_id: row.delivery_id,
+                scheduled_message_id: row.scheduled_message_id,
+                created_at: row.created_at,
+                expires_at: row.expires_at,
+                decided_at: row.decided_at,
+            },
+            connection_name: row.connection_name,
+            delivery_status: row.delivery_status,
+        })
+        .collect())
+}
+
+pub async fn count(db: impl PgExecutor<'_>, user_id: Uuid) -> sqlx::Result<i64> {
+    sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!" FROM agent_approvals WHERE user_id = $1"#,
+        user_id
+    )
+    .fetch_one(db)
     .await
 }
 
@@ -225,20 +272,21 @@ pub async fn reject(
     .await
 }
 
-/// Whether the user has an approval other than `id` created in the last hour, so a new one
-/// needn't email them again
+/// Whether the user had another approval in the hour before this one, so it needn't email them
+/// again. Only earlier ones count, so of two made at once the first still emails.
 pub async fn others_in_last_hour(
     db: impl PgExecutor<'_>,
-    user_id: Uuid,
-    id: Uuid,
+    approval: &Approval,
 ) -> sqlx::Result<bool> {
     sqlx::query_scalar!(
         r#"SELECT EXISTS (
                SELECT 1 FROM agent_approvals
-               WHERE user_id = $1 AND id <> $2 AND created_at > now() - interval '1 hour'
+               WHERE user_id = $1 AND id <> $2 AND created_at > $3::timestamptz - interval '1 hour'
+                   AND (created_at, id) < ($3::timestamptz, $2)
            ) AS "exists!""#,
-        user_id,
-        id,
+        approval.user_id,
+        approval.id,
+        approval.created_at,
     )
     .fetch_one(db)
     .await

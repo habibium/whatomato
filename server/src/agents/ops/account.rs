@@ -9,7 +9,7 @@ use uuid::Uuid;
 use super::{Caller, More, OpError, Page, Trace, fit, whatsapp_state};
 use crate::{
     agents::{
-        DAILY_CEILING, Decision, WAITING_MAX,
+        DAILY_CEILING, Decision, Grant, WAITING_MAX,
         decide::{Action, Facts, decide},
         grant::{Contacts, Deliveries, Schedules, Scope, SendLevel, Strangers, Templates},
     },
@@ -136,7 +136,7 @@ async fn run_whoami(state: &AppState, caller: &Caller) -> Result<WhoAmI, OpError
             strangers: chats.strangers,
             chat_rules: chats.rules.len(),
         },
-        summary: summary(caller),
+        summary: summary(&caller.grant),
         limits: Limits {
             sends_last_24_hours: sends,
             daily_ceiling: DAILY_CEILING,
@@ -150,8 +150,8 @@ async fn run_whoami(state: &AppState, caller: &Caller) -> Result<WhoAmI, OpError
     })
 }
 
-fn summary(caller: &Caller) -> Vec<String> {
-    let grant = &caller.grant;
+/// What a grant lets a connection do, in a few sentences; the owner's pages show the same ones
+pub fn summary(grant: &Grant) -> Vec<String> {
     let chats = &grant.chats;
     let mut lines = Vec::new();
     match chats.scope {

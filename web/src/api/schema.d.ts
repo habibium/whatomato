@@ -4,6 +4,221 @@
  */
 
 export interface paths {
+    "/api/agents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether agent access is on, the account's agent connections and how many approvals wait
+         * @description Answers even when agent access is off on this server, with `enabled: false`.
+         */
+        get: operations["list_agents"];
+        put?: never;
+        /**
+         * Connect an AI agent
+         * @description Checks the permissions, then the password, and answers with the access key, shown this once.
+         *     Emails the owner.
+         */
+        post: operations["create_agent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What agents did, newest first, for one connection when `connection_id` is given */
+        get: operations["list_agent_activity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What agents asked to do, waiting first, then newest first, each with the whole text */
+        get: operations["list_agent_approvals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/approvals/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve what an agent asked, optionally with your own text
+         * @description The request is checked as if it were made now, as the scheduling form checks it; one that
+         *     can't go ahead stays waiting, so it can still be rejected. A send joins the queue; a schedule
+         *     is created or changed.
+         */
+        post: operations["approve_agent_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/approvals/{id}/reject": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reject what an agent asked */
+        post: operations["reject_agent_request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/pause-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause every connection of the account at once */
+        post: operations["pause_all_agents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The permission presets, in the order to offer them */
+        get: operations["list_agent_presets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One connection, with how many of its scheduled messages still exist */
+        get: operations["get_agent"];
+        put?: never;
+        post?: never;
+        /**
+         * Revoke a connection
+         * @description Its key stops working and its waiting approvals go. Its activity stays, under its name. The
+         *     scheduled messages it created are deleted with `delete_schedules=true`, else kept as the
+         *     owner's own.
+         */
+        delete: operations["revoke_agent"];
+        options?: never;
+        head?: never;
+        /**
+         * Rename a connection, change its permissions, or both
+         * @description A rename alone needs nothing more. New permissions need the password and email the owner when
+         *     they differ from the old ones.
+         */
+        patch: operations["update_agent"];
+        trace?: never;
+    };
+    "/api/agents/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pause a connection: every request it makes is refused until it's resumed */
+        post: operations["pause_agent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume a paused connection */
+        post: operations["resume_agent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/{id}/rotate-key": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replace a connection's key
+         * @description The old key stops working at once. Answers with the new key, shown this once, and emails the
+         *     owner.
+         */
+        post: operations["rotate_agent_key"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/forgot-password": {
         parameters: {
             query?: never;
@@ -790,14 +1005,240 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description One call an agent made. Never holds message text. */
+        AgentActivity: {
+            /**
+             * Format: uuid
+             * @description Empty once the connection is revoked; `connection_name` still says which it was
+             */
+            connection_id: string | null;
+            connection_name: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            outcome: components["schemas"]["Outcome"];
+            /** @description A stable code for why it was refused or failed, such as `chat_limit` */
+            reason: string | null;
+            /** @description `reason` in a sentence */
+            reason_text: string | null;
+            recipient: string | null;
+            recipient_name: string | null;
+            recipient_type: null | components["schemas"]["RecipientType"];
+            /** @description The tool it called, such as `send_message` */
+            tool: string;
+        };
+        AgentActivityPage: {
+            /** @description Newest first */
+            items: components["schemas"]["AgentActivity"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        /** @description What an agent asked to do, waiting for the owner or answered */
+        AgentApproval: {
+            /** @description Whether approving it can be tried: it's waiting and could be read */
+            can_approve: boolean;
+            /** @description Whether it's still waiting, so it can be rejected */
+            can_reject: boolean;
+            /** Format: uuid */
+            connection_id: string;
+            connection_name: string;
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description When it was approved, rejected or expired
+             */
+            decided_at: string | null;
+            /**
+             * Format: uuid
+             * @description The message approving it queued; empty until then, or once that's deleted
+             */
+            delivery_id: string | null;
+            delivery_status: null | components["schemas"]["DeliveryState"];
+            /**
+             * Format: date-time
+             * @description When it expires unanswered, 24 hours after it was made
+             */
+            expires_at: string;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["ApprovalKind"];
+            /** @description Why `request` is empty, in a sentence; empty when it isn't */
+            problem: string | null;
+            recipient: string;
+            recipient_name: string | null;
+            recipient_type: components["schemas"]["RecipientType"];
+            request: null | components["schemas"]["Requested"];
+            /**
+             * Format: uuid
+             * @description The scheduled message approving it created or changed; empty until then, or once it's
+             *     deleted
+             */
+            scheduled_message_id: string | null;
+            status: components["schemas"]["ApprovalStatus"];
+        };
+        AgentApprovalPage: {
+            /** @description Waiting first, then newest first */
+            items: components["schemas"]["AgentApproval"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        /** @description An AI agent connection. Never holds the key, only its last characters. */
+        AgentConnection: {
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description When it stops working; empty for never
+             */
+            expires_at: string | null;
+            grant: null | components["schemas"]["Grant"];
+            /** @description Why `grant` is empty, in a sentence; empty when it isn't */
+            grant_problem: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description The key's last 4 characters, to tell keys apart */
+            key_hint: string;
+            /**
+             * Format: date-time
+             * @description To the minute; empty until an agent first uses it
+             */
+            last_used_at: string | null;
+            name: string;
+            /**
+             * Format: date-time
+             * @description When it was paused; empty while it isn't
+             */
+            paused_at: string | null;
+            preset: null | components["schemas"]["Preset"];
+            status: components["schemas"]["ConnectionStatus"];
+            /** @description What it may do, in a few sentences */
+            summary: string[];
+            /**
+             * Format: date-time
+             * @description When its name, permissions, key or pause last changed
+             */
+            updated_at: string;
+            usage: components["schemas"]["Usage"];
+        };
+        /** @description One connection, with what revoking it would leave behind */
+        AgentConnectionDetail: components["schemas"]["AgentConnection"] & {
+            /**
+             * Format: int64
+             * @description Scheduled messages it created that still exist, which revoking can delete or keep
+             */
+            schedules: number;
+        };
+        /** @description A connection with its key. The key is shown here once and can't be read again. */
+        AgentKeyIssued: {
+            connection: components["schemas"]["AgentConnection"];
+            /**
+             * @description The whole access key, for the agent's `Authorization: Bearer` header. Only its hint is
+             *     kept, so it can't be shown again; a lost key is replaced by rotating it.
+             */
+            key: string;
+        };
+        /** @description A starting point for a connection's permissions */
+        AgentPreset: {
+            /** @description What it lets an agent do, in a sentence */
+            description: string;
+            grant: components["schemas"]["Grant"];
+            id: components["schemas"]["Preset"];
+            name: string;
+        };
+        /** @description What revoking did with the scheduled messages the connection created */
+        AgentRevoked: {
+            /** Format: int64 */
+            schedules_deleted: number;
+            /**
+             * Format: int64
+             * @description Kept, and now shown as your own
+             */
+            schedules_kept: number;
+        };
+        /** @description The Agents page: whether agent access is on, the connections and how many approvals wait */
+        AgentsOverview: {
+            /**
+             * Format: int64
+             * @description Approvals waiting for an answer, for the count in the navigation
+             */
+            approvals_waiting: number;
+            /** @description Oldest first */
+            connections: components["schemas"]["AgentConnection"][];
+            /**
+             * @description Whether this server lets AI agents connect at all. When false, `connections` is empty,
+             *     `approvals_waiting` is 0 and every other route under `/api/agents` answers 404.
+             */
+            enabled: boolean;
+        };
+        AgentsPaused: {
+            /**
+             * Format: int64
+             * @description How many were running and are now paused
+             */
+            paused: number;
+        };
+        /** @enum {string} */
+        ApprovalKind: "send" | "schedule_create" | "schedule_update";
+        /** @enum {string} */
+        ApprovalStatus: "waiting" | "approved" | "rejected" | "expired";
+        ApproveRequest: {
+            /**
+             * @description The text to send instead of the agent's, checked as the scheduling form checks it. Left
+             *     out, the agent's text goes as written.
+             */
+            body?: string | null;
+        };
         AuthenticatorCode: {
             /** @description The 6-digit code the authenticator app shows */
             code: string;
+        };
+        /** @description A chat named as the scheduler names a recipient */
+        Chat: {
+            /** @description As stored: digits for a contact, the group's id for a group */
+            id: string;
+            /** @description Only a label for the owner */
+            name: string | null;
+            type: components["schemas"]["RecipientType"];
+        };
+        /**
+         * @description A rule for one chat. Its fields are spelled out rather than flattened from [`Rule`], since
+         *     serde can't refuse unknown fields through a flatten.
+         */
+        ChatRule: {
+            chat: components["schemas"]["Chat"];
+            /** Format: int32 */
+            daily_limit: number | null;
+            note: string | null;
+            send: components["schemas"]["SendLevel"];
+        };
+        Chats: {
+            /** @description Every chat's rule under scope `all`; under `selected`, only what a newly added chat starts with */
+            default: components["schemas"]["Rule"];
+            /** @description A chat's own rule, replacing `default`. Under scope `selected`, the chats in scope. */
+            rules: components["schemas"]["ChatRule"][];
+            scope: components["schemas"]["Scope"];
+            /** @description People who aren't saved contacts and have no rule of their own */
+            strangers: components["schemas"]["Strangers"];
         };
         /** @description The account password, asked again before a passkey is added or removed */
         ConfirmPasskeyChange: {
             password: string;
         };
+        /**
+         * @description Whether a connection can be used now
+         * @enum {string}
+         */
+        ConnectionStatus: "active" | "paused" | "expired" | "unusable";
         ContactBook: {
             /** @description By name */
             contacts: components["schemas"]["ContactResponse"][];
@@ -821,10 +1262,26 @@ export interface components {
             phone_number: string | null;
             username: string | null;
         };
+        /** @enum {string} */
+        Contacts: "none" | "find";
+        CreateConnection: {
+            /**
+             * Format: int32
+             * @description Days until it stops working, 1 to 365; left out, it never expires
+             */
+            expires_in_days?: number | null;
+            grant: components["schemas"]["Grant"];
+            /** @description 1 to 60 characters, such as the agent's or the computer's name */
+            name: string;
+            /** @description The account's password, asked again */
+            password: string;
+        };
         Credentials: {
             email: string;
             password: string;
         };
+        /** @enum {string} */
+        Deliveries: "own" | "all";
         DeliveryPage: {
             items: components["schemas"]["DeliveryResponse"][];
             /** Format: int64 */
@@ -836,6 +1293,13 @@ export interface components {
         };
         DeliveryResponse: {
             body: string;
+            /**
+             * Format: uuid
+             * @description The AI agent connection that caused it; empty when you did, or once it's revoked
+             */
+            connection_id: string | null;
+            /** @description That connection's name, to show "by <name>"; empty along with `connection_id` */
+            connection_name: string | null;
             /** Format: date-time */
             created_at: string;
             /** @description Why it failed, or why the last try did while it's pending */
@@ -873,6 +1337,18 @@ export interface components {
                 [key: string]: string[];
             } | null;
             error: string;
+        };
+        Grant: {
+            chats: components["schemas"]["Chats"];
+            contacts: components["schemas"]["Contacts"];
+            deliveries: components["schemas"]["Deliveries"];
+            schedules: components["schemas"]["Schedules"];
+            templates: components["schemas"]["Templates"];
+            /**
+             * Format: int32
+             * @description Always 1 for now
+             */
+            version: number;
         };
         GroupResponse: {
             id: string;
@@ -944,6 +1420,11 @@ export interface components {
         };
         /** @enum {string} */
         NotLinkedBecause: "expired" | "failed" | "logged_out";
+        /**
+         * @description How a tool call ended, for the activity log
+         * @enum {string}
+         */
+        Outcome: "allowed" | "asked" | "denied" | "failed";
         /** @enum {string} */
         PairingMethod: "qr_code" | "phone_number";
         /** @description Options for `navigator.credentials.create()` */
@@ -1002,6 +1483,11 @@ export interface components {
              */
             longitude: number;
         };
+        /**
+         * @description A starting value for the editor. The stored grant doesn't remember which one it came from.
+         * @enum {string}
+         */
+        Preset: "ask_before_sending" | "view_only" | "send_without_asking" | "full_access";
         Preview: {
             /** @description The variables the body uses that would go out empty, having no fallback */
             empty: string[];
@@ -1036,10 +1522,61 @@ export interface components {
             /** @enum {string} */
             type: "sun";
         });
+        /**
+         * @description An approval's request as the owner sees it: who it goes to, the whole text, and for a schedule
+         *     when it runs
+         */
+        Requested: {
+            /** @description The whole text, as the agent wrote it; variables are filled in when it goes out */
+            body: string;
+            kind: components["schemas"]["ApprovalKind"];
+            recipient: string;
+            recipient_name: string | null;
+            recipient_type: components["schemas"]["RecipientType"];
+            schedule: null | components["schemas"]["RequestedSchedule"];
+            /** @description The IANA zone its times and variables read in */
+            timezone: string;
+        };
+        RequestedSchedule: {
+            /** @description For a sun schedule, the city it watches the sun from unless it names a place */
+            city: string | null;
+            enabled: boolean;
+            /** @description When it would go out, soonest first */
+            next_runs: string[];
+            recurrence: null | components["schemas"]["Recurrence"];
+            /** Format: date-time */
+            run_at: string | null;
+            schedule_kind: components["schemas"]["ScheduleKind"];
+            /**
+             * Format: uuid
+             * @description The scheduled message it changes; empty for a new one
+             */
+            scheduled_message_id: string | null;
+        };
+        RotateKeyRequest: {
+            password: string;
+        };
+        Rule: {
+            /**
+             * Format: int32
+             * @description Sends a day by this connection in one chat
+             */
+            daily_limit: number | null;
+            /** @description Guidance the agent sees; not enforced */
+            note: string | null;
+            send: components["schemas"]["SendLevel"];
+        };
         /** @enum {string} */
         ScheduleKind: "once" | "recurring";
         ScheduledMessage: {
             body: string;
+            /**
+             * Format: uuid
+             * @description The AI agent connection that created it; empty when you did, or once it's revoked
+             */
+            connection_id: string | null;
+            /** @description That connection's name, to show "by <name>"; empty along with `connection_id` */
+            connection_name: string | null;
             /** Format: date-time */
             created_at: string;
             enabled: boolean;
@@ -1065,8 +1602,14 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /** @enum {string} */
+        Schedules: "none" | "own" | "all";
+        /** @enum {string} */
+        Scope: "all" | "selected";
         /** @description The second step of a sign-in: a code from the authenticator app, or a recovery code */
         SecondFactor: components["schemas"]["AuthenticatorCode"] | components["schemas"]["RecoveryCode"];
+        /** @enum {string} */
+        SendLevel: "no" | "ask" | "yes";
         SendNowRequest: {
             /** @description Up to 4096 characters, variables included */
             body: string;
@@ -1102,6 +1645,8 @@ export interface components {
         };
         /** @enum {string} */
         StoppedBecause: "replaced" | "temporary_ban" | "outdated" | "refused";
+        /** @enum {string} */
+        Strangers: "never" | "ask" | "allowed";
         Sun: {
             /** @description Cron's day fields: day of the month, month, weekday. `* * *` for every day. */
             days: string;
@@ -1121,6 +1666,8 @@ export interface components {
             /** @description Up to 100 characters */
             name: string;
         };
+        /** @enum {string} */
+        Templates: "none" | "read";
         ToggleRequest: {
             enabled: boolean;
         };
@@ -1147,6 +1694,37 @@ export interface components {
              *     phone until it's removed there
              */
             removed_from_phone: boolean;
+        };
+        /** @description A new name, new permissions, or both */
+        UpdateConnection: {
+            grant?: null | components["schemas"]["Grant"];
+            /** @description 1 to 60 characters */
+            name?: string | null;
+            /** @description The account's password, asked again; needed only with `grant` */
+            password?: string | null;
+        };
+        /** @description How much of its limits a connection has used */
+        Usage: {
+            /**
+             * Format: int32
+             * @description Its requests waiting for approval
+             */
+            approvals_waiting: number;
+            /**
+             * Format: int32
+             * @description The most that may wait at once; past it, its next request is refused
+             */
+            approvals_waiting_max: number;
+            /**
+             * Format: int32
+             * @description The most any connection may send in 24 hours
+             */
+            daily_ceiling: number;
+            /**
+             * Format: int32
+             * @description Messages it sent or queued in the last 24 hours, counting those waiting for approval
+             */
+            sends_last_24_hours: number;
         };
         UserResponse: {
             /** Format: date-time */
@@ -1215,6 +1793,827 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_agents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentsOverview"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    create_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateConnection"];
+            };
+        };
+        responses: {
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentKeyIssued"];
+                };
+            };
+            /** @description A field is missing or out of range, or the password is incorrect */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Agent access is off on this server */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The account already has 20 connections */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The permissions have problems, one sentence each under `details.grant` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_agent_activity: {
+        parameters: {
+            query?: {
+                /** @description Only this connection's */
+                connection_id?: string;
+                /** @description 1 to 100, 50 by default */
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentActivityPage"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Agent access is off, or there's no such connection */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_agent_approvals: {
+        parameters: {
+            query?: {
+                /** @description 1 to 100, 50 by default */
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentApprovalPage"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Agent access is off on this server */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    approve_agent_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentApproval"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description It's no longer waiting; `details.status` says what it is now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description It can't go ahead now, one sentence each under `details.request` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    reject_agent_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentApproval"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description It's no longer waiting; `details.status` says what it is now */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pause_all_agents: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentsPaused"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Agent access is off on this server */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    list_agent_presets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentPreset"][];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Agent access is off on this server */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentConnectionDetail"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    revoke_agent: {
+        parameters: {
+            query?: {
+                /** @description Also delete the scheduled messages it created. Left out, they're kept as your own. */
+                delete_schedules?: boolean;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentRevoked"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    update_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateConnection"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentConnection"];
+                };
+            };
+            /** @description Nothing to change, a field is out of range, or the password is missing or incorrect */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The permissions have problems, one sentence each under `details.grant` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pause_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentConnection"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    resume_agent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentConnection"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    rotate_agent_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotateKeyRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentKeyIssued"];
+                };
+            };
+            /** @description The password is incorrect */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     forgot_password: {
         parameters: {
             query?: never;

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use sqlx::{PgExecutor, PgPool, types::Json};
 use uuid::Uuid;
@@ -109,6 +111,7 @@ pub async fn find(
 }
 
 /// Paused and expired connections are found too, so the caller can tell the agent which
+#[allow(dead_code, reason = "called by the MCP endpoint, still to come")]
 pub async fn find_by_key(
     db: impl PgExecutor<'_>,
     key_hash: &[u8],
@@ -254,26 +257,54 @@ pub async fn rotate_key(
     .await
 }
 
+/// What revoking did to the schedules the connection created
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Revoked {
+    pub schedules_deleted: u64,
+    /// Kept without the connection, now the owner's own
+    pub schedules_kept: u64,
+}
+
 /// Revokes a connection. Its approvals go with it; its deliveries, activity and, unless
-/// `delete_schedules`, its schedules stay without it. Whether there was such a connection.
+/// `delete_schedules`, its schedules stay without it. `None` when there's no such connection.
 pub async fn delete(
     pool: &PgPool,
     id: Uuid,
     user_id: Uuid,
     delete_schedules: bool,
-) -> sqlx::Result<bool> {
+) -> sqlx::Result<Option<Revoked>> {
     let mut transaction = pool.begin().await?;
+    let exists = sqlx::query_scalar!(
+        "SELECT id FROM agent_connections WHERE id = $1 AND user_id = $2 FOR UPDATE",
+        id,
+        user_id
+    )
+    .fetch_optional(&mut *transaction)
+    .await?;
+    if exists.is_none() {
+        return Ok(None);
+    }
     // Before the connection goes, since its delete clears `connection_id` on what it made
-    if delete_schedules {
-        sqlx::query!(
+    let revoked = if delete_schedules {
+        let deleted = sqlx::query!(
             "DELETE FROM scheduled_messages WHERE connection_id = $1 AND user_id = $2",
             id,
             user_id
         )
         .execute(&mut *transaction)
         .await?;
-    }
-    let deleted = sqlx::query!(
+        Revoked {
+            schedules_deleted: deleted.rows_affected(),
+            schedules_kept: 0,
+        }
+    } else {
+        let kept = schedules(&mut *transaction, id, user_id).await?;
+        Revoked {
+            schedules_deleted: 0,
+            schedules_kept: kept.unsigned_abs(),
+        }
+    };
+    sqlx::query!(
         "DELETE FROM agent_connections WHERE id = $1 AND user_id = $2",
         id,
         user_id
@@ -281,7 +312,19 @@ pub async fn delete(
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
-    Ok(deleted.rows_affected() > 0)
+    Ok(Some(revoked))
+}
+
+/// How many of the user's scheduled messages the connection created that still exist
+pub async fn schedules(db: impl PgExecutor<'_>, id: Uuid, user_id: Uuid) -> sqlx::Result<i64> {
+    sqlx::query_scalar!(
+        r#"SELECT count(*) AS "count!" FROM scheduled_messages
+           WHERE connection_id = $1 AND user_id = $2"#,
+        id,
+        user_id
+    )
+    .fetch_one(db)
+    .await
 }
 
 /// Records a call, writing at most once a minute per connection
@@ -315,6 +358,33 @@ pub async fn usage(db: impl PgExecutor<'_>, connection_id: Uuid) -> sqlx::Result
     .await?;
     let small = |count: i64| u32::try_from(count).unwrap_or(u32::MAX);
     Ok((small(row.sends), small(row.waiting)))
+}
+
+/// [`usage`] for each of the user's connections, in one query
+pub async fn usage_all(
+    db: impl PgExecutor<'_>,
+    user_id: Uuid,
+) -> sqlx::Result<HashMap<Uuid, (u32, u32)>> {
+    let rows = sqlx::query!(
+        r#"SELECT c.id,
+               (SELECT count(*) FROM deliveries d
+                WHERE d.connection_id = c.id AND d.created_at > now() - interval '24 hours')
+               + (SELECT count(*) FROM agent_approvals a
+                  WHERE a.connection_id = c.id AND a.kind = 'send' AND a.status = 'waiting'
+                      AND a.expires_at > now()) AS "sends!",
+               (SELECT count(*) FROM agent_approvals a
+                WHERE a.connection_id = c.id AND a.status = 'waiting' AND a.expires_at > now())
+                   AS "waiting!"
+           FROM agent_connections c WHERE c.user_id = $1"#,
+        user_id,
+    )
+    .fetch_all(db)
+    .await?;
+    let small = |count: i64| u32::try_from(count).unwrap_or(u32::MAX);
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.id, (small(row.sends), small(row.waiting))))
+        .collect())
 }
 
 /// Sends by `connection_id` in the last 24 hours, to one chat and in all, counting the deliveries

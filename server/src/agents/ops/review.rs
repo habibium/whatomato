@@ -478,5 +478,5 @@ pub async fn reject(pool: &PgPool, id: Uuid, user_id: Uuid) -> Result<Approval, 
 /// # Errors
 /// The database couldn't be read.
 pub async fn should_email(pool: &PgPool, approval: &Approval) -> sqlx::Result<bool> {
-    Ok(!agent_approvals::others_in_last_hour(pool, approval.user_id, approval.id).await?)
+    Ok(!agent_approvals::others_in_last_hour(pool, approval).await?)
 }

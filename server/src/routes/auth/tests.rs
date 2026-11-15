@@ -39,6 +39,8 @@ const INVALID_LINK: &str = "This link is invalid or has expired";
 pub struct TestApp {
     router: Router,
     pub pool: PgPool,
+    /// What the router runs on, for tests that reach past HTTP
+    pub state: AppState,
     outbox: Arc<Mutex<Vec<(String, Email)>>>,
 }
 
@@ -74,7 +76,26 @@ impl TestApp {
         Self::with_pwned_passwords(pool, app_url, PwnedPasswords::Listed(&[]))
     }
 
+    /// As a server started with `AGENT_ACCESS=off`
+    pub fn without_agent_access(pool: PgPool) -> Self {
+        Self::build(
+            pool,
+            "http://localhost:5173",
+            PwnedPasswords::Listed(&[]),
+            false,
+        )
+    }
+
     fn with_pwned_passwords(pool: PgPool, app_url: &str, pwned_passwords: PwnedPasswords) -> Self {
+        Self::build(pool, app_url, pwned_passwords, true)
+    }
+
+    fn build(
+        pool: PgPool,
+        app_url: &str,
+        pwned_passwords: PwnedPasswords,
+        agent_access: bool,
+    ) -> Self {
         let outbox = Arc::default();
         let cipher = Cipher::new(&[0; 32]);
         let mailer = Mailer::Outbox(Arc::clone(&outbox));
@@ -87,19 +108,20 @@ impl TestApp {
             pwned_passwords,
             cipher: cipher.clone(),
             whatsapp: WhatsApp::new(Context::new(pool.clone(), cipher, mailer, app_url)),
-            agent_access: true,
+            agent_access,
         };
         let (router, _) = crate::router();
 
         Self {
-            router: router.with_state(state),
+            router: router.with_state(state.clone()),
             pool,
+            state,
             outbox,
         }
     }
 
     /// Subject and plain text of each email sent to `to`, oldest first
-    fn emails_to(&self, to: &str) -> Vec<(&'static str, String)> {
+    pub fn emails_to(&self, to: &str) -> Vec<(&'static str, String)> {
         self.outbox
             .lock()
             .unwrap()

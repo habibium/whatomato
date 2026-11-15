@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, user_id, connection_id, recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at,\n               recurrence AS \"recurrence: Json<Recurrence>\",\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at\n           FROM scheduled_messages WHERE enabled AND next_run_at <= $1\n           ORDER BY next_run_at LIMIT $2 FOR UPDATE SKIP LOCKED",
+  "query": "SELECT m.id, m.user_id, m.connection_id, c.name AS \"connection_name?\",\n               m.recipient_type AS \"recipient_type: RecipientType\", m.recipient,\n               m.recipient_name, m.body, m.schedule_kind AS \"schedule_kind: ScheduleKind\",\n               m.run_at, m.recurrence AS \"recurrence: Json<Recurrence>\", m.timezone,\n               m.template_id, m.enabled, m.next_run_at, m.last_run_at, m.created_at, m.updated_at\n           FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id\n           WHERE m.user_id = $1 AND ($2::uuid IS NULL OR m.connection_id = $2)\n           ORDER BY m.created_at, m.id",
   "describe": {
     "columns": [
       {
@@ -38,6 +38,17 @@
       },
       {
         "ordinal": 3,
+        "name": "connection_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agent_connections",
+            "name": "name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
         "name": "recipient_type: RecipientType",
         "type_info": "Text",
         "origin": {
@@ -48,7 +59,7 @@
         }
       },
       {
-        "ordinal": 4,
+        "ordinal": 5,
         "name": "recipient",
         "type_info": "Text",
         "origin": {
@@ -59,7 +70,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 6,
         "name": "recipient_name",
         "type_info": "Text",
         "origin": {
@@ -70,7 +81,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 7,
         "name": "body",
         "type_info": "Text",
         "origin": {
@@ -81,7 +92,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 8,
         "name": "schedule_kind: ScheduleKind",
         "type_info": "Text",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "run_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "recurrence: Json<Recurrence>",
         "type_info": "Jsonb",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "timezone",
         "type_info": "Text",
         "origin": {
@@ -125,7 +136,7 @@
         }
       },
       {
-        "ordinal": 11,
+        "ordinal": 12,
         "name": "template_id",
         "type_info": "Uuid",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "enabled",
         "type_info": "Bool",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "next_run_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "last_run_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -180,7 +191,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -193,14 +204,15 @@
     ],
     "parameters": {
       "Left": [
-        "Timestamptz",
-        "Int8"
+        "Uuid",
+        "Uuid"
       ]
     },
     "nullable": [
       false,
       false,
       true,
+      false,
       false,
       false,
       true,
@@ -217,5 +229,5 @@
       false
     ]
   },
-  "hash": "d9f3066cb616c472904fd1f3708d6e3072a22f8ef8bc02b155fdd6ed1f25cc2d"
+  "hash": "f64ced088bdc23cc90a74fffb1cc740b03ea19367eda1c78f5fd3577575747e5"
 }

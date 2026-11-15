@@ -41,14 +41,24 @@ struct Page {
     recipient: Option<String>,
 }
 
-#[derive(Serialize, ToSchema)]
+#[derive(Clone, Copy, Serialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
-enum DeliveryState {
+pub enum DeliveryState {
     /// Waiting to go out, possibly for another try
     Pending,
     /// WhatsApp acknowledged it, which doesn't prove it reached the recipient's phone
     Sent,
     Failed,
+}
+
+impl From<DeliveryStatus> for DeliveryState {
+    fn from(status: DeliveryStatus) -> Self {
+        match status {
+            DeliveryStatus::Pending | DeliveryStatus::Sending => Self::Pending,
+            DeliveryStatus::Sent => Self::Sent,
+            DeliveryStatus::Failed => Self::Failed,
+        }
+    }
 }
 
 #[derive(Serialize, ToSchema)]
@@ -57,6 +67,12 @@ struct DeliveryResponse {
     /// Empty for a message sent straight away, or once its schedule is deleted
     #[schema(required = true)]
     scheduled_message_id: Option<Uuid>,
+    /// The AI agent connection that caused it; empty when you did, or once it's revoked
+    #[schema(required = true)]
+    connection_id: Option<Uuid>,
+    /// That connection's name, to show "by <name>"; empty along with `connection_id`
+    #[schema(required = true)]
+    connection_name: Option<String>,
     recipient_type: RecipientType,
     recipient: String,
     #[schema(required = true)]
@@ -76,15 +92,13 @@ impl From<Row> for DeliveryResponse {
         Self {
             id: row.id,
             scheduled_message_id: row.scheduled_message_id,
+            connection_id: row.connection_id,
+            connection_name: row.connection_name,
             recipient_type: row.recipient_type,
             recipient: row.recipient,
             recipient_name: row.recipient_name,
             body: row.body,
-            status: match row.status {
-                DeliveryStatus::Pending | DeliveryStatus::Sending => DeliveryState::Pending,
-                DeliveryStatus::Sent => DeliveryState::Sent,
-                DeliveryStatus::Failed => DeliveryState::Failed,
-            },
+            status: row.status.into(),
             error: row.error,
             created_at: row.created_at,
             sent_at: row.sent_at,

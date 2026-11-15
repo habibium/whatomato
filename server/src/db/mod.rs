@@ -1,10 +1,5 @@
-// The owner's agent API (stage 2b) calls the rest of these; until then only the operations, the
-// cleanup and tests do
-#[allow(dead_code, reason = "used by the owner's agent API, still to come")]
 pub mod agent_activity;
-#[allow(dead_code, reason = "used by the owner's agent API, still to come")]
 pub mod agent_approvals;
-#[allow(dead_code, reason = "used by the owner's agent API, still to come")]
 pub mod agent_connections;
 pub mod deliveries;
 pub mod message_templates;

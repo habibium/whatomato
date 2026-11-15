@@ -9,6 +9,8 @@ pub struct Delivery {
     pub scheduled_message_id: Option<Uuid>,
     /// The agent connection that caused it, if one did
     pub connection_id: Option<Uuid>,
+    /// That connection's name; empty when the owner sent it or the connection is gone
+    pub connection_name: Option<String>,
     pub recipient_type: RecipientType,
     pub recipient: String,
     pub recipient_name: Option<String>,
@@ -76,13 +78,14 @@ pub async fn page(
 ) -> sqlx::Result<Vec<Delivery>> {
     sqlx::query_as!(
         Delivery,
-        r#"SELECT id, scheduled_message_id, connection_id,
-               recipient_type AS "recipient_type: RecipientType", recipient, recipient_name, body,
-               status AS "status: DeliveryStatus", error, created_at, sent_at
-           FROM deliveries
-           WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)
-               AND ($3::uuid IS NULL OR connection_id = $3)
-           ORDER BY created_at DESC, id LIMIT $4 OFFSET $5"#,
+        r#"SELECT d.id, d.scheduled_message_id, d.connection_id, c.name AS "connection_name?",
+               d.recipient_type AS "recipient_type: RecipientType", d.recipient,
+               d.recipient_name, d.body, d.status AS "status: DeliveryStatus", d.error,
+               d.created_at, d.sent_at
+           FROM deliveries d LEFT JOIN agent_connections c ON c.id = d.connection_id
+           WHERE d.user_id = $1 AND ($2::text IS NULL OR d.recipient = $2)
+               AND ($3::uuid IS NULL OR d.connection_id = $3)
+           ORDER BY d.created_at DESC, d.id LIMIT $4 OFFSET $5"#,
         user_id,
         filter.recipient,
         filter.connection_id,

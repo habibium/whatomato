@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE agent_approvals SET payload = '\\x00'::bytea WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4f37914dac2ccd8ae01701cd50d199fd64a3cb26650d4701c12d682fbcf15ca3"
+}

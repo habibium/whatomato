@@ -1,6 +1,7 @@
 use anyhow::Context;
 use chrono::{DateTime, DurationRound, TimeDelta, Utc};
 use url::Url;
+use uuid::Uuid;
 
 use super::{Email, LOGO_CID};
 use crate::{auth::token::Purpose, whatsapp::status::Alert};
@@ -25,6 +26,7 @@ pub fn verify_email(link: &Url) -> Email {
         body: format!(
             "Confirm this address to finish setting up your {PRODUCT_NAME} account. The link expires in {expires}."
         ),
+        body_html: None,
         action: "Verify email address",
         link,
         footer: "If you didn't create an account, you can ignore this email.",
@@ -39,6 +41,7 @@ pub fn reset_password(link: &Url) -> Email {
         body: format!(
             "Someone asked to reset the password for your {PRODUCT_NAME} account. The link works once and expires in {expires}."
         ),
+        body_html: None,
         action: "Choose a new password",
         link,
         footer: "If it wasn't you, ignore this email and your password stays the same.",
@@ -155,6 +158,7 @@ pub fn security_alert(event: SecurityEvent, app_url: &Url) -> anyhow::Result<Ema
         subject,
         heading,
         body: format!("{what} {remedy}"),
+        body_html: None,
         action,
         link: &link,
         footer: NOTHING_ELSE_TO_DO,
@@ -238,6 +242,83 @@ fn whatsapp_alert(alert: Alert, app_url: &Url) -> anyhow::Result<Email> {
         subject,
         heading,
         body: format!("{what} {remedy}"),
+        body_html: None,
+        action,
+        link: &link,
+        footer,
+    }))
+}
+
+/// Something about an AI agent connection the owner should hear of. `name` is the owner's own
+/// label for the connection, escaped before it lands in markup.
+pub enum AgentAlert<'a> {
+    Created { name: &'a str },
+    PermissionsChanged { name: &'a str },
+    KeyReplaced { name: &'a str },
+    ApprovalWaiting { name: &'a str, approval_id: Uuid },
+}
+
+const PAUSE_AGENTS: &str = "If this wasn't you, pause all agents on the Agents page in Whatomato, then change your password.";
+
+/// # Errors
+/// `app_url` cannot be a base for links.
+pub fn agent_alert(alert: &AgentAlert, app_url: &Url) -> anyhow::Result<Email> {
+    let (subject, heading, what, remedy, action, path, footer) = match alert {
+        AgentAlert::Created { name } => (
+            "An AI agent was connected to your account",
+            "An AI agent was connected.",
+            format!(
+                "A connection named \u{201c}{name}\u{201d} was created in your {PRODUCT_NAME} account. An AI agent holding its key can now use your WhatsApp within the permissions you chose."
+            ),
+            PAUSE_AGENTS,
+            "Review your agents",
+            "/agents".to_owned(),
+            NOTHING_ELSE_TO_DO,
+        ),
+        AgentAlert::PermissionsChanged { name } => (
+            "An AI agent's permissions were changed",
+            "An AI agent's permissions were changed.",
+            format!(
+                "What the connection \u{201c}{name}\u{201d} may do in your {PRODUCT_NAME} account was changed, and the new permissions apply from its next request."
+            ),
+            PAUSE_AGENTS,
+            "Review your agents",
+            "/agents".to_owned(),
+            NOTHING_ELSE_TO_DO,
+        ),
+        AgentAlert::KeyReplaced { name } => (
+            "An AI agent's key was replaced",
+            "An AI agent's key was replaced.",
+            format!(
+                "The connection \u{201c}{name}\u{201d} in your {PRODUCT_NAME} account got a new key, and its old key stopped working. The agent needs the new key to keep working."
+            ),
+            PAUSE_AGENTS,
+            "Review your agents",
+            "/agents".to_owned(),
+            NOTHING_ELSE_TO_DO,
+        ),
+        AgentAlert::ApprovalWaiting { name, approval_id } => (
+            "A message is waiting for your approval",
+            "A message is waiting for your approval.",
+            format!(
+                "The AI agent connected as \u{201c}{name}\u{201d} asked to send a message from your WhatsApp. It won't go out unless you approve it within 24 hours."
+            ),
+            "If you didn't connect this agent, pause all agents on the Agents page in Whatomato, then change your password.",
+            "Review the message",
+            format!("/agents?approval={approval_id}"),
+            "Other requests in the next hour won't send another email; they wait on the same page.",
+        ),
+    };
+    let link = app_url
+        .join(&path)
+        .context("APP_URL cannot be a base for links")?;
+    let body = format!("{what} {remedy}");
+
+    Ok(render(&Layout {
+        subject,
+        heading,
+        body_html: Some(escape(&body)),
+        body,
         action,
         link: &link,
         footer,
@@ -248,6 +329,8 @@ struct Layout<'a> {
     subject: &'static str,
     heading: &'static str,
     body: String,
+    /// When `body` holds text someone typed, escaped for markup
+    body_html: Option<String>,
     action: &'static str,
     link: &'a Url,
     footer: &'static str,
@@ -258,6 +341,7 @@ fn render(layout: &Layout) -> Email {
         subject,
         heading,
         body,
+        body_html,
         action,
         link,
         footer,
@@ -268,6 +352,7 @@ fn render(layout: &Layout) -> Email {
         "{heading}\n\n{body}\n\n{action}: {}\n\n{footer}\n",
         layout.link
     );
+    let body = body_html.as_ref().unwrap_or(body);
 
     // Tables and inline styles are what every client, Outlook included, lays out the same way
     let html = format!(
@@ -357,7 +442,10 @@ mod tests {
     use chrono::{DateTime, Utc};
     use url::Url;
 
-    use super::{RESET_NOW, SecurityEvent, escape, reset_password, security_alert, verify_email};
+    use super::{
+        AgentAlert, RESET_NOW, SecurityEvent, agent_alert, escape, reset_password, security_alert,
+        verify_email,
+    };
     use crate::whatsapp::status::Alert;
 
     const PHONE: &str = "8801700000000";
@@ -584,6 +672,48 @@ mod tests {
         ] {
             let text = alert_text(Alert::TemporaryBan { until: utc(until) }.into());
             assert!(text.contains("until 1 Nov 2026, 14:00 UTC,"), "{until}");
+        }
+    }
+
+    #[test]
+    fn each_agent_alert_names_the_connection_and_says_what_to_do() {
+        let app_url = Url::parse("https://example.com/").unwrap();
+        let name = "Claude <script>";
+        let approval_id = uuid::Uuid::nil();
+        let cases = [
+            (
+                AgentAlert::Created { name },
+                "An AI agent was connected to your account",
+                "https://example.com/agents",
+            ),
+            (
+                AgentAlert::PermissionsChanged { name },
+                "An AI agent's permissions were changed",
+                "https://example.com/agents",
+            ),
+            (
+                AgentAlert::KeyReplaced { name },
+                "An AI agent's key was replaced",
+                "https://example.com/agents",
+            ),
+            (
+                AgentAlert::ApprovalWaiting { name, approval_id },
+                "A message is waiting for your approval",
+                "https://example.com/agents?approval=00000000-0000-0000-0000-000000000000",
+            ),
+        ];
+        for (alert, subject, link) in cases {
+            let email = agent_alert(&alert, &app_url).unwrap();
+            assert_eq!(email.subject, subject);
+            assert!(
+                email.text.contains("\u{201c}Claude <script>\u{201d}"),
+                "{subject}"
+            );
+            assert!(email.text.contains("pause all agents"), "{subject}");
+            assert!(email.text.contains("change your password"), "{subject}");
+            assert!(email.text.contains(link), "{subject}");
+            assert!(email.html.contains("Claude &lt;script&gt;"), "{subject}");
+            assert!(!email.html.contains("<script>"), "{subject}");
         }
     }
 }
