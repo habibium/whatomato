@@ -153,10 +153,11 @@ pub enum SendFailure {
     #[error("This number isn't on WhatsApp")]
     NotOnWhatsApp,
     #[error(
-        "Not sent: WhatsApp has this person under the number +{0}. A message an agent sends goes \
-         only to a number written exactly as WhatsApp has it, so that the chat's rules apply."
+        "Not sent: WhatsApp has this person under a different number than the one given. A message \
+         an agent sends goes only to a number written exactly as WhatsApp has it, so that the \
+         chat's rules apply. Check the number saved for this contact."
     )]
-    OtherNumber(String),
+    OtherNumber,
     #[error("WhatsApp rejected this message (error {0})")]
     Rejected(String),
     #[error("WhatsApp didn't confirm this message, so it may or may not have gone out")]
@@ -1077,9 +1078,7 @@ async fn registered(client: &Client, number: String, exact: bool) -> Result<Jid,
 fn same_number(number: &str, jid: &Jid, pn_jid: Option<&Jid>) -> Result<(), SendFailure> {
     let known = if jid.is_pn() { Some(jid) } else { pn_jid };
     match known {
-        Some(known) if known.user != number => {
-            Err(SendFailure::OtherNumber(known.user.to_string()))
-        }
+        Some(known) if known.user != number => Err(SendFailure::OtherNumber),
         _ => Ok(()),
     }
 }
@@ -1166,9 +1165,9 @@ mod tests {
         assert!(same_number(asked, &Jid::pn(asked), None).is_ok());
 
         let other = same_number(asked, &Jid::pn("551112345678"), None).unwrap_err();
-        assert!(matches!(&other, SendFailure::OtherNumber(number) if number == "551112345678"));
+        assert!(matches!(other, SendFailure::OtherNumber));
         assert!(!other.can_retry());
-        assert!(other.to_string().contains("+551112345678"));
+        assert!(!other.to_string().chars().any(|c| c.is_ascii_digit()));
 
         let lid = Jid::lid("100000001");
         assert!(same_number(asked, &lid, Some(&Jid::pn(asked))).is_ok());

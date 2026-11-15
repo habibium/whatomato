@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT status, skipped, error, connection_id FROM deliveries WHERE scheduled_message_id = $1",
+  "query": "SELECT status, skipped, error, connection_id FROM deliveries WHERE scheduled_message_id = $1 ORDER BY created_at, id",
   "describe": {
     "columns": [
       {
@@ -60,5 +60,5 @@
       true
     ]
   },
-  "hash": "2db63cbe7dca3be9f2dbc399ea5cb3ba7341ea04092fb1369d3d412bf371219d"
+  "hash": "d51a3108eeb0021c897ea3d8c3facd2252be966781195b603e533d8982f619d0"
 }

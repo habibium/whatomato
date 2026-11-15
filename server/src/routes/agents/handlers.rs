@@ -346,7 +346,7 @@ pub async fn rotate_agent_key(
 /// Revoke a connection
 ///
 /// Its key stops working and its waiting approvals go. Its activity stays, under its name. The
-/// scheduled messages it created are deleted with `delete_schedules=true`, else kept as the
+/// scheduled messages it created or changed are deleted with `delete_schedules=true`, else kept as the
 /// owner's own.
 #[utoipa::path(delete, path = "/{id}", params(("id" = Uuid, Path), RevokeQuery), responses(
     (status = OK, body = AgentRevoked),

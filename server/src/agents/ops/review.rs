@@ -17,7 +17,7 @@ use crate::{
     db::{
         agent_approvals::{self, Approval, Became},
         deliveries::{self, NewDelivery},
-        scheduled_messages,
+        scheduled_messages::{self, BelongsTo},
     },
     scheduler::{
         RecipientType, ScheduleKind,
@@ -439,6 +439,8 @@ async fn carry_out(
                 *scheduled_message_id,
                 user_id,
                 schedule.draft().fields(&schedule.recipient),
+                // The owner read and approved what it will send, so it stays whose it was
+                BelongsTo::Unchanged,
             )
             .await?
             .ok_or_else(|| {

@@ -1773,3 +1773,286 @@ async fn a_group_rule_cant_be_dodged_by_a_second_spelling(pool: PgPool) {
         );
     }
 }
+
+/// `count` one-time schedules of `connection`'s, made straight in the database
+async fn schedules_of(
+    state: &AppState,
+    owner: Uuid,
+    connection: Option<Uuid>,
+    count: i32,
+) -> Vec<Uuid> {
+    sqlx::query(
+        "INSERT INTO scheduled_messages (user_id, connection_id, recipient_type, recipient, body, \
+         schedule_kind, run_at, timezone, next_run_at) \
+         SELECT $1, $2, 'contact', $3, 'Hello', 'once', now() + interval '1 day', 'UTC', \
+             now() + interval '1 day' \
+         FROM generate_series(1, $4)",
+    )
+    .bind(owner)
+    .bind(connection)
+    .bind(ADA)
+    .bind(count)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    sqlx::query_scalar(
+        "SELECT id FROM scheduled_messages WHERE user_id = $1 \
+         AND connection_id IS NOT DISTINCT FROM $2 ORDER BY created_at, id",
+    )
+    .bind(owner)
+    .bind(connection)
+    .fetch_all(&state.pool)
+    .await
+    .unwrap()
+}
+
+async fn belongs_to(state: &AppState, id: Uuid, owner: Uuid) -> Option<Uuid> {
+    scheduled_messages::find(&state.pool, id, owner)
+        .await
+        .unwrap()
+        .unwrap()
+        .connection_id
+}
+
+/// Makes `id` due and runs the scheduler once, giving the delivery it made, if any
+async fn fire(state: &AppState, id: Uuid) -> Option<(bool, Option<Uuid>)> {
+    sqlx::query(
+        "UPDATE scheduled_messages SET enabled = true, next_run_at = now() - interval '1 minute' \
+         WHERE id = $1",
+    )
+    .bind(id)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    crate::scheduler::enqueue_due(&state.pool, &state.cipher, Utc::now(), true)
+        .await
+        .unwrap();
+    sqlx::query_as(
+        "SELECT skipped, connection_id FROM deliveries WHERE scheduled_message_id = $1 \
+         ORDER BY created_at DESC, id DESC LIMIT 1",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await
+    .unwrap()
+}
+
+#[sqlx::test]
+async fn a_schedule_an_agent_changes_becomes_that_agents(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let agent = connect(&state, owner, &Preset::FullAccess.grant()).await;
+    let other = connect(&state, owner, &Preset::FullAccess.grant()).await;
+    let agent_id = agent.connection().id;
+    let [owners] = schedules_of(&state, owner, None, 1).await[..] else {
+        panic!("one schedule")
+    };
+
+    let mut change = update(owners);
+    change.body = Some("Changed by the agent".to_owned());
+    let changed = update_scheduled_message(&state, &agent, change)
+        .await
+        .unwrap()
+        .schedule
+        .unwrap();
+    assert!(changed.created_by_this_connection);
+    assert_eq!(belongs_to(&state, owners, owner).await, Some(agent_id));
+    assert_eq!(
+        agent_connections::schedules(&state.pool, agent_id, owner)
+            .await
+            .unwrap(),
+        1
+    );
+
+    // Its runs are now the agent's: checked against its pause, and counted as its sends
+    agent_connections::pause(&state.pool, agent_id, owner)
+        .await
+        .unwrap();
+    assert_eq!(fire(&state, owners).await, Some((true, Some(agent_id))));
+    agent_connections::resume(&state.pool, agent_id, owner)
+        .await
+        .unwrap();
+    assert_eq!(fire(&state, owners).await, Some((false, Some(agent_id))));
+    let counts = agent_connections::counts(&state.pool, agent_id, RecipientType::Contact, ADA)
+        .await
+        .unwrap();
+    assert_eq!(counts.connection_sends, 1);
+
+    // Another connection only switching it on takes it over
+    sqlx::query(
+        "UPDATE scheduled_messages SET enabled = false, run_at = now() + interval '1 day' \
+         WHERE id = $1",
+    )
+    .bind(owners)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    let mut on = update(owners);
+    on.enabled = Some(true);
+    update_scheduled_message(&state, &other, on).await.unwrap();
+    let other_id = other.connection().id;
+    assert_eq!(belongs_to(&state, owners, owner).await, Some(other_id));
+
+    let revoked = agent_connections::delete(&state.pool, other_id, owner, true)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(revoked.schedules_deleted, 1);
+    assert!(
+        scheduled_messages::find(&state.pool, owners, owner)
+            .await
+            .unwrap()
+            .is_none()
+    );
+}
+
+#[sqlx::test]
+async fn switching_off_or_deleting_takes_nothing_over(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let agent = connect(&state, owner, &Preset::FullAccess.grant()).await;
+    let ids = schedules_of(&state, owner, None, 2).await;
+
+    let mut off = update(ids[0]);
+    off.enabled = Some(false);
+    update_scheduled_message(&state, &agent, off).await.unwrap();
+    assert_eq!(belongs_to(&state, ids[0], owner).await, None);
+    delete_scheduled_message(&state, &agent, DeleteScheduleInput { id: ids[1] })
+        .await
+        .unwrap();
+}
+
+#[sqlx::test]
+async fn a_grant_narrowed_after_the_key_was_looked_up_decides(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    connected(&state, owner);
+    save_contact(&state, owner, ADA, "Ada Lovelace").await;
+    // Built while it had full access, as when its key was looked up
+    let stale = connect(&state, owner, &Preset::FullAccess.grant()).await;
+    let id = stale.connection().id;
+    let theirs = schedules_of(&state, owner, None, 1).await[0];
+    agent_connections::set_grant(&state.pool, id, owner, &Preset::ViewOnly.grant())
+        .await
+        .unwrap();
+
+    refused_with(
+        send_message(&state, &stale, send_to(ADA, "Hi")).await,
+        "sending_off",
+    );
+    refused_with(
+        schedule_message(&state, &stale, once_at(ADA, tomorrow())).await,
+        "schedules_off",
+    );
+    let mut change = update(theirs);
+    change.body = Some("Changed".to_owned());
+    refused_with(
+        update_scheduled_message(&state, &stale, change).await,
+        "schedules_off",
+    );
+    let mut off = update(theirs);
+    off.enabled = Some(false);
+    refused_with(
+        update_scheduled_message(&state, &stale, off).await,
+        "schedules_off",
+    );
+    refused_with(
+        delete_scheduled_message(&state, &stale, DeleteScheduleInput { id: theirs }).await,
+        "schedules_off",
+    );
+    assert_eq!(delivery_rows(&state.pool, owner).await.len(), 0);
+
+    sqlx::query(r#"UPDATE agent_connections SET "grant" = '{"version": 1}' WHERE id = $1"#)
+        .bind(id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    refused_with(
+        send_message(&state, &stale, send_to(ADA, "Hi")).await,
+        "grant_unreadable",
+    );
+}
+
+#[sqlx::test]
+async fn a_connection_has_at_most_50_schedules(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let agent = connect(&state, owner, &Preset::FullAccess.grant()).await;
+    let agent_id = agent.connection().id;
+    schedules_of(&state, owner, Some(agent_id), 49).await;
+    let owners = schedules_of(&state, owner, None, 1).await[0];
+
+    let fiftieth = schedule_message(&state, &agent, once_at(ADA, tomorrow()))
+        .await
+        .unwrap();
+    assert_eq!(fiftieth.outcome, ScheduleOutcome::Created);
+    let over = schedule_message(&state, &agent, once_at(ADA, tomorrow())).await;
+    refused_with(over, "too_many_schedules");
+    let (tool, outcome, reason) = last_activity(&state, &agent).await;
+    assert_eq!(
+        (tool.as_str(), outcome, reason.as_deref()),
+        (
+            "schedule_message",
+            Outcome::Denied,
+            Some("too_many_schedules")
+        )
+    );
+
+    // Taking over the owner's would make 51; changing one of its own makes none
+    let mut change = update(owners);
+    change.body = Some("Mine now".to_owned());
+    refused_with(
+        update_scheduled_message(&state, &agent, change).await,
+        "too_many_schedules",
+    );
+    assert_eq!(belongs_to(&state, owners, owner).await, None);
+    let mut own = update(fiftieth.schedule.unwrap().id);
+    own.body = Some("Still mine".to_owned());
+    update_scheduled_message(&state, &agent, own).await.unwrap();
+
+    delete_scheduled_message(&state, &agent, DeleteScheduleInput { id: owners })
+        .await
+        .unwrap();
+    let mine = schedules_of(&state, owner, Some(agent_id), 0).await;
+    delete_scheduled_message(&state, &agent, DeleteScheduleInput { id: mine[0] })
+        .await
+        .unwrap();
+    schedule_message(&state, &agent, once_at(ADA, tomorrow()))
+        .await
+        .unwrap();
+}
+
+#[sqlx::test]
+async fn approvals_count_toward_the_50_and_the_owner_may_go_past(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let asker = connect(&state, owner, &Preset::AskBeforeSending.grant()).await;
+    let asker_id = asker.connection().id;
+    schedules_of(&state, owner, Some(asker_id), 48).await;
+
+    let first = schedule_message(&state, &asker, once_at(ADA, tomorrow()))
+        .await
+        .unwrap();
+    let second = schedule_message(&state, &asker, once_at(ADA, tomorrow()))
+        .await
+        .unwrap();
+    assert_eq!(second.outcome, ScheduleOutcome::WaitingForApproval);
+    refused_with(
+        schedule_message(&state, &asker, once_at(ADA, tomorrow())).await,
+        "too_many_schedules",
+    );
+
+    // 49 now, one waiting: the owner's yes isn't counted again
+    schedules_of(&state, owner, Some(asker_id), 1).await;
+    for asked in [first, second] {
+        review::approve(&state, asked.approval_id.unwrap(), owner, None)
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        agent_connections::schedules(&state.pool, asker_id, owner)
+            .await
+            .unwrap(),
+        51
+    );
+}

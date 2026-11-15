@@ -23,7 +23,7 @@ pub enum Firing {
     Later,
 }
 
-/// Decides a run of a schedule `connection_id` created, aimed at `chat`. Takes the connection's
+/// Decides a run of a schedule that belongs to `connection_id`, aimed at `chat`. Takes the connection's
 /// lock, without waiting for it, until `db`'s transaction ends.
 ///
 /// # Errors
@@ -53,14 +53,18 @@ pub async fn check(
         );
     };
     if locked.paused {
-        return Ok(skip("Not sent: the agent that scheduled this is paused."));
+        return Ok(skip(
+            "Not sent: the agent this schedule belongs to is paused.",
+        ));
     }
     if locked.expired {
-        return Ok(skip("Not sent: the agent that scheduled this has expired."));
+        return Ok(skip(
+            "Not sent: the agent this schedule belongs to has expired.",
+        ));
     }
     let Ok(grant) = Grant::parse(&locked.grant) else {
         return Ok(skip(
-            "Not sent: the permissions of the agent that scheduled this couldn't be read. Save \
+            "Not sent: the permissions of the agent this schedule belongs to couldn't be read. Save \
              its permissions again to fix this.",
         ));
     };
@@ -81,6 +85,7 @@ pub async fn check(
         connection_sends: counts.connection_sends,
         // A run never asks, so the approval queue has no say
         waiting_approvals: 0,
+        schedules: counts.schedules,
     };
     Ok(match decide(&grant, Action::Send(chat), &facts) {
         // The schedule was approved or allowed when it was made; a rule of `ask` doesn't ask again
@@ -98,11 +103,11 @@ fn skip(message: &str) -> Firing {
 fn skipped_because(reason: Reason) -> String {
     match reason {
         Reason::DailyCeiling => format!(
-            "Not sent: the agent that scheduled this has sent {DAILY_CEILING} messages in the \
+            "Not sent: the agent this schedule belongs to has sent {DAILY_CEILING} messages in the \
              last 24 hours, the most any agent may."
         ),
         Reason::ChatLimit { limit } => format!(
-            "Not sent: the agent that scheduled this has reached its limit of {limit} messages a \
+            "Not sent: the agent this schedule belongs to has reached its limit of {limit} messages a \
              day to this chat."
         ),
         Reason::OutOfScope => "Not sent: this chat is no longer one of the chats the agent that \
@@ -116,7 +121,8 @@ fn skipped_because(reason: Reason) -> String {
         | Reason::NotOwnSchedule
         | Reason::ContactsOff
         | Reason::TemplatesOff
-        | Reason::TooManyWaiting => "Not sent: the agent that scheduled this is no longer \
+        | Reason::TooManyWaiting
+        | Reason::TooManySchedules => "Not sent: the agent this schedule belongs to is no longer \
                                      allowed to send to this chat."
             .to_owned(),
     }

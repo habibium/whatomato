@@ -636,3 +636,99 @@ async fn the_owner_may_schedule_more_often_than_agents_may(pool: PgPool) {
     assert_eq!(message["recurrence"]["expression"], "* * * * *");
     assert_eq!(message["enabled"], true);
 }
+
+#[sqlx::test]
+async fn the_owners_edit_makes_an_agents_schedule_the_owners(pool: PgPool) {
+    use crate::{
+        agents::{Preset, key::AccessKey},
+        crypto::Cipher,
+        db::agent_connections::{self, NewConnection},
+    };
+
+    let app = TestApp::new(pool.clone());
+    let (owner, session) = app.signed_in("ada@example.com").await;
+    let key = AccessKey::generate().unwrap();
+    let agent = agent_connections::create(
+        &pool,
+        NewConnection {
+            user_id: owner,
+            name: "Assistant",
+            key_hash: &key.hash,
+            key_hint: &key.hint,
+            grant: &Preset::FullAccess.grant(),
+            expires_at: None,
+        },
+    )
+    .await
+    .unwrap()
+    .unwrap()
+    .id;
+    agent_connections::pause(&pool, agent, owner).await.unwrap();
+    let message = create(&app, recurring(), &session).await;
+    let path = path_of(&message);
+    let id: uuid::Uuid = message["id"].as_str().unwrap().parse().unwrap();
+    let belongs_to = || async {
+        sqlx::query_scalar::<_, Option<uuid::Uuid>>(
+            "SELECT connection_id FROM scheduled_messages WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    };
+    let hand_to_agent = || async {
+        sqlx::query("UPDATE scheduled_messages SET connection_id = $2 WHERE id = $1")
+            .bind(id)
+            .bind(agent)
+            .execute(&pool)
+            .await
+            .unwrap();
+    };
+
+    // Switching it off and on changes nothing about what it sends
+    hand_to_agent().await;
+    for enabled in [false, true] {
+        let toggled = app
+            .call(
+                Method::PATCH,
+                &path,
+                Some(json!({ "enabled": enabled })),
+                Some(&session),
+            )
+            .await;
+        assert_eq!(toggled.status, StatusCode::OK);
+        assert_eq!(belongs_to().await, Some(agent));
+    }
+
+    let edited = app
+        .call(
+            Method::PUT,
+            &path,
+            Some(with(recurring(), "body", json!("Edited by the owner"))),
+            Some(&session),
+        )
+        .await;
+    assert_eq!(edited.status, StatusCode::OK, "{}", edited.body);
+    assert_eq!(belongs_to().await, None);
+
+    // It now fires although the agent is paused
+    sqlx::query(
+        "UPDATE scheduled_messages SET next_run_at = now() - interval '1 minute' WHERE id = $1",
+    )
+    .bind(id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    crate::scheduler::enqueue_due(&pool, &Cipher::new(&[0; 32]), Utc::now(), true)
+        .await
+        .unwrap();
+    let (skipped, by): (bool, Option<uuid::Uuid>) = sqlx::query_as(
+        "SELECT skipped, connection_id FROM deliveries WHERE scheduled_message_id = $1",
+    )
+    .bind(id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(!skipped);
+    assert_eq!(by, None);
+}

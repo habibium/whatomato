@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO deliveries\n               (user_id, scheduled_message_id, connection_id, recipient_type, recipient,\n                recipient_name, body, status, error, skipped)\n           SELECT $1, $2, $3, $4, $5, $6, $7, 'failed', $8, true\n           WHERE NOT EXISTS (\n               SELECT 1 FROM (\n                   SELECT skipped, connection_id, error FROM deliveries\n                   WHERE scheduled_message_id = $2\n                   ORDER BY created_at DESC, id DESC LIMIT 1\n               ) last\n               WHERE last.skipped AND last.connection_id IS NOT DISTINCT FROM $3\n                   AND last.error IS NOT DISTINCT FROM $8\n           )\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8667aab963f6c7d8aae2cf1bc95df8f6c01e09dd497e7bb4311ae7d22e06a1d9"
+}

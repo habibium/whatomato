@@ -47,6 +47,8 @@ pub struct Counts {
     pub chat_sends: u32,
     pub connection_sends: u32,
     pub waiting_approvals: u32,
+    /// Its scheduled messages, and its requests to create one still waiting
+    pub schedules: u32,
 }
 
 /// A connection as read under its lock
@@ -300,7 +302,7 @@ pub async fn rotate_key(
     .await
 }
 
-/// What revoking did to the schedules the connection created
+/// What revoking did to the schedules the connection created or last changed
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Revoked {
     pub schedules_deleted: u64,
@@ -358,7 +360,8 @@ pub async fn delete(
     Ok(Some(revoked))
 }
 
-/// How many of the user's scheduled messages the connection created that still exist
+/// How many of the user's scheduled messages belong to the connection: those it created or last
+/// changed
 pub async fn schedules(db: impl PgExecutor<'_>, id: Uuid, user_id: Uuid) -> sqlx::Result<i64> {
     sqlx::query_scalar!(
         r#"SELECT count(*) AS "count!" FROM scheduled_messages
@@ -395,7 +398,12 @@ pub async fn usage(db: impl PgExecutor<'_>, connection_id: Uuid) -> sqlx::Result
                       AND expires_at > now()) AS "sends!",
                (SELECT count(*) FROM agent_approvals
                 WHERE connection_id = $1 AND status = 'waiting' AND expires_at > now())
-                   AS "waiting!""#,
+                   AS "waiting!",
+               (SELECT count(*) FROM scheduled_messages WHERE connection_id = $1)
+                   + (SELECT count(*) FROM agent_approvals
+                      WHERE connection_id = $1 AND kind = 'schedule_create'
+                          AND status = 'waiting' AND expires_at > now())
+                   AS "schedules!""#,
         connection_id,
     )
     .fetch_one(db)
@@ -433,7 +441,8 @@ pub async fn usage_all(
 }
 
 /// Sends by `connection_id` in the last 24 hours, to one chat and in all, counting the deliveries
-/// it caused and its send approvals still waiting; and how many approvals of any kind wait
+/// it caused and its send approvals still waiting; how many approvals of any kind wait; and how
+/// many scheduled messages it has or is waiting to create
 pub async fn counts(
     db: impl PgExecutor<'_>,
     connection_id: Uuid,
@@ -456,7 +465,12 @@ pub async fn counts(
                (SELECT count(*) FROM sends) AS "connection!",
                (SELECT count(*) FROM agent_approvals
                 WHERE connection_id = $1 AND status = 'waiting' AND expires_at > now())
-                   AS "waiting!""#,
+                   AS "waiting!",
+               (SELECT count(*) FROM scheduled_messages WHERE connection_id = $1)
+                   + (SELECT count(*) FROM agent_approvals
+                      WHERE connection_id = $1 AND kind = 'schedule_create'
+                          AND status = 'waiting' AND expires_at > now())
+                   AS "schedules!""#,
         connection_id,
         recipient_type.as_str(),
         recipient,
@@ -468,5 +482,6 @@ pub async fn counts(
         chat_sends: small(row.chat),
         connection_sends: small(row.connection),
         waiting_approvals: small(row.waiting),
+        schedules: small(row.schedules),
     })
 }

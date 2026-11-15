@@ -34,6 +34,13 @@ const AGENT_KEY_FAILURES_BURST: NonZeroU32 = NonZeroU32::new(20).unwrap();
 const AGENT_KEY_FAILURES_REFILL: Duration = Duration::from_secs(6);
 /// How long a key that worked may still reach the lookup from an address over its failure limit
 const AGENT_KEY_REMEMBERED: Duration = Duration::from_hours(24);
+/// Lookups of well-formed keys an address over its failure limit still gets: 60, then one a second.
+/// Three times the failure burst and six times its refill, so an agent sharing the address keeps
+/// getting in, while a flood of wrong keys costs at most one indexed query a second per address.
+const AGENT_KEY_LOOKUPS_BURST: NonZeroU32 = NonZeroU32::new(60).unwrap();
+const AGENT_KEY_LOOKUPS_REFILL: Duration = Duration::from_secs(1);
+/// Entries each of the agent key maps may hold
+const AGENT_KEY_ENTRIES_MAX: usize = 10_000;
 const AGENT_SEARCHES_PER_MINUTE: NonZeroU32 = NonZeroU32::new(20).unwrap();
 
 /// Limits writes per client IP to a burst of 20, then one every 6 seconds (10 a minute). Reads
@@ -128,11 +135,12 @@ pub struct RateLimits {
     whatsapp_link: Arc<DefaultKeyedRateLimiter<Uuid>>,
     agent_calls: Arc<DefaultKeyedRateLimiter<Uuid>>,
     agent_key_failures: Arc<DefaultKeyedRateLimiter<IpAddr>>,
-    /// Until when each address over [`Self::agent_key_failures`] stays refused, so a request can
-    /// be turned away before its key is looked up, without spending what a good key would
+    /// Until when each address is over [`Self::agent_key_failures`]. A well-formed key from it
+    /// still gets looked up, within [`Self::agent_key_lookups`].
     agent_key_blocked: Arc<Mutex<HashMap<IpAddr, Instant>>>,
-    /// Hashes of keys that worked lately, and when. Only a working key gets in, so an attacker
-    /// can't grow it, and cloud agents sharing an address with one keep working.
+    agent_key_lookups: Arc<DefaultKeyedRateLimiter<IpAddr>>,
+    /// Hashes of keys that worked lately, and when: these skip [`Self::agent_key_lookups`]. Empty
+    /// after a restart, so nothing may depend on it for a real key to get in.
     agent_keys_worked: Arc<Mutex<HashMap<[u8; 32], Instant>>>,
     agent_searches: Arc<DefaultKeyedRateLimiter<Uuid>>,
 }
@@ -163,6 +171,11 @@ impl Default for RateLimits {
                     .allow_burst(AGENT_KEY_FAILURES_BURST),
             )),
             agent_key_blocked: Arc::default(),
+            agent_key_lookups: Arc::new(RateLimiter::keyed(
+                Quota::with_period(AGENT_KEY_LOOKUPS_REFILL)
+                    .expect("refill period is nonzero")
+                    .allow_burst(AGENT_KEY_LOOKUPS_BURST),
+            )),
             agent_keys_worked: Arc::default(),
             agent_searches: Arc::new(RateLimiter::keyed(Quota::per_minute(
                 AGENT_SEARCHES_PER_MINUTE,
@@ -174,6 +187,7 @@ impl Default for RateLimits {
         sweep(&limits.whatsapp_link);
         sweep(&limits.agent_calls);
         sweep(&limits.agent_key_failures);
+        sweep(&limits.agent_key_lookups);
         sweep(&limits.agent_searches);
         sweep_until(&limits.agent_key_blocked, Duration::ZERO);
         sweep_until(&limits.agent_keys_worked, AGENT_KEY_REMEMBERED);
@@ -215,52 +229,54 @@ impl RateLimits {
     pub(crate) fn agent_key_failure(&self, ip: IpAddr) -> Result<(), AppError> {
         check(&self.agent_key_failures, &ip).inspect_err(|refused| {
             if let AppError::TooManyRequests(wait) = refused {
-                self.agent_key_blocked
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .insert(ip, Instant::now() + *wait);
+                let now = Instant::now();
+                remember(
+                    &self.agent_key_blocked,
+                    ip,
+                    now + *wait,
+                    Duration::ZERO,
+                    now,
+                );
             }
         })
     }
 
-    /// Refuses `ip` while [`Self::agent_key_failure`] would, without counting this request,
-    /// unless it brings a key that worked lately
-    pub(crate) fn agent_key_blocked(
-        &self,
-        ip: IpAddr,
-        key_hash: Option<&[u8; 32]>,
-    ) -> Result<(), AppError> {
+    /// Whether the well-formed key hashed to `key_hash`, from `ip`, may be looked up. Always, unless
+    /// `ip` is over [`Self::agent_key_failure`]; then a key that worked lately may, and any other
+    /// only within the address's lookup budget.
+    pub(crate) fn agent_key_lookup(&self, ip: IpAddr, key_hash: &[u8; 32]) -> Result<(), AppError> {
         let now = Instant::now();
-        let until = {
-            let blocked = self
-                .agent_key_blocked
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            match blocked.get(&ip) {
-                Some(&until) if until > now => until,
-                _ => return Ok(()),
-            }
-        };
-        let worked = key_hash.is_some_and(|hash| {
-            self.agent_keys_worked
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .get(hash)
-                .is_some_and(|&at| now.duration_since(at) < AGENT_KEY_REMEMBERED)
-        });
-        if worked {
-            Ok(())
-        } else {
-            Err(AppError::TooManyRequests(until - now))
+        let blocked = self
+            .agent_key_blocked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&ip)
+            .is_some_and(|&until| until > now);
+        if !blocked {
+            return Ok(());
         }
+        let worked = self
+            .agent_keys_worked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(key_hash)
+            .is_some_and(|&at| now.duration_since(at) < AGENT_KEY_REMEMBERED);
+        if worked {
+            return Ok(());
+        }
+        check(&self.agent_key_lookups, &ip)
     }
 
     /// Notes that the key hashed to `key_hash` just worked
     pub(crate) fn agent_key_worked(&self, key_hash: [u8; 32]) {
-        self.agent_keys_worked
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(key_hash, Instant::now());
+        let now = Instant::now();
+        remember(
+            &self.agent_keys_worked,
+            key_hash,
+            now,
+            AGENT_KEY_REMEMBERED,
+            now,
+        );
     }
 
     /// Counts a `find_chats` call by the agent connection `connection_id`: 20 a minute, since each
@@ -268,6 +284,25 @@ impl RateLimits {
     pub(crate) fn agent_search(&self, connection_id: Uuid) -> Result<(), AppError> {
         check(&self.agent_searches, &connection_id)
     }
+}
+
+/// Sets `key` to `at` unless the map is full of entries whose time, plus `kept`, is still ahead;
+/// then the new one is dropped, which costs only a fast path
+fn remember<K: Hash + Eq>(
+    entries: &Mutex<HashMap<K, Instant>>,
+    key: K,
+    at: Instant,
+    kept: Duration,
+    now: Instant,
+) {
+    let mut entries = entries.lock().unwrap_or_else(PoisonError::into_inner);
+    if entries.len() >= AGENT_KEY_ENTRIES_MAX && !entries.contains_key(&key) {
+        entries.retain(|_, time| *time + kept > now);
+        if entries.len() >= AGENT_KEY_ENTRIES_MAX {
+            return;
+        }
+    }
+    entries.insert(key, at);
 }
 
 fn check<K>(limiter: &DefaultKeyedRateLimiter<K>, key: &K) -> Result<(), AppError>
@@ -330,9 +365,44 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        net::{IpAddr, Ipv4Addr},
+        time::{Duration, Instant},
+    };
+
     use uuid::Uuid;
 
-    use super::RateLimits;
+    use super::{AGENT_KEY_ENTRIES_MAX, RateLimits};
+
+    #[test]
+    fn the_agent_key_maps_stay_bounded() {
+        let limits = RateLimits::default();
+        let count = u32::try_from(AGENT_KEY_ENTRIES_MAX).unwrap() + 100;
+        for n in 0..count {
+            let mut hash = [0; 32];
+            hash[..4].copy_from_slice(&n.to_be_bytes());
+            limits.agent_key_worked(hash);
+            let ip = IpAddr::V4(Ipv4Addr::from_bits(n));
+            for _ in 0..21 {
+                let _ = limits.agent_key_failure(ip);
+            }
+        }
+        let worked = limits.agent_keys_worked.lock().unwrap().len();
+        let blocked = limits.agent_key_blocked.lock().unwrap().len();
+        assert_eq!(worked, AGENT_KEY_ENTRIES_MAX);
+        assert_eq!(blocked, AGENT_KEY_ENTRIES_MAX);
+
+        // Entries that have run out make room
+        let past = Instant::now().checked_sub(Duration::from_secs(1)).unwrap();
+        for until in limits.agent_key_blocked.lock().unwrap().values_mut() {
+            *until = past;
+        }
+        let _ = limits.agent_key_failure(IpAddr::V4(Ipv4Addr::LOCALHOST));
+        for _ in 0..21 {
+            let _ = limits.agent_key_failure(IpAddr::V4(Ipv4Addr::BROADCAST));
+        }
+        assert_eq!(limits.agent_key_blocked.lock().unwrap().len(), 1);
+    }
 
     #[test]
     fn the_wrong_codes_alert_goes_out_once_a_window_per_user() {

@@ -87,18 +87,9 @@ impl Caller {
         if let Some(stopped) = stopped(&settings_url, paused, expired) {
             return Err(stopped);
         }
-        let refuse = |code, message: &str| OpError::Refused {
-            code,
-            message: message.to_owned(),
-            url: settings_url.clone(),
-        };
         let grant = Grant::parse(&connection.grant).map_err(|error| {
             tracing::warn!(connection_id = %connection.id, "an agent grant didn't parse: {error}");
-            refuse(
-                "grant_unreadable",
-                "This connection's permissions couldn't be read, so it can't do anything. The \
-                 owner can fix this by saving its permissions again.",
-            )
+            unreadable_grant(&settings_url)
         })?;
         Ok(Self {
             connection,
@@ -131,6 +122,16 @@ impl Caller {
             message: reason.message(),
             url: self.settings_url.clone(),
         }
+    }
+}
+
+fn unreadable_grant(settings_url: &str) -> OpError {
+    OpError::Refused {
+        code: "grant_unreadable",
+        message: "This connection's permissions couldn't be read, so it can't do anything. The \
+                  owner can fix this by saving its permissions again."
+            .to_owned(),
+        url: settings_url.to_owned(),
     }
 }
 
@@ -484,15 +485,24 @@ fn approval_url(app_url: &Url, id: Uuid) -> String {
 
 /// Takes the connection's lock until `db`'s transaction ends, so that calls at the same moment
 /// count each other: whatever is counted, decided and inserted under it can't race. Nothing slow
-/// (WhatsApp, email, another pool connection) may happen while it's held.
+/// (WhatsApp, email, another pool connection) may happen while it's held. Gives the grant as the
+/// locked row holds it, which is the one to decide with: the owner may have changed it since the
+/// key was looked up.
 ///
 /// # Errors
-/// [`OpError::Refused`] when the connection was paused or expired since the call began.
-async fn lock(db: &mut PgConnection, caller: &Caller) -> Result<(), OpError> {
+/// [`OpError::Refused`] when the connection was paused or expired since the call began, or its
+/// grant no longer parses.
+async fn lock(db: &mut PgConnection, caller: &Caller) -> Result<Grant, OpError> {
     let locked = agent_connections::lock(db, caller.id())
         .await?
         .ok_or_else(|| anyhow!("the connection was revoked during a call"))?;
-    stopped(&caller.settings_url, locked.paused, locked.expired).map_or(Ok(()), Err)
+    if let Some(stopped) = stopped(&caller.settings_url, locked.paused, locked.expired) {
+        return Err(stopped);
+    }
+    Grant::parse(&locked.grant).map_err(|error| {
+        tracing::warn!(connection_id = %caller.id(), "an agent grant didn't parse: {error}");
+        unreadable_grant(&caller.settings_url)
+    })
 }
 
 /// What [`decide`](super::decide) needs to know about `chat` and this connection's use of it.
@@ -510,6 +520,7 @@ async fn facts(
         chat_sends: counts.chat_sends,
         connection_sends: counts.connection_sends,
         waiting_approvals: counts.waiting_approvals,
+        schedules: counts.schedules,
     })
 }
 

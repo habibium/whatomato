@@ -17,7 +17,7 @@ use crate::{
         Decision,
         decide::{Action, ChatRef, Facts, Owner, decide},
     },
-    db::scheduled_messages::{self, Message},
+    db::scheduled_messages::{self, BelongsTo, Message},
     scheduler::{RecipientType, ScheduleKind, draft, recurrence::Recurrence},
     state::AppState,
 };
@@ -91,7 +91,7 @@ pub struct ScheduleView {
     /// Empty while it's switched off, and once a one-time message has gone out
     pub next_run_at: Option<DateTime<Utc>>,
     pub last_run_at: Option<DateTime<Utc>>,
-    /// Whether this connection created it
+    /// Whether it belongs to this connection: it created it, or last changed it
     pub created_by_this_connection: bool,
 }
 
@@ -207,9 +207,9 @@ async fn run_schedule(
     let known = chat_facts(state, caller, chat).await?;
     trace.chat(chat.recipient_type, chat.recipient, known.name.as_deref());
     let mut transaction = state.pool.begin().await?;
-    lock(&mut transaction, caller).await?;
+    let grant = lock(&mut transaction, caller).await?;
     let facts = facts(&mut transaction, caller, chat, known.saved).await?;
-    let decision = decide(&caller.grant, Action::CreateSchedule(chat), &facts);
+    let decision = decide(&grant, Action::CreateSchedule(chat), &facts);
     request.recipient_name = known.name;
 
     match decision {
@@ -271,7 +271,7 @@ pub struct SchedulesPage {
     pub more: More,
 }
 
-/// The scheduled messages this connection created, or with `schedules: all` every one of the
+/// The scheduled messages that belong to this connection, or with `schedules: all` every one of the
 /// account's, oldest first
 ///
 /// # Errors
@@ -373,8 +373,9 @@ impl UpdateScheduleInput {
 }
 
 /// Changes a scheduled message, or asks the owner to approve the change first. The decision is
-/// made for the chat it will send to once changed. Switching one off needs only the right to
-/// manage it, since it sends nothing.
+/// made for the chat it will send to once changed. A change made outright makes the message this
+/// connection's, since it now decides what it sends; one the owner approved keeps its owner.
+/// Switching one off needs only the right to manage it, since it sends nothing, and keeps its owner.
 ///
 /// # Errors
 /// [`OpError::NotFound`] for an id that isn't one of the account's, [`OpError::Invalid`] for input
@@ -401,6 +402,42 @@ fn owner(message: &Message, caller: &Caller) -> Owner {
     }
 }
 
+/// Switches a message off, which sends nothing, so it keeps its owner
+async fn switch_off(
+    state: &AppState,
+    caller: &Caller,
+    id: Uuid,
+) -> Result<ScheduleResult, OpError> {
+    let mut transaction = state.pool.begin().await?;
+    let grant = lock(&mut transaction, caller).await?;
+    let locked = scheduled_messages::find_locked(&mut *transaction, id, caller.user_id())
+        .await?
+        .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
+    let owner = owner(&locked, caller);
+    if let Decision::Deny(reason) =
+        decide(&grant, Action::DeleteSchedule { owner }, &Facts::default())
+    {
+        return Err(caller.refused(reason));
+    }
+    let message = scheduled_messages::set_enabled(
+        &mut *transaction,
+        locked.id,
+        caller.user_id(),
+        false,
+        None,
+    )
+    .await?
+    .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
+    transaction.commit().await?;
+    Ok(ScheduleResult {
+        outcome: ScheduleOutcome::Updated,
+        message: "The scheduled message is switched off.",
+        schedule: Some(ScheduleView::new(message, caller)),
+        approval_id: None,
+        approval_url: None,
+    })
+}
+
 async fn run_update(
     state: &AppState,
     caller: &Caller,
@@ -410,7 +447,6 @@ async fn run_update(
     let message = scheduled_messages::find(&state.pool, input.id, caller.user_id())
         .await?
         .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
-    let owner = owner(&message, caller);
     trace.chat(
         message.recipient_type,
         &message.recipient,
@@ -418,24 +454,7 @@ async fn run_update(
     );
 
     if input.only_disables() {
-        if let Decision::Deny(reason) = decide(
-            &caller.grant,
-            Action::DeleteSchedule { owner },
-            &Facts::default(),
-        ) {
-            return Err(caller.refused(reason));
-        }
-        let message =
-            scheduled_messages::set_enabled(&state.pool, message.id, caller.user_id(), false, None)
-                .await?
-                .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
-        return Ok(ScheduleResult {
-            outcome: ScheduleOutcome::Updated,
-            message: "The scheduled message is switched off.",
-            schedule: Some(ScheduleView::new(message, caller)),
-            approval_id: None,
-            approval_url: None,
-        });
+        return switch_off(state, caller, input.id).await;
     }
     if !input.changes_message() && input.enabled.is_none() {
         return Err(OpError::invalid(
@@ -459,13 +478,14 @@ async fn run_update(
         .or_else(|| same_chat.then_some(same_chat_name).flatten());
     trace.chat(chat.recipient_type, chat.recipient, name.as_deref());
     let mut transaction = state.pool.begin().await?;
-    lock(&mut transaction, caller).await?;
+    let grant = lock(&mut transaction, caller).await?;
+    // Read again under the lock: whose it is may have changed since
+    let locked = scheduled_messages::find_locked(&mut *transaction, message.id, caller.user_id())
+        .await?
+        .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
+    let owner = owner(&locked, caller);
     let facts = facts(&mut transaction, caller, chat, known.saved).await?;
-    let decision = decide(
-        &caller.grant,
-        Action::UpdateSchedule { chat, owner },
-        &facts,
-    );
+    let decision = decide(&grant, Action::UpdateSchedule { chat, owner }, &facts);
     request.recipient_name = name;
 
     match decision {
@@ -476,6 +496,7 @@ async fn run_update(
                 message.id,
                 caller.user_id(),
                 request.draft().fields(&request.recipient),
+                BelongsTo::Connection(caller.id()),
             )
             .await?
             .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
@@ -546,17 +567,21 @@ async fn run_delete(
         &message.recipient,
         message.recipient_name.as_deref(),
     );
-    let owner = owner(&message, caller);
-    if let Decision::Deny(reason) = decide(
-        &caller.grant,
-        Action::DeleteSchedule { owner },
-        &Facts::default(),
-    ) {
+    let mut transaction = state.pool.begin().await?;
+    let grant = lock(&mut transaction, caller).await?;
+    let locked = scheduled_messages::find_locked(&mut *transaction, id, caller.user_id())
+        .await?
+        .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
+    let owner = owner(&locked, caller);
+    if let Decision::Deny(reason) =
+        decide(&grant, Action::DeleteSchedule { owner }, &Facts::default())
+    {
         return Err(caller.refused(reason));
     }
-    if !scheduled_messages::delete(&state.pool, id, caller.user_id()).await? {
+    if !scheduled_messages::delete(&mut *transaction, id, caller.user_id()).await? {
         return Err(OpError::NotFound(NO_SUCH_SCHEDULE));
     }
+    transaction.commit().await?;
     Ok(ScheduleDeleted {
         id,
         message: "The scheduled message is deleted. What it already sent stays in the delivery \

@@ -721,7 +721,7 @@
       },
       "delete": {
         "summary": "Revoke a connection",
-        "description": "Its key stops working and its waiting approvals go. Its activity stays, under its name. The\nscheduled messages it created are deleted with `delete_schedules=true`, else kept as the\nowner's own.",
+        "description": "Its key stops working and its waiting approvals go. Its activity stays, under its name. The\nscheduled messages it created or changed are deleted with `delete_schedules=true`, else kept as the\nowner's own.",
         "operationId": "revoke_agent",
         "parameters": [
           {
@@ -736,7 +736,7 @@
           {
             "name": "delete_schedules",
             "in": "query",
-            "description": "Also delete the scheduled messages it created. Left out, they're kept as your own.",
+            "description": "Also delete the scheduled messages it created or changed. Left out, they're kept as your own.",
             "required": false,
             "schema": {
               "type": "boolean"
@@ -4441,7 +4441,7 @@
               "schedules": {
                 "type": "integer",
                 "format": "int64",
-                "description": "Scheduled messages it created that still exist, which revoking can delete or keep"
+                "description": "Scheduled messages it created or changed that still exist, which revoking can delete or keep"
               }
             }
           }
@@ -4492,7 +4492,7 @@
       },
       "AgentRevoked": {
         "type": "object",
-        "description": "What revoking did with the scheduled messages the connection created",
+        "description": "What revoking did with the scheduled messages the connection created or changed",
         "required": [
           "schedules_deleted",
           "schedules_kept"

@@ -44,7 +44,7 @@ pub enum Contacts {
 #[serde(rename_all = "snake_case")]
 pub enum Schedules {
     None,
-    /// Only the schedules this connection created
+    /// Only the schedules this connection created or changed
     Own,
     All,
 }

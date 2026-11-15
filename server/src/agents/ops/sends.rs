@@ -112,9 +112,9 @@ async fn run_send(
     .await;
 
     let mut transaction = state.pool.begin().await?;
-    lock(&mut transaction, caller).await?;
+    let grant = lock(&mut transaction, caller).await?;
     let facts = facts(&mut transaction, caller, chat, known.saved).await?;
-    match decide(&caller.grant, Action::Send(chat), &facts) {
+    match decide(&grant, Action::Send(chat), &facts) {
         Decision::Deny(reason) => Err(caller.refused(reason)),
         Decision::Allow | Decision::AllowOwn => {
             whatsapp_ready(state, caller.user_id())?;

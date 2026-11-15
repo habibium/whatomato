@@ -267,7 +267,7 @@ async fn run(
 /// Queues everything due by `now` and moves each schedule on, in one transaction: a crash can't
 /// leave a schedule that queued a send and would queue it again. A run of an agent's schedule is
 /// decided again first, and one its connection may no longer make is recorded as skipped.
-async fn enqueue_due(
+pub(crate) async fn enqueue_due(
     pool: &PgPool,
     cipher: &Cipher,
     now: DateTime<Utc>,
@@ -989,7 +989,7 @@ mod tests {
         sqlx::query_as!(
             Fired,
             "SELECT status, skipped, error, connection_id FROM deliveries \
-             WHERE scheduled_message_id = $1",
+             WHERE scheduled_message_id = $1 ORDER BY created_at, id",
             schedule
         )
         .fetch_all(pool)
@@ -1061,12 +1061,12 @@ mod tests {
             (
                 Stop::Paused,
                 full_access(),
-                "the agent that scheduled this is paused",
+                "the agent this schedule belongs to is paused",
             ),
             (
                 Stop::Expired,
                 full_access(),
-                "the agent that scheduled this has expired",
+                "the agent this schedule belongs to has expired",
             ),
             (
                 Stop::SwitchOff,
@@ -1167,6 +1167,63 @@ mod tests {
             row.next_run_at,
             Some(Utc.with_ymd_and_hms(2030, 1, 2, 9, 0, 0).unwrap())
         );
+    }
+
+    #[sqlx::test]
+    async fn a_streak_of_skips_for_one_reason_is_recorded_once(pool: PgPool) {
+        let owner = user(&pool).await;
+        let connection = agent(&pool, owner, &full_access()).await;
+        let schedule = recurring_due(&pool, owner, "0 * * * *").await;
+        made_by(&pool, schedule, connection).await;
+        let run = || async {
+            sqlx::query!(
+                "UPDATE scheduled_messages SET next_run_at = $2 WHERE id = $1",
+                schedule,
+                past()
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+            assert_eq!(enqueue(&pool, true).await, 1, "it moves on each time");
+            fired(&pool, schedule)
+                .await
+                .into_iter()
+                .map(|fired| fired.skipped)
+                .collect::<Vec<_>>()
+        };
+        let pool = &pool;
+        let expire = |at: Option<DateTime<Utc>>| async move {
+            sqlx::query!(
+                "UPDATE agent_connections SET expires_at = $2 WHERE id = $1",
+                connection,
+                at
+            )
+            .execute(pool)
+            .await
+            .unwrap();
+        };
+
+        agent_connections::pause(pool, connection, owner)
+            .await
+            .unwrap();
+        assert_eq!(run().await, [true]);
+        assert_eq!(run().await, [true], "the same reason again");
+        assert_eq!(run().await, [true]);
+
+        agent_connections::resume(pool, connection, owner)
+            .await
+            .unwrap();
+        expire(Some(past())).await;
+        assert_eq!(run().await, [true, true], "another reason");
+        assert_eq!(run().await, [true, true]);
+
+        expire(None).await;
+        assert_eq!(run().await, [true, true, false], "a run that goes out");
+        agent_connections::pause(pool, connection, owner)
+            .await
+            .unwrap();
+        assert_eq!(run().await, [true, true, false, true], "skipping again");
+        assert_eq!(run().await, [true, true, false, true]);
     }
 
     #[sqlx::test]

@@ -15,7 +15,7 @@ use crate::{
     auth::session::Session,
     db::{
         deliveries::{self, NewDelivery},
-        scheduled_messages,
+        scheduled_messages::{self, BelongsTo},
     },
     error::{AppError, ErrorBody},
     extract::{ValidatedJson, ValidatedQuery},
@@ -214,9 +214,16 @@ pub async fn update_message(
     let user_id = session.user.id;
     check_template(&state, &input, user_id).await?;
     let recipient = normalized_recipient(input.recipient_type, &input.recipient);
-    let message = scheduled_messages::update(&state.pool, id, user_id, input.fields(&recipient))
-        .await?
-        .ok_or(AppError::NotFound)?;
+    // The owner now decides what it sends, so an agent's limits no longer apply to it
+    let message = scheduled_messages::update(
+        &state.pool,
+        id,
+        user_id,
+        input.fields(&recipient),
+        BelongsTo::Owner,
+    )
+    .await?
+    .ok_or(AppError::NotFound)?;
     Ok(Json(message.into()))
 }
 

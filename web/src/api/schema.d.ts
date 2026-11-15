@@ -167,7 +167,7 @@ export interface paths {
         /**
          * Revoke a connection
          * @description Its key stops working and its waiting approvals go. Its activity stays, under its name. The
-         *     scheduled messages it created are deleted with `delete_schedules=true`, else kept as the
+         *     scheduled messages it created or changed are deleted with `delete_schedules=true`, else kept as the
          *     owner's own.
          */
         delete: operations["revoke_agent"];
@@ -1156,7 +1156,7 @@ export interface components {
         AgentConnectionDetail: components["schemas"]["AgentConnection"] & {
             /**
              * Format: int64
-             * @description Scheduled messages it created that still exist, which revoking can delete or keep
+             * @description Scheduled messages it created or changed that still exist, which revoking can delete or keep
              */
             schedules: number;
         };
@@ -1177,7 +1177,7 @@ export interface components {
             id: components["schemas"]["Preset"];
             name: string;
         };
-        /** @description What revoking did with the scheduled messages the connection created */
+        /** @description What revoking did with the scheduled messages the connection created or changed */
         AgentRevoked: {
             /** Format: int64 */
             schedules_deleted: number;
@@ -2381,7 +2381,7 @@ export interface operations {
     revoke_agent: {
         parameters: {
             query?: {
-                /** @description Also delete the scheduled messages it created. Left out, they're kept as your own. */
+                /** @description Also delete the scheduled messages it created or changed. Left out, they're kept as your own. */
                 delete_schedules?: boolean;
             };
             header?: never;

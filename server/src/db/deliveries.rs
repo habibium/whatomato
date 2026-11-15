@@ -62,17 +62,29 @@ pub async fn create(db: impl PgExecutor<'_>, delivery: NewDelivery<'_>) -> sqlx:
     .await
 }
 
-/// Records a run that was skipped before any attempt, failed with `error`
+/// Records a run that was skipped before any attempt, failed with `error`, unless the schedule's
+/// last run was skipped too, by the same connection with the same `error`: a streak of skips shows
+/// once. `None` when it wasn't recorded.
 pub async fn create_skipped(
     db: impl PgExecutor<'_>,
     delivery: NewDelivery<'_>,
     error: &str,
-) -> sqlx::Result<Uuid> {
+) -> sqlx::Result<Option<Uuid>> {
     sqlx::query_scalar!(
-        "INSERT INTO deliveries \
-         (user_id, scheduled_message_id, connection_id, recipient_type, recipient, \
-          recipient_name, body, status, error, skipped) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'failed', $8, true) RETURNING id",
+        r#"INSERT INTO deliveries
+               (user_id, scheduled_message_id, connection_id, recipient_type, recipient,
+                recipient_name, body, status, error, skipped)
+           SELECT $1, $2, $3, $4, $5, $6, $7, 'failed', $8, true
+           WHERE NOT EXISTS (
+               SELECT 1 FROM (
+                   SELECT skipped, connection_id, error FROM deliveries
+                   WHERE scheduled_message_id = $2
+                   ORDER BY created_at DESC, id DESC LIMIT 1
+               ) last
+               WHERE last.skipped AND last.connection_id IS NOT DISTINCT FROM $3
+                   AND last.error IS NOT DISTINCT FROM $8
+           )
+           RETURNING id"#,
         delivery.user_id,
         delivery.scheduled_message_id,
         delivery.connection_id,
@@ -82,7 +94,7 @@ pub async fn create_skipped(
         delivery.body,
         error,
     )
-    .fetch_one(db)
+    .fetch_optional(db)
     .await
 }
 

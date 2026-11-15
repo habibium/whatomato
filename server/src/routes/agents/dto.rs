@@ -154,7 +154,7 @@ impl AgentConnection {
 pub(super) struct AgentConnectionDetail {
     #[serde(flatten)]
     pub connection: AgentConnection,
-    /// Scheduled messages it created that still exist, which revoking can delete or keep
+    /// Scheduled messages it created or changed that still exist, which revoking can delete or keep
     pub schedules: i64,
 }
 
@@ -294,12 +294,12 @@ pub(super) struct RotateKeyRequest {
 #[derive(Deserialize, IntoParams, Validate)]
 #[into_params(parameter_in = Query)]
 pub(super) struct RevokeQuery {
-    /// Also delete the scheduled messages it created. Left out, they're kept as your own.
+    /// Also delete the scheduled messages it created or changed. Left out, they're kept as your own.
     #[serde(default)]
     pub delete_schedules: bool,
 }
 
-/// What revoking did with the scheduled messages the connection created
+/// What revoking did with the scheduled messages the connection created or changed
 #[derive(Serialize, ToSchema)]
 pub(super) struct AgentRevoked {
     pub schedules_deleted: u64,

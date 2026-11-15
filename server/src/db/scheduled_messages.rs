@@ -7,7 +7,7 @@ use crate::scheduler::{RecipientType, ScheduleKind, recurrence::Recurrence};
 pub struct Message {
     pub id: Uuid,
     pub user_id: Uuid,
-    /// The agent connection that created it, if one did
+    /// The agent connection it belongs to: the one that created it or last changed it, if one did
     pub connection_id: Option<Uuid>,
     /// That connection's name; empty when the owner made it or the connection is gone
     pub connection_name: Option<String>,
@@ -42,7 +42,7 @@ pub struct Fields<'a> {
     pub next_run_at: Option<DateTime<Utc>>,
 }
 
-/// The user's messages, oldest first; only those `connection_id` created if it's given
+/// The user's messages, oldest first; only those belonging to `connection_id` if it's given
 pub async fn list(
     db: impl PgExecutor<'_>,
     user_id: Uuid,
@@ -79,6 +79,29 @@ pub async fn find(
                m.template_id, m.enabled, m.next_run_at, m.last_run_at, m.created_at, m.updated_at
            FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id
            WHERE m.id = $1 AND m.user_id = $2"#,
+        id,
+        user_id
+    )
+    .fetch_optional(db)
+    .await
+}
+
+/// [`find`], with the message's row locked until the transaction ends
+pub async fn find_locked(
+    db: impl PgExecutor<'_>,
+    id: Uuid,
+    user_id: Uuid,
+) -> sqlx::Result<Option<Message>> {
+    sqlx::query_as!(
+        Message,
+        r#"SELECT m.id, m.user_id, m.connection_id, c.name AS "connection_name?",
+               m.recipient_type AS "recipient_type: RecipientType", m.recipient,
+               m.recipient_name, m.body, m.schedule_kind AS "schedule_kind: ScheduleKind",
+               m.run_at, m.recurrence AS "recurrence: Json<Recurrence>", m.timezone,
+               m.template_id, m.enabled, m.next_run_at, m.last_run_at, m.created_at, m.updated_at
+           FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id
+           WHERE m.id = $1 AND m.user_id = $2
+           FOR UPDATE OF m"#,
         id,
         user_id
     )
@@ -123,18 +146,36 @@ pub async fn create(
     .await
 }
 
+/// Whom a changed message belongs to: whoever last decided what it sends
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BelongsTo {
+    /// Whoever it belonged to before, as when the owner approved an agent's change
+    Unchanged,
+    /// The owner, who changed it in the web app
+    Owner,
+    /// The agent connection that changed it
+    Connection(Uuid),
+}
+
 pub async fn update(
     db: impl PgExecutor<'_>,
     id: Uuid,
     user_id: Uuid,
     fields: Fields<'_>,
+    belongs_to: BelongsTo,
 ) -> sqlx::Result<Option<Message>> {
+    let (reassign, connection_id) = match belongs_to {
+        BelongsTo::Unchanged => (false, None),
+        BelongsTo::Owner => (true, None),
+        BelongsTo::Connection(id) => (true, Some(id)),
+    };
     sqlx::query_as!(
         Message,
         r#"UPDATE scheduled_messages
            SET recipient_type = $3, recipient = $4, recipient_name = $5, body = $6,
                schedule_kind = $7, run_at = $8, recurrence = $9, timezone = $10, template_id = $11,
-               enabled = $12, next_run_at = $13, updated_at = now()
+               enabled = $12, next_run_at = $13, updated_at = now(),
+               connection_id = CASE WHEN $14 THEN $15 ELSE connection_id END
            WHERE id = $1 AND user_id = $2
            RETURNING id, user_id, connection_id,
                (SELECT name FROM agent_connections WHERE id = connection_id) AS "connection_name?",
@@ -155,6 +196,8 @@ pub async fn update(
         fields.template_id,
         fields.enabled,
         fields.next_run_at,
+        reassign,
+        connection_id as Option<Uuid>,
     )
     .fetch_optional(db)
     .await

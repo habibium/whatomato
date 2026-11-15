@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE scheduled_messages\n           SET recipient_type = $3, recipient = $4, recipient_name = $5, body = $6,\n               schedule_kind = $7, run_at = $8, recurrence = $9, timezone = $10, template_id = $11,\n               enabled = $12, next_run_at = $13, updated_at = now()\n           WHERE id = $1 AND user_id = $2\n           RETURNING id, user_id, connection_id,\n               (SELECT name FROM agent_connections WHERE id = connection_id) AS \"connection_name?\",\n               recipient_type AS \"recipient_type: RecipientType\", recipient,\n               recipient_name, body, schedule_kind AS \"schedule_kind: ScheduleKind\", run_at,\n               recurrence AS \"recurrence: Json<Recurrence>\",\n               timezone, template_id, enabled, next_run_at, last_run_at, created_at, updated_at",
+  "query": "SELECT m.id, m.user_id, m.connection_id, c.name AS \"connection_name?\",\n               m.recipient_type AS \"recipient_type: RecipientType\", m.recipient,\n               m.recipient_name, m.body, m.schedule_kind AS \"schedule_kind: ScheduleKind\",\n               m.run_at, m.recurrence AS \"recurrence: Json<Recurrence>\", m.timezone,\n               m.template_id, m.enabled, m.next_run_at, m.last_run_at, m.created_at, m.updated_at\n           FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id\n           WHERE m.id = $1 AND m.user_id = $2\n           FOR UPDATE OF m",
   "describe": {
     "columns": [
       {
@@ -40,7 +40,12 @@
         "ordinal": 3,
         "name": "connection_name?",
         "type_info": "Text",
-        "origin": "Expression"
+        "origin": {
+          "Table": {
+            "table": "agent_connections",
+            "name": "name"
+          }
+        }
       },
       {
         "ordinal": 4,
@@ -200,25 +205,14 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Timestamptz",
-        "Jsonb",
-        "Text",
-        "Uuid",
-        "Bool",
-        "Timestamptz"
+        "Uuid"
       ]
     },
     "nullable": [
       false,
       false,
       true,
-      null,
+      false,
       false,
       false,
       true,
@@ -235,5 +229,5 @@
       false
     ]
   },
-  "hash": "7c9ac1a7535527f9bf7b8e1348622f07dbaf3516e2a2b8913132ed8a848ba4b2"
+  "hash": "9935614c09aaa68dc43b9ba0957e77a0e1f36e185478777cb617fcb60f4329d9"
 }

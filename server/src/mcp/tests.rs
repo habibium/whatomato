@@ -981,7 +981,7 @@ async fn a_body_over_the_limit_is_refused_before_the_key_is_looked_at(pool: PgPo
 }
 
 #[sqlx::test]
-async fn an_address_over_the_failure_limit_costs_no_lookup(pool: PgPool) {
+async fn a_blocked_address_still_gets_real_keys_looked_up_within_a_budget(pool: PgPool) {
     let app = TestApp::new(pool);
     let owner = user(&app).await;
     let (worked, _) = connection(&app, owner, &Preset::FullAccess.grant()).await;
@@ -992,18 +992,37 @@ async fn an_address_over_the_failure_limit_costs_no_lookup(pool: PgPool) {
             .status,
         StatusCode::OK
     );
-    let wrong = AccessKey::generate().unwrap().value;
+    let wrong = || AccessKey::generate().unwrap().value;
     for _ in 0..21 {
-        legacy(&app, Some(&wrong), "tools/list", json!({})).await;
+        legacy(&app, Some(&wrong()), "tools/list", json!({})).await;
+    }
+    assert_eq!(
+        legacy(&app, None, "tools/list", json!({})).await.status,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+
+    // A key never used since the server started, as after a restart or a rotation, still gets in
+    let fresh = legacy(&app, Some(&unused), "tools/list", json!({})).await;
+    assert_eq!(fresh.status, StatusCode::OK);
+
+    // Wrong keys spend the address's lookups
+    for _ in 0..120 {
+        let refused = legacy(&app, Some(&wrong()), "tools/list", json!({})).await;
+        assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
     }
 
     // Without a database, a lookup would fail with 500; a refusal before it doesn't
     app.pool.close().await;
-    for key in [Some(wrong.as_str()), Some(unused.as_str()), None] {
+    let malformed = format!("{}tooshort", crate::agents::key::PREFIX);
+    let lookups_spent = wrong();
+    for key in [None, Some(malformed.as_str()), Some(lookups_spent.as_str())] {
         let refused = legacy(&app, key, "tools/list", json!({})).await;
-        assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS, "{key:?}");
+        assert!(refused.headers.contains_key(header::RETRY_AFTER));
     }
-    // A key that has worked still reaches the lookup
-    let looked_up = legacy(&app, Some(&worked), "tools/list", json!({})).await;
-    assert_eq!(looked_up.status, StatusCode::INTERNAL_SERVER_ERROR);
+    // Keys that worked skip the budget
+    for key in [&worked, &unused] {
+        let looked_up = legacy(&app, Some(key), "tools/list", json!({})).await;
+        assert_eq!(looked_up.status, StatusCode::INTERNAL_SERVER_ERROR);
+    }
 }

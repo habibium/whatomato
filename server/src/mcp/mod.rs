@@ -207,7 +207,7 @@ fn forbidden(message: &str) -> Response {
 
 /// Why a request didn't authenticate
 enum Refusal {
-    /// No key, a malformed one, or one no connection has
+    /// A key no connection has
     NoKey,
     /// The connection exists but its grant can't be read
     Unusable,
@@ -222,27 +222,20 @@ async fn bearer(State(state): State<AppState>, mut request: Request, next: Next)
     let ip = ClientIp
         .extract(&request)
         .unwrap_or(IpAddr::V6(Ipv6Addr::UNSPECIFIED));
-    let key_hash = presented(request.headers()).map(key::hash);
-    // Before the lookup, so a wrong key from an address over its limit costs no query
-    if let Err(limited) = state.rate_limits.agent_key_blocked(ip, key_hash.as_ref()) {
+    let has_header = request.headers().contains_key(header::AUTHORIZATION);
+    // Refused by its form alone, so no key and a malformed one never cost a lookup
+    let Some(key_hash) = presented(request.headers()).map(key::hash) else {
+        return failed(&state, ip, has_header, NO_KEY);
+    };
+    if let Err(limited) = state.rate_limits.agent_key_lookup(ip, &key_hash) {
         return limited.into_response();
     }
     let caller = match authenticate(&state, key_hash).await {
         Ok(caller) => caller,
         Err(Refusal::Internal(error)) => return AppError::Db(error).into_response(),
-        Err(refusal) => {
-            if matches!(refusal, Refusal::NoKey)
-                && let Err(limited) = state.rate_limits.agent_key_failure(ip)
-            {
-                return limited.into_response();
-            }
-            let presented = request.headers().contains_key(header::AUTHORIZATION);
-            let message = match &refusal {
-                Refusal::Stopped(message) => message.as_str(),
-                _ => NO_KEY,
-            };
-            return unauthorized(presented, message);
-        }
+        Err(Refusal::NoKey) => return failed(&state, ip, has_header, NO_KEY),
+        Err(Refusal::Stopped(message)) => return unauthorized(has_header, &message),
+        Err(Refusal::Unusable) => return unauthorized(has_header, NO_KEY),
     };
     let id = caller.connection().id;
     if let Err(limited) = state.rate_limits.agent_call(id) {
@@ -266,8 +259,7 @@ fn presented(headers: &HeaderMap) -> Option<&str> {
         .filter(|key| key::is_access_key(key))
 }
 
-async fn authenticate(state: &AppState, key_hash: Option<[u8; 32]>) -> Result<Caller, Refusal> {
-    let key_hash = key_hash.ok_or(Refusal::NoKey)?;
+async fn authenticate(state: &AppState, key_hash: [u8; 32]) -> Result<Caller, Refusal> {
     let found = agent_connections::find_by_key(&state.pool, &key_hash)
         .await
         .map_err(Refusal::Internal)?
@@ -280,6 +272,14 @@ async fn authenticate(state: &AppState, key_hash: Option<[u8; 32]>) -> Result<Ca
         } => Refusal::Stopped(error.to_string()),
         _ => Refusal::Unusable,
     })
+}
+
+/// Counts a request without a usable key against its address, then refuses it
+fn failed(state: &AppState, ip: IpAddr, presented: bool, message: &str) -> Response {
+    match state.rate_limits.agent_key_failure(ip) {
+        Ok(()) => unauthorized(presented, message),
+        Err(limited) => limited.into_response(),
+    }
 }
 
 fn unauthorized(presented: bool, message: &str) -> Response {

@@ -10,6 +10,8 @@ use crate::scheduler::RecipientType;
 pub const DAILY_CEILING: u32 = 200;
 /// Approvals a connection may have waiting at once
 pub const WAITING_MAX: u32 = 20;
+/// Scheduled messages a connection may have, counting its requests to create one still waiting
+pub const SCHEDULES_MAX: u32 = 50;
 
 /// A chat an action is aimed at, named as the scheduler names a recipient
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,7 +24,7 @@ pub struct ChatRef<'a> {
 /// Whose schedule an existing one is
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Owner {
-    /// This connection created it
+    /// This connection created it, or last changed it
     ThisConnection,
     /// The owner, or another connection
     Other,
@@ -59,6 +61,8 @@ pub struct Facts {
     pub connection_sends: u32,
     /// This connection's approvals still waiting
     pub waiting_approvals: u32,
+    /// The scheduled messages this connection has, and its requests to create one still waiting
+    pub schedules: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -83,6 +87,7 @@ pub enum Reason {
     SendingOff,
     ChatLimit { limit: u32 },
     TooManyWaiting,
+    TooManySchedules,
 }
 
 impl Reason {
@@ -100,6 +105,7 @@ impl Reason {
             Self::SendingOff => "sending_off",
             Self::ChatLimit { .. } => "chat_limit",
             Self::TooManyWaiting => "too_many_waiting",
+            Self::TooManySchedules => "too_many_schedules",
         }
     }
 
@@ -114,7 +120,7 @@ impl Reason {
                     .to_owned()
             }
             Self::NotOwnSchedule => {
-                "This scheduled message wasn't created by this connection, and it may only change \
+                "This scheduled message doesn't belong to this connection, and it may only change \
                  its own. The owner can allow it to manage all scheduled messages."
                     .to_owned()
             }
@@ -156,6 +162,11 @@ impl Reason {
                 "{WAITING_MAX} messages from this connection are already waiting for the owner's \
                  approval. Wait until the owner has answered some of them."
             ),
+            Self::TooManySchedules => format!(
+                "This connection already has {SCHEDULES_MAX} scheduled messages, the most one \
+                 connection may have, counting those waiting for the owner's approval. Delete some \
+                 of them first, or ask the owner to."
+            ),
         }
     }
 }
@@ -167,9 +178,16 @@ pub fn decide(grant: &Grant, action: Action<'_>, facts: &Facts) -> Decision {
         Action::Send(chat) => chat_action(grant, chat, facts),
         Action::CreateSchedule(chat) => match grant.schedules {
             Schedules::None => Decision::Deny(Reason::SchedulesOff),
+            Schedules::Own | Schedules::All if facts.schedules >= SCHEDULES_MAX => {
+                Decision::Deny(Reason::TooManySchedules)
+            }
             Schedules::Own | Schedules::All => chat_action(grant, chat, facts),
         },
         Action::UpdateSchedule { chat, owner } => match may_change_schedule(grant, owner) {
+            // Changed outright, another's schedule becomes this connection's
+            Ok(()) if owner == Owner::Other && facts.schedules >= SCHEDULES_MAX => {
+                Decision::Deny(Reason::TooManySchedules)
+            }
             Ok(()) => chat_action(grant, chat, facts),
             Err(reason) => Decision::Deny(reason),
         },
@@ -573,6 +591,39 @@ mod tests {
         assert_eq!(
             decide(&free, Action::Send(group()), &at(20)),
             Decision::Allow
+        );
+    }
+
+    #[test]
+    fn a_connection_holds_at_most_50_schedules_whatever_the_grant() {
+        let at = |schedules| Facts {
+            schedules,
+            ..saved()
+        };
+        let create = Action::CreateSchedule(group());
+        let take_over = Action::UpdateSchedule {
+            chat: group(),
+            owner: Owner::Other,
+        };
+        let own = Action::UpdateSchedule {
+            chat: group(),
+            owner: Owner::ThisConnection,
+        };
+        let full = Preset::FullAccess.grant();
+        let asking = grant(Scope::All, SendLevel::Ask, Strangers::Ask);
+        for (grant, below) in [(&full, Decision::Allow), (&asking, Decision::Ask)] {
+            assert_eq!(decide(grant, create, &at(49)), below);
+            assert_eq!(
+                decide(grant, create, &at(50)),
+                deny(Reason::TooManySchedules)
+            );
+            // Changing one it already has adds none
+            assert_eq!(decide(grant, own, &at(50)), below);
+        }
+        assert_eq!(decide(&full, take_over, &at(49)), Decision::Allow);
+        assert_eq!(
+            decide(&full, take_over, &at(50)),
+            deny(Reason::TooManySchedules)
         );
     }
 
