@@ -71,6 +71,11 @@ export function findChatRule(grant: Grant, key: string) {
   return grant.chats.rules.find((item) => chatKey(item.chat) === key) ?? null
 }
 
+/** A chat the owner just added never starts able to send without asking. */
+export function newChatSend(send: SendLevel): SendLevel {
+  return send === 'yes' ? 'ask' : send
+}
+
 /** A new chat starts from the default rule; one already listed, or one past the cap, changes nothing. */
 export function addChatRule(grant: Grant, chat: Chat): Grant {
   const rules = grant.chats.rules
@@ -82,7 +87,7 @@ export function addChatRule(grant: Grant, chat: Chat): Grant {
     ...grant,
     chats: {
       ...grant.chats,
-      rules: [...rules, { chat, send, daily_limit, note }],
+      rules: [...rules, { chat, send: newChatSend(send), daily_limit, note }],
     },
   }
 }

@@ -1,5 +1,7 @@
 import { useId, useState } from 'react'
 import { CodeBlock } from '@astryxdesign/core/CodeBlock'
+import { useMediaQuery } from '@astryxdesign/core/hooks'
+import { Selector } from '@astryxdesign/core/Selector'
 import { Tab, TabList } from '@astryxdesign/core/TabList'
 import { Text } from '@astryxdesign/core/Text'
 import { VStack } from '@astryxdesign/core/VStack'
@@ -19,25 +21,42 @@ export function AgentSetupSteps({ url, accessKey }: AgentSetupStepsProps) {
   const [client, setClient] = useState<AgentClientID>('claude-code')
   const steps = setupSteps(client, { url, accessKey })
   const panelID = useId()
+  // On a touch screen the scrolling tab strip shows no sign of the clients past the edge
+  const isNarrow = useMediaQuery('(max-width: 639px)')
 
   return (
     <VStack gap={5}>
-      <TabList
-        value={client}
-        onChange={(value) => setClient(value as AgentClientID)}
-        hasDivider
-        role="tablist"
-      >
-        {AGENT_CLIENTS.map((item) => (
-          <Tab
-            key={item.id}
-            value={item.id}
-            label={item.name}
-            panelId={panelID}
-          />
-        ))}
-      </TabList>
-      <VStack id={panelID} role="tabpanel">
+      {isNarrow ? (
+        <Selector
+          label="Agent"
+          size="lg"
+          width="100%"
+          presentation="adaptive"
+          options={AGENT_CLIENTS.map((item) => ({
+            value: item.id,
+            label: item.name,
+          }))}
+          value={client}
+          onChange={(value) => setClient(value as AgentClientID)}
+        />
+      ) : (
+        <TabList
+          value={client}
+          onChange={(value) => setClient(value as AgentClientID)}
+          hasDivider
+          role="tablist"
+        >
+          {AGENT_CLIENTS.map((item) => (
+            <Tab
+              key={item.id}
+              value={item.id}
+              label={item.name}
+              panelId={panelID}
+            />
+          ))}
+        </TabList>
+      )}
+      <VStack id={panelID} role={isNarrow ? undefined : 'tabpanel'}>
         <VStack as="ol" gap={5}>
           {steps.map((step, index) => (
             <VStack as="li" key={`${client}-${index}`} gap={2}>

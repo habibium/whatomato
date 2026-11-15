@@ -22,7 +22,7 @@ interface PersonAvatarProps {
 }
 
 /**
- * Initials until the WhatsApp picture has loaded, then the picture. It's asked for only once the
+ * Initials (a person icon for a bare number) until the WhatsApp picture has loaded, then the picture. It's asked for only once the
  * avatar is near the screen, so a long list doesn't send the server for every face at once.
  */
 export function PersonAvatar({
@@ -40,10 +40,14 @@ export function PersonAvatar({
     ...pictureQuery(pictureID ?? ''),
     enabled: Boolean(pictureID) && isNear && isLinked,
   })
+  const initials = initialsOf(name)
+  // A bare number's digits would read as a count; Avatar's person icon shows without a name
+  const isNamed = /\p{L}/u.test(initials)
   return (
     <HStack as="span" ref={ref} xstyle={styles.box}>
       <Avatar
-        name={initialsOf(name)}
+        name={isNamed ? initials : undefined}
+        alt={name}
         src={picture.data ?? undefined}
         size={size}
         shape={shape}

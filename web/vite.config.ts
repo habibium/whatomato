@@ -97,6 +97,9 @@ const config = defineConfig({
     proxy: {
       '/api': process.env.API_PROXY_TARGET ?? 'http://localhost:8000/',
       '/mcp': process.env.API_PROXY_TARGET ?? 'http://localhost:8000/',
+      // OAuth discovery must get the server's 404, not the app's page; other /.well-known paths stay
+      '^/\\.well-known/(oauth-protected-resource|oauth-authorization-server|openid-configuration)(/.*)?$':
+        process.env.API_PROXY_TARGET ?? 'http://localhost:8000/',
     },
   },
   resolve: { tsconfigPaths: true },

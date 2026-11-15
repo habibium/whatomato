@@ -20,6 +20,7 @@ import {
   SEND_LABELS,
   WARNINGS,
   addChatRule,
+  newChatSend,
   chatKey,
   cleanGrant,
   grantWarning,
@@ -212,7 +213,9 @@ function ChatsSection({ value, onChange }: SectionProps) {
           <VStack gap={1}>
             <Heading level={3}>Exceptions</Heading>
             <Text color="secondary">
-              Chats with a rule of their own, in place of the one above.
+              Chats with a rule of their own, in place of the one above. A chat
+              you add starts as “
+              {SEND_LABELS[newChatSend(value.chats.default.send)]}”.
             </Text>
           </VStack>
           {list}
@@ -221,7 +224,7 @@ function ChatsSection({ value, onChange }: SectionProps) {
         <>
           <Text color="secondary">
             It can reach only the chats listed here. A chat you add starts as “
-            {SEND_LABELS[value.chats.default.send]}”.
+            {SEND_LABELS[newChatSend(value.chats.default.send)]}”.
           </Text>
           {list}
         </>
@@ -277,7 +280,7 @@ function AccountSection({ value, onChange }: SectionProps) {
     >
       <Choice
         label="Find contacts and groups by name"
-        description="So it can find “Ada” without being told her number. It searches; it never gets the whole address book."
+        description="So it can find “Ada” without being told her number. It gets at most 20 matches per search, and each search shows in the activity log."
         value={value.contacts}
         options={[
           ['none', 'Off'],

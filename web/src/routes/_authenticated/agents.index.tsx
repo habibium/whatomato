@@ -95,7 +95,7 @@ function AgentsPage() {
           count === 0
             ? 'Nothing was running.'
             : `${count} ${count === 1 ? 'connection' : 'connections'} paused.`
-        announce(body)
+        // The toast is a live region itself; announcing too would read it twice
         toast({ body, type: 'info' })
       } else {
         setProblem(toWriteProblem(result, failed))

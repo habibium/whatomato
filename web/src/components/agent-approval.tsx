@@ -5,6 +5,7 @@ import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { HStack } from '@astryxdesign/core/HStack'
 import { useAnnounce } from '@astryxdesign/core/hooks'
+import { Link } from '@astryxdesign/core/Link'
 import { Heading, Text } from '@astryxdesign/core/Text'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { useToast } from '@astryxdesign/core/Toast'
@@ -201,7 +202,12 @@ export const ApprovalCard = forwardRef<HTMLElement, ApprovalCardProps>(
           recipient_name={approval.recipient_name}
         />
 
-        {request?.schedule ? <ScheduleWords request={request} /> : null}
+        {request?.schedule ? (
+          <ScheduleWords
+            request={request}
+            isChange={approval.kind === 'schedule_update'}
+          />
+        ) : null}
 
         {request ? (
           draft === null ? (
@@ -315,8 +321,10 @@ export const ApprovalCard = forwardRef<HTMLElement, ApprovalCardProps>(
 
 function ScheduleWords({
   request,
+  isChange,
 }: {
   request: NonNullable<AgentApproval['request']>
+  isChange: boolean
 }) {
   const schedule = request.schedule
   if (!schedule) return null
@@ -341,6 +349,15 @@ function ScheduleWords({
       {schedule.schedule_kind === 'recurring' && next.length ? (
         <Text color="secondary" hasTabularNumbers>
           Next: {next.join(' · ')}
+        </Text>
+      ) : null}
+      {isChange && schedule.scheduled_message_id ? (
+        // Messages has no link to one message, so this opens the list it's in
+        <Text type="supporting" color="secondary">
+          It changes a message you already scheduled.{' '}
+          <Link href="/messages" color="secondary" hasUnderline>
+            See it in Messages
+          </Link>
         </Text>
       ) : null}
     </VStack>

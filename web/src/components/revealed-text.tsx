@@ -79,7 +79,11 @@ export function RevealedText({
       {revealed.total > 0 ? (
         <Banner
           status="warning"
-          title={`This text holds ${revealed.total} hidden or unusual ${revealed.total === 1 ? 'character' : 'characters'}`}
+          title={
+            revealed.total === 1
+              ? 'One thing in this text is hidden or unusual'
+              : `${revealed.total} things in this text are hidden or unusual`
+          }
           description={`${capitalise(describeHidden(revealed.counts))}, marked in orange below. Text can hide behind them, so read it all before you approve.`}
         />
       ) : null}
