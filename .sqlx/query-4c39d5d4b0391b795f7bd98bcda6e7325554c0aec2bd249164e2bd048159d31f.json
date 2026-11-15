@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO deliveries (user_id, recipient_type, recipient, body, status, error) VALUES ($1, 'contact', $2, 'By hand', 'failed', 'This number isn''t on WhatsApp')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4c39d5d4b0391b795f7bd98bcda6e7325554c0aec2bd249164e2bd048159d31f"
+}

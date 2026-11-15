@@ -3,6 +3,7 @@
 
 use chrono::{DateTime, DurationRound, NaiveDate, TimeDelta, Utc};
 use chrono_tz::Tz;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sunrise::{Coordinates, SolarDay, SolarEvent};
 use utoipa::ToSchema;
@@ -14,7 +15,7 @@ const OFFSET_LIMIT: i32 = 12 * 60;
 /// sun last half a year at most.
 const SEARCH_DAYS: usize = 400;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum SunEvent {
     /// The sun's upper edge clearing the horizon
@@ -23,7 +24,7 @@ pub enum SunEvent {
     Sunset,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct Place {
     /// Degrees north, from -90 to 90
     pub latitude: f64,
@@ -46,7 +47,7 @@ impl Place {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct Sun {
     pub event: SunEvent,
     /// Minutes after the sun rises or sets, or before when negative; up to 12 hours either way

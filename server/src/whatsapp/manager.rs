@@ -173,6 +173,22 @@ impl WhatsApp {
         }
     }
 
+    /// Gives `user_id` a supervisor in `status` with no client behind it, so tests can see an
+    /// account as linked without connecting to WhatsApp
+    #[cfg(test)]
+    pub fn pretend(&self, user_id: Uuid, status: Status) {
+        let handle = supervisor::spawn(
+            self.context.clone(),
+            user_id,
+            None,
+            status,
+            Duration::ZERO,
+            None,
+            self.may_connect.subscribe(),
+        );
+        self.lock().insert(user_id, handle);
+    }
+
     /// `user_id`'s supervisor, started on first use
     #[must_use]
     pub fn handle(&self, user_id: Uuid) -> Handle {

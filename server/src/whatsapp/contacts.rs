@@ -27,6 +27,17 @@ pub struct Names {
     pub username: Option<String>,
 }
 
+impl Names {
+    /// As saved on the phone, else the first name or the WhatsApp username
+    #[must_use]
+    pub fn display(&self) -> Option<&str> {
+        self.full_name
+            .as_deref()
+            .or(self.first_name.as_deref())
+            .or(self.username.as_deref())
+    }
+}
+
 pub(super) enum Change {
     Saved {
         jid: String,

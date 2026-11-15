@@ -1,12 +1,14 @@
 //! Sends messages. One task, on the server holding the WhatsApp lock: every tick it turns due
 //! schedules into deliveries, then starts at most one delivery per account.
 
+pub(crate) mod draft;
 pub mod recurrence;
 pub mod variables;
 
 use std::{collections::HashMap, future::Future, time::Duration};
 
 use chrono::{DateTime, TimeDelta, Utc};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use tokio::{
@@ -47,7 +49,9 @@ const RETRY_WAITS: [Duration; 5] = [
 const INTERRUPTED: &str =
     "The server restarted during this send, so it may or may not have gone out";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, sqlx::Type)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema, sqlx::Type,
+)]
 #[sqlx(type_name = "text", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum RecipientType {
@@ -99,7 +103,9 @@ impl RecipientType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, sqlx::Type)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema, sqlx::Type,
+)]
 #[sqlx(type_name = "text", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum ScheduleKind {

@@ -4,15 +4,25 @@
 pub mod decide;
 pub mod grant;
 pub mod key;
+// Crate-wide, since its signatures carry database rows; the owner's API and the MCP endpoint, still
+// to come, are what call it
+#[allow(
+    dead_code,
+    reason = "called by the agent API and the MCP endpoint, still to come"
+)]
+pub(crate) mod ops;
 
 pub use decide::{
     Action, ChatRef, DAILY_CEILING, Decision, Facts, Owner, Reason, WAITING_MAX, decide,
 };
 pub use grant::{Grant, GrantError, Preset};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, sqlx::Type)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema, sqlx::Type,
+)]
 #[sqlx(type_name = "text", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalKind {
@@ -32,7 +42,9 @@ impl ApprovalKind {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, sqlx::Type)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema, sqlx::Type,
+)]
 #[sqlx(type_name = "text", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalStatus {
@@ -44,7 +56,9 @@ pub enum ApprovalStatus {
 }
 
 /// How a tool call ended, for the activity log
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, sqlx::Type)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema, sqlx::Type,
+)]
 #[sqlx(type_name = "text", rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
 pub enum Outcome {

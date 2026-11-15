@@ -4,20 +4,19 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
-use validator::{Validate, ValidationError, ValidationErrors};
+use validator::{Validate, ValidationErrors};
 
 use crate::{
     db::scheduled_messages::{Fields, Message},
     scheduler::{
         RecipientType, ScheduleKind,
-        recurrence::{self, Recurrence},
-        variables,
+        draft::{
+            BODY_MAX, Draft, add, check_body, check_recipient, check_recurrence, check_timezone,
+            finish,
+        },
+        recurrence::Recurrence,
     },
 };
-
-/// WhatsApp allows far more; this keeps payloads sane
-const BODY_MAX: usize = 4096;
-const NAME_MAX: usize = 255;
 
 #[derive(Serialize, ToSchema)]
 pub(super) struct ScheduledMessage {
@@ -102,56 +101,31 @@ pub(super) struct MessageInput {
 impl Validate for MessageInput {
     fn validate(&self) -> Result<(), ValidationErrors> {
         let mut errors = ValidationErrors::new();
-        check_recipient(
-            self.recipient_type,
-            &self.recipient,
-            self.recipient_name.as_deref(),
-            &mut errors,
-        );
-        check_body(&self.body, &mut errors);
-        check_timezone(&self.timezone, &mut errors);
-        match self.schedule_kind {
-            ScheduleKind::Once => match self.run_at {
-                Some(at) if at > Utc::now() => {}
-                Some(_) => add(&mut errors, "run_at", "must be in the future"),
-                None => add(&mut errors, "run_at", "is required"),
-            },
-            ScheduleKind::Recurring => {
-                check_recurrence(self.recurrence.as_ref(), &self.timezone, &mut errors);
-            }
-        }
+        self.draft().check(&mut errors);
         finish(errors)
     }
 }
 
 impl MessageInput {
-    /// The columns for this input, normalized. `recipient` comes in from [`normalized_recipient`],
-    /// so it outlives the borrow.
-    pub(super) fn fields<'a>(&'a self, recipient: &'a str) -> Fields<'a> {
-        let (run_at, recurrence) = match self.schedule_kind {
-            ScheduleKind::Once => (self.run_at, None),
-            ScheduleKind::Recurring => (None, self.recurrence.as_ref().map(Recurrence::normalized)),
-        };
-        let next_run_at = if !self.enabled {
-            None
-        } else if let Some(recurrence) = &recurrence {
-            recurrence.next_after(&self.timezone, Utc::now())
-        } else {
-            run_at
-        };
-        Fields {
+    fn draft(&self) -> Draft<'_> {
+        Draft {
             recipient_type: self.recipient_type,
-            recipient,
-            recipient_name: self.recipient_name.as_deref().map(str::trim),
-            body: self.body.trim(),
+            recipient: &self.recipient,
+            recipient_name: self.recipient_name.as_deref(),
+            body: &self.body,
             schedule_kind: self.schedule_kind,
-            run_at,
-            recurrence,
+            run_at: self.run_at,
+            recurrence: self.recurrence.as_ref(),
             timezone: &self.timezone,
             template_id: self.template_id,
             enabled: self.enabled,
-            next_run_at,
         }
+    }
+
+    /// The columns for this input, normalized. `recipient` comes in from [`normalized_recipient`],
+    /// so it outlives the borrow.
+    pub(super) fn fields<'a>(&'a self, recipient: &'a str) -> Fields<'a> {
+        self.draft().fields(recipient)
     }
 }
 
@@ -288,65 +262,4 @@ pub(super) struct SendNowResponse {
 /// How `recipient` is stored: digits for a contact, as given for a group
 pub(super) fn normalized_recipient(recipient_type: RecipientType, recipient: &str) -> String {
     recipient_type.normalized(recipient)
-}
-
-fn check_recipient(
-    recipient_type: RecipientType,
-    recipient: &str,
-    name: Option<&str>,
-    errors: &mut ValidationErrors,
-) {
-    if let Some(problem) = recipient_type.problem(recipient) {
-        add(errors, "recipient", problem);
-    }
-    if name.is_some_and(|name| name.trim().chars().count() > NAME_MAX) {
-        add(errors, "recipient_name", "must be at most 255 characters");
-    }
-}
-
-fn check_timezone(timezone: &str, errors: &mut ValidationErrors) {
-    if !recurrence::is_timezone(timezone) {
-        add(errors, "timezone", "must be an IANA time zone");
-    }
-}
-
-fn check_recurrence(
-    recurrence: Option<&Recurrence>,
-    timezone: &str,
-    errors: &mut ValidationErrors,
-) {
-    match recurrence.map(|recurrence| recurrence.problem(timezone)) {
-        None => add(errors, "recurrence", "is required"),
-        Some(Some(problem)) => add(errors, "recurrence", problem),
-        Some(None) => {}
-    }
-}
-
-pub fn check_body(body: &str, errors: &mut ValidationErrors) {
-    let length = body.trim().chars().count();
-    if length == 0 {
-        add(errors, "body", "can't be empty");
-    } else if length > BODY_MAX {
-        add(errors, "body", "must be at most 4096 characters");
-    } else if let Err(problem) = variables::check(body) {
-        errors.add(
-            "body",
-            ValidationError::new("invalid").with_message(problem.message().into()),
-        );
-    }
-}
-
-fn add(errors: &mut ValidationErrors, field: &'static str, message: &'static str) {
-    errors.add(
-        field,
-        ValidationError::new("invalid").with_message(message.into()),
-    );
-}
-
-fn finish(errors: ValidationErrors) -> Result<(), ValidationErrors> {
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
 }

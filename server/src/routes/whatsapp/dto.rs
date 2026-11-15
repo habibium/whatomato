@@ -218,11 +218,7 @@ pub(super) struct ContactResponse {
 impl ContactResponse {
     /// `None` for a contact with no name at all, which no one could pick out of a list
     pub(super) fn new(id: String, phone_number: Option<String>, names: Names) -> Option<Self> {
-        let name = names
-            .full_name
-            .clone()
-            .or_else(|| names.first_name.clone())
-            .or_else(|| names.username.clone())?;
+        let name = names.display()?.to_owned();
         Some(Self {
             id,
             name,

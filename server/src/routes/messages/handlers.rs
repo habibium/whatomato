@@ -5,7 +5,7 @@ use axum::{
 };
 use chrono::Utc;
 use uuid::Uuid;
-use validator::{ValidationError, ValidationErrors};
+use validator::ValidationErrors;
 
 use super::dto::{
     MessageInput, NextRuns, NextRunsQuery, Preview, PreviewQuery, ScheduledMessage, SendNowRequest,
@@ -15,11 +15,16 @@ use crate::{
     auth::session::Session,
     db::{
         deliveries::{self, NewDelivery},
-        message_templates, scheduled_messages,
+        scheduled_messages,
     },
     error::{AppError, ErrorBody},
     extract::{ValidatedJson, ValidatedQuery},
-    scheduler::{RecipientType, ScheduleKind, recurrence::Recurrence, variables},
+    scheduler::{
+        RecipientType,
+        draft::{self, finish},
+        recurrence::Recurrence,
+        variables,
+    },
     state::AppState,
     whatsapp::supervisor::SendFailure,
 };
@@ -89,18 +94,13 @@ pub async fn send_now(
         recipient: &recipient,
         recipient_name,
     };
-    let due = variables::Due {
-        at: Utc::now(),
-        timezone: input.timezone.as_deref().unwrap_or("UTC"),
-        place: None,
-    };
-    let body = variables::fill_in(
+    let body = draft::body_now(
         &state.pool,
         &state.cipher,
         user_id,
         &to,
-        input.body.trim(),
-        &due,
+        &input.body,
+        input.timezone.as_deref(),
     )
     .await;
     let delivery_id = deliveries::create(
@@ -240,21 +240,8 @@ pub async fn toggle_message(
         .await?
         .ok_or(AppError::NotFound)?;
 
-    let now = Utc::now();
-    let next_run_at = match (input.enabled, message.schedule_kind) {
-        (false, _) => None,
-        // Switching this back on would send straight away, which nobody means by a switch
-        (true, ScheduleKind::Once) if message.run_at.is_none_or(|at| at <= now) => {
-            return Err(AppError::Conflict(
-                "This message's send time has passed; edit it to pick a new one",
-            ));
-        }
-        (true, ScheduleKind::Once) => message.run_at,
-        (true, ScheduleKind::Recurring) => message
-            .recurrence
-            .as_ref()
-            .and_then(|recurrence| recurrence.next_after(&message.timezone, now)),
-    };
+    let next_run_at = draft::next_run_when_switched(&message, input.enabled, Utc::now())
+        .map_err(AppError::Conflict)?;
 
     let message =
         scheduled_messages::set_enabled(&state.pool, id, user_id, input.enabled, next_run_at)
@@ -283,25 +270,12 @@ pub async fn delete_message(
     }
 }
 
-/// A template id must be the user's own, or the foreign key would confirm other users' ids
 async fn check_template(
     state: &AppState,
     input: &MessageInput,
     user_id: Uuid,
 ) -> Result<(), AppError> {
-    let Some(template_id) = input.template_id else {
-        return Ok(());
-    };
-    if message_templates::find(&state.pool, template_id, user_id)
-        .await?
-        .is_some()
-    {
-        return Ok(());
-    }
     let mut errors = ValidationErrors::new();
-    errors.add(
-        "template_id",
-        ValidationError::new("invalid").with_message("isn't one of your templates".into()),
-    );
-    Err(errors.into())
+    draft::check_template(&state.pool, input.template_id, user_id, &mut errors).await?;
+    Ok(finish(errors)?)
 }

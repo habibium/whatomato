@@ -87,6 +87,7 @@ impl TestApp {
             pwned_passwords,
             cipher: cipher.clone(),
             whatsapp: WhatsApp::new(Context::new(pool.clone(), cipher, mailer, app_url)),
+            agent_access: true,
         };
         let (router, _) = crate::router();
 

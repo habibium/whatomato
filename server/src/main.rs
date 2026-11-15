@@ -69,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
         pwned_passwords: PwnedPasswords::hibp()?,
         cipher,
         whatsapp: whatsapp.clone(),
+        agent_access: config.agent_access,
     };
 
     let (router, api) = server::router();

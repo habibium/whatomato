@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::{Validate, ValidationError, ValidationErrors};
 
-use crate::{db::message_templates::Template, routes::messages::check_body};
+use crate::{db::message_templates::Template, scheduler::draft::check_body};
 
 const NAME_MAX: usize = 100;
 

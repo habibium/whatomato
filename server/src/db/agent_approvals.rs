@@ -225,6 +225,25 @@ pub async fn reject(
     .await
 }
 
+/// Whether the user has an approval other than `id` created in the last hour, so a new one
+/// needn't email them again
+pub async fn others_in_last_hour(
+    db: impl PgExecutor<'_>,
+    user_id: Uuid,
+    id: Uuid,
+) -> sqlx::Result<bool> {
+    sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+               SELECT 1 FROM agent_approvals
+               WHERE user_id = $1 AND id <> $2 AND created_at > now() - interval '1 hour'
+           ) AS "exists!""#,
+        user_id,
+        id,
+    )
+    .fetch_one(db)
+    .await
+}
+
 pub async fn expire_overdue(db: impl PgExecutor<'_>) -> sqlx::Result<u64> {
     let expired = sqlx::query!(
         "UPDATE agent_approvals SET status = 'expired', decided_at = expires_at \

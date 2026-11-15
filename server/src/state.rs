@@ -17,6 +17,8 @@ pub struct AppState {
     pub pwned_passwords: PwnedPasswords,
     pub cipher: Cipher,
     pub whatsapp: WhatsApp,
+    /// `AGENT_ACCESS`: whether the agent routes and the MCP endpoint answer
+    pub agent_access: bool,
 }
 
 impl AppState {

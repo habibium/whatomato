@@ -20,6 +20,8 @@ pub struct Config {
     pub client_ip_header: Option<HeaderName>,
     /// Seals secrets stored in the database, such as two-step verification keys
     pub encryption_key: [u8; 32],
+    /// Whether users may connect AI agents to their accounts
+    pub agent_access: bool,
 }
 
 /// Anyone can read this key, so whatever a debug build encrypts with it is as good as plaintext
@@ -29,8 +31,8 @@ impl Config {
     /// # Errors
     /// `DATABASE_URL` missing, `APP_URL` or `ENCRYPTION_KEY` missing from a release build, `PORT`,
     /// `APP_URL` or `ENCRYPTION_KEY` malformed, an https `APP_URL` without `SMTP_URL`, `SMTP_URL`
-    /// without a valid `EMAIL_FROM`, or a `CLIENT_IP_HEADER` that is malformed or one proxies
-    /// append to.
+    /// without a valid `EMAIL_FROM`, a `CLIENT_IP_HEADER` that is malformed or one proxies
+    /// append to, or an `AGENT_ACCESS` other than `on` or `off`.
     pub fn from_env() -> anyhow::Result<Self> {
         let port = match env::var("PORT") {
             Ok(value) => value.parse().context("PORT must be a valid port number")?,
@@ -98,6 +100,12 @@ impl Config {
             ),
         };
 
+        let agent_access = match env::var("AGENT_ACCESS").as_deref() {
+            Err(_) | Ok("" | "on") => true,
+            Ok("off") => false,
+            Ok(_) => anyhow::bail!("AGENT_ACCESS must be on or off"),
+        };
+
         Ok(Self {
             database_url: env::var("DATABASE_URL").context("DATABASE_URL is required")?,
             port,
@@ -108,6 +116,7 @@ impl Config {
             email_from,
             client_ip_header,
             encryption_key,
+            agent_access,
         })
     }
 }

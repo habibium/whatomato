@@ -10,11 +10,12 @@ use std::{iter, str::FromStr};
 
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 pub use sun::{Place, Sun, SunEvent, event_on};
 use utoipa::ToSchema;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Recurrence {
     /// On every match of a cron expression

@@ -8,7 +8,6 @@ pub struct Delivery {
     pub id: Uuid,
     pub scheduled_message_id: Option<Uuid>,
     /// The agent connection that caused it, if one did
-    #[allow(dead_code, reason = "read once agent access has its API")]
     pub connection_id: Option<Uuid>,
     pub recipient_type: RecipientType,
     pub recipient: String,
@@ -109,6 +108,26 @@ pub async fn count(
     )
     .fetch_one(db)
     .await
+}
+
+/// Where some of the user's deliveries stand, for those of `ids` that are theirs
+pub async fn states(
+    db: impl PgExecutor<'_>,
+    user_id: Uuid,
+    ids: &[Uuid],
+) -> sqlx::Result<Vec<(Uuid, DeliveryStatus, Option<String>)>> {
+    let rows = sqlx::query!(
+        r#"SELECT id, status AS "status: DeliveryStatus", error FROM deliveries
+           WHERE user_id = $1 AND id = ANY($2)"#,
+        user_id,
+        ids,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.id, row.status, row.error))
+        .collect())
 }
 
 /// Takes the oldest waiting delivery of every account outside `busy`. Only the holder of the

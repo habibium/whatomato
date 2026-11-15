@@ -296,6 +296,27 @@ pub async fn touch(db: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<()> {
     Ok(())
 }
 
+/// Sends by `connection_id` in the last 24 hours, counted as [`counts`] does, and its approvals
+/// waiting: what `whoami` shows of the limits
+pub async fn usage(db: impl PgExecutor<'_>, connection_id: Uuid) -> sqlx::Result<(u32, u32)> {
+    let row = sqlx::query!(
+        r#"SELECT
+               (SELECT count(*) FROM deliveries
+                WHERE connection_id = $1 AND created_at > now() - interval '24 hours')
+               + (SELECT count(*) FROM agent_approvals
+                  WHERE connection_id = $1 AND kind = 'send' AND status = 'waiting'
+                      AND expires_at > now()) AS "sends!",
+               (SELECT count(*) FROM agent_approvals
+                WHERE connection_id = $1 AND status = 'waiting' AND expires_at > now())
+                   AS "waiting!""#,
+        connection_id,
+    )
+    .fetch_one(db)
+    .await?;
+    let small = |count: i64| u32::try_from(count).unwrap_or(u32::MAX);
+    Ok((small(row.sends), small(row.waiting)))
+}
+
 /// Sends by `connection_id` in the last 24 hours, to one chat and in all, counting the deliveries
 /// it caused and its send approvals still waiting; and how many approvals of any kind wait
 pub async fn counts(
