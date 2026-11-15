@@ -308,11 +308,11 @@ function AccountSection({ value, onChange }: SectionProps) {
         onChange={(templates) => onChange({ ...value, templates })}
       />
       <Choice
-        label="Delivery history"
-        description="Whether messages went out."
+        label="History"
+        description="Seeing whether messages went out, as on your History page."
         value={value.deliveries}
         options={[
-          ['own', 'Its own sends'],
+          ['own', 'Its own messages'],
           ['all', 'All'],
         ]}
         onChange={(deliveries) => onChange({ ...value, deliveries })}

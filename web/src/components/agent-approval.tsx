@@ -60,6 +60,25 @@ const styles = stylex.create({
 
 type ErrorBody = components['schemas']['ErrorBody']
 
+const STANDING: Record<
+  Exclude<AgentApproval['connection_status'], 'active'>,
+  { title: string; description: string }
+> = {
+  paused: {
+    title: 'It came from a connection you have since paused',
+    description: 'The agent can’t do anything else until you resume it.',
+  },
+  expired: {
+    title: 'It came from a connection whose key has since expired',
+    description: 'The agent can’t do anything else until you replace its key.',
+  },
+  unusable: {
+    title: 'It came from a connection that needs attention',
+    description:
+      'Its permissions can’t be read, so the agent can’t do anything else until you set them again.',
+  },
+}
+
 interface ApprovalCardProps {
   approval: AgentApproval
   isMarked?: boolean
@@ -212,6 +231,15 @@ export const ApprovalCard = forwardRef<HTMLElement, ApprovalCardProps>(
             }
           />
         )}
+
+        {approval.status === 'waiting' &&
+        approval.connection_status !== 'active' ? (
+          <Banner
+            status="warning"
+            title={STANDING[approval.connection_status].title}
+            description={`${STANDING[approval.connection_status].description} Approving still sends it.`}
+          />
+        ) : null}
 
         {reasons.length ? (
           <Banner

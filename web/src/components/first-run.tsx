@@ -44,6 +44,7 @@ export function FirstRun({ onNewMessage, onSendNow }: FirstRunProps) {
   const isLinked =
     status !== undefined && status !== 'not_linked' && status !== 'pairing'
   const done = isLinked ? 1 : 0
+  const isFull = status === 'not_linked' && data?.status.can_link === false
 
   return (
     <Panel gap={4}>
@@ -59,9 +60,13 @@ export function FirstRun({ onNewMessage, onSendNow }: FirstRunProps) {
         <Step
           isDone={isLinked}
           title="Link your WhatsApp"
-          body="Messages go out from your own number, so Whatomato needs to be linked to it. It takes about a minute."
+          body={
+            isFull
+              ? 'There’s no room for another WhatsApp account on this server right now. Try again later.'
+              : 'Messages go out from your own number, so Whatomato needs to be linked to it. It takes about a minute.'
+          }
           action={
-            isLinked ? null : (
+            isLinked || isFull ? null : (
               <Button
                 label="Link WhatsApp"
                 variant="primary"

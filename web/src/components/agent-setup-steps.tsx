@@ -49,7 +49,7 @@ export function AgentSetupSteps({ url, accessKey }: AgentSetupStepsProps) {
                 <CodeBlock
                   code={step.code}
                   language={step.language ?? 'plaintext'}
-                  title={step.file}
+                  title={step.file ?? step.title}
                   hasLanguageLabel={false}
                   width="100%"
                   isWrapped

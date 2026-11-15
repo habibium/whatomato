@@ -347,6 +347,11 @@ function ConnectionDetails({
             <Button
               label={connection.status === 'paused' ? 'Resume' : 'Pause'}
               variant={connection.status === 'paused' ? 'primary' : 'secondary'}
+              tooltip={
+                connection.status === 'paused'
+                  ? undefined
+                  : 'Refuse the agent, and hold the messages it scheduled, until you resume it'
+              }
               isLoading={isToggling}
               clickAction={toggle}
             />
@@ -467,8 +472,8 @@ function ConnectionDetails({
       ) : (
         <SettingsSection
           id="connection-permissions"
-          title="Permissions"
-          description="What it may do with your account."
+          title="What it may do"
+          description="Its permissions over your account."
         >
           <Banner
             status="error"
@@ -590,9 +595,9 @@ function headline(
 ) {
   switch (connection.status) {
     case 'paused':
-      return 'Paused. The agent is refused until you resume it.'
+      return 'Paused. The agent is refused, and the messages it scheduled don’t go out, until you resume it.'
     case 'expired':
-      return 'Its key has expired, so the agent is refused. Replace the key to use it again.'
+      return 'Its key has expired, so the agent is refused and the messages it scheduled don’t go out. Replace the key to use it again.'
     case 'unusable':
       return 'Its permissions can’t be read, so the agent can do nothing until you set them again.'
     default: {

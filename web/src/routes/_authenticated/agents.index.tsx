@@ -228,7 +228,7 @@ function AgentsPage() {
         isOpen={isPauseAllOpen}
         onOpenChange={setIsPauseAllOpen}
         title="Pause every connection?"
-        description="Every agent is refused from now on, and waiting approvals stay waiting. Nothing is deleted. Resume each connection from this page when you’re ready."
+        description="Every agent is refused from now on, and waiting approvals stay waiting. Messages they scheduled don’t go out while they’re paused; each one skipped shows in History. Nothing is deleted. Resume each connection from this page when you’re ready."
         actionLabel="Pause all"
         actionVariant="primary"
         isActionLoading={isPausingAll}
@@ -382,10 +382,12 @@ function Access({
 }) {
   if (!connection.grant) {
     return (
-      <Text color="secondary">
-        {connection.grant_problem ??
-          'Its permissions can’t be read, so it can do nothing.'}
-      </Text>
+      <VStack gap={0.5}>
+        <Text>Nothing until you set its permissions again</Text>
+        <Text type="supporting">
+          {connection.grant_problem ?? 'Its permissions can’t be read.'}
+        </Text>
+      </VStack>
     )
   }
   const preset = presets.find((item) => item.id === connection.preset)

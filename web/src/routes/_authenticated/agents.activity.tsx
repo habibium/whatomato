@@ -59,8 +59,8 @@ function ActivityPage() {
           lede={
             activity
               ? activity.total === 0
-                ? 'Every call an agent makes shows here, allowed or not. Message text is never kept.'
-                : `${activity.total} ${activity.total === 1 ? 'call' : 'calls'}${chosen ? ` by ${chosen.name}` : ' by your agents'} in the last 90 days, newest first. Message text is never kept.`
+                ? 'Everything an agent does or tries shows here, allowed or not. Message text is never kept.'
+                : `${activity.total} ${activity.total === 1 ? 'thing' : 'things'}${chosen ? ` ${chosen.name}` : ' your agents'} did or tried in the last 90 days, newest first. Message text is never kept.`
               : undefined
           }
         />

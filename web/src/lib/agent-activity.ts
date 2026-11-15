@@ -54,6 +54,19 @@ export const approvalsQuery = (offset: number, limit: number) =>
     retry,
   })
 
+export const approvalQuery = (id: string) =>
+  queryOptions({
+    queryKey: ['agents', 'approval', id],
+    queryFn: async () => {
+      const { data, response } = await api.GET('/api/agents/approvals/{id}', {
+        params: { path: { id } },
+      })
+      if (!data) throw new ApiError(response.status)
+      return data
+    },
+    retry,
+  })
+
 export const activityQuery = (
   connectionID: string | undefined,
   page: number,
@@ -135,7 +148,8 @@ export function describeTool(tool: string, outcome: Outcome) {
   if ((outcome === 'denied' || outcome === 'failed') && TRIED[tool]) {
     return TRIED[tool]
   }
-  return TOOL_PHRASES[tool] ?? tool
+  // A tool added on the server after this page was built; its raw name means nothing to the owner
+  return TOOL_PHRASES[tool] ?? 'Used a feature this page doesn’t know yet'
 }
 
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })

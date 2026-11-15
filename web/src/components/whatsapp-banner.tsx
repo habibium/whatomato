@@ -36,6 +36,14 @@ function describe(status: WhatsAppStatus) {
     case 'syncing':
       return null
     case 'not_linked':
+      if (!status.can_link) {
+        return {
+          dot: 'warning',
+          title: 'WhatsApp isn’t linked.',
+          description: `There’s no room for another WhatsApp account on this server right now, so scheduled messages can’t send. Try linking again later. ${LOST}`,
+          action: null,
+        } as const
+      }
       return {
         dot: 'warning',
         title: 'WhatsApp isn’t linked.',

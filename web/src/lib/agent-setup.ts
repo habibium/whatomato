@@ -21,6 +21,8 @@ export interface SetupStep {
   language?: 'bash' | 'json' | 'toml' | 'plaintext'
   /** The file the code goes in, when there is one. */
   file?: string
+  /** The code's header when it goes in no file; without a header the copy button covers the first line. */
+  title?: string
 }
 
 export interface AgentClient {
@@ -54,6 +56,7 @@ export function setupSteps(
       return [
         {
           text: 'Run this in a terminal, in the folder you use Claude Code in.',
+          title: 'Terminal',
           code: `claude mcp add --transport http ${SERVER_NAME} ${url} \\\n  --header "Authorization: ${bearer}"`,
           language: 'bash',
         },
@@ -71,6 +74,7 @@ export function setupSteps(
         },
         {
           text: 'Codex reads the key from your environment. Add this line to your shell’s profile, such as ~/.zshrc or ~/.bashrc, then open a new terminal.',
+          title: 'Shell profile',
           code: `export ${KEY_VARIABLE}="${key}"`,
           language: 'bash',
         },
@@ -128,11 +132,13 @@ export function setupSteps(
       return [
         {
           text: 'In your agent, add a remote MCP server at this address. It speaks Streamable HTTP.',
+          title: 'Address',
           code: url,
           language: 'plaintext',
         },
         {
           text: 'Send this header with every request. The header’s name is Authorization.',
+          title: 'Header',
           code: `Authorization: ${bearer}`,
           language: 'plaintext',
         },

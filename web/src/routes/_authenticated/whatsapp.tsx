@@ -108,6 +108,9 @@ const styles = stylex.create({
   },
 })
 
+const NO_ROOM =
+  'There’s no room for another WhatsApp account on this server right now. Try again later.'
+
 type Command = 'pause' | 'resume' | 'cancel'
 
 const COMMANDS = {
@@ -132,6 +135,7 @@ function WhatsAppPage() {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [isEndDismissed, setIsEndDismissed] = useState(false)
   const [failed, setFailed] = useState<Command | null>(null)
+  const [linkRefused, setLinkRefused] = useState<string | null>(null)
   const seen = useRef<WhatsAppStatus['status'] | null>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
 
@@ -145,6 +149,7 @@ function WhatsAppPage() {
   const status = query.data?.status
   const clockOffset = query.data?.clockOffset ?? 0
   const copy = status ? describe(status) : null
+  const isFull = status?.status === 'not_linked' && !status.can_link
   const linkEnded =
     status?.status === 'not_linked' && !isEndDismissed ? status.reason : null
 
@@ -156,6 +161,7 @@ function WhatsAppPage() {
 
     setIsEndDismissed(false)
     setFailed(null)
+    setLinkRefused(null)
     // Focus fell to the body with the view it was in; landing on the new
     // heading reads it out, so it is announced only when focus is elsewhere
     if (document.activeElement === document.body) {
@@ -187,6 +193,12 @@ function WhatsAppPage() {
         : { password },
     })
     if (result.response.ok) setNotice(null)
+    // 503: the server is full; the page says so in place of the dialog
+    if (result.response.status === 503) {
+      setLinkRefused(result.error?.error ?? NO_ROOM)
+      await refresh()
+      return 'confirmed' as const
+    }
     // 409: another tab got there first, and the refresh shows how far it got
     if (result.response.ok || result.response.status === 409) {
       await refresh()
@@ -283,7 +295,7 @@ function WhatsAppPage() {
                     </Text>
                   </VStack>
                 )}
-                {status.status === 'not_linked' ? (
+                {isFull ? null : status.status === 'not_linked' ? (
                   <LinkChoices
                     onLinkByQr={() => setDialog('qr')}
                     onLinkByPhone={() => setDialog('phone')}
@@ -307,6 +319,13 @@ function WhatsAppPage() {
                     status="error"
                     title={COMMAND_FAILED[failed]}
                     description="Something went wrong on our side. Try again in a moment."
+                  />
+                ) : null}
+                {linkRefused && !isFull ? (
+                  <Banner
+                    status="error"
+                    title="Couldn't start linking."
+                    description={linkRefused}
                   />
                 ) : null}
               </VStack>
@@ -375,6 +394,9 @@ interface PageCopy {
 function describe(status: WhatsAppStatus): PageCopy {
   switch (status.status) {
     case 'not_linked':
+      if (!status.can_link) {
+        return { title: 'Not linked yet', lede: NO_ROOM }
+      }
       return {
         title: 'Not linked yet',
         lede: 'Once it’s linked, scheduled messages go out from your own number, as if you’d sent them from your phone.',

@@ -86,7 +86,7 @@ function EarlierApprovalsPage() {
           <Banner
             status="info"
             title={`${waiting} ${waiting === 1 ? 'request waits' : 'requests wait'} for you`}
-            description="Answer them on the Agents page."
+            description={`Answer ${waiting === 1 ? 'it' : 'them'} on the Agents page.`}
             endContent={
               <Button label="Go to agents" size="sm" href="/agents" />
             }

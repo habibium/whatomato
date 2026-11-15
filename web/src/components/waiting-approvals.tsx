@@ -9,9 +9,11 @@ import { ApprovalCard } from '@/components/agent-approval'
 import {
   APPROVAL_DOTS,
   WAITING_MAX,
+  approvalQuery,
   approvalsQuery,
 } from '@/lib/agent-activity'
 import { formatWhenInSentence } from '@/lib/format'
+import { ApiError, formatPhoneNumber } from '@/lib/whatsapp'
 
 interface WaitingApprovalsProps {
   /** From the overview, so nothing is fetched while nothing waits. */
@@ -23,16 +25,30 @@ interface WaitingApprovalsProps {
 export function WaitingApprovals({ waiting, markedID }: WaitingApprovalsProps) {
   const query = useQuery({
     ...approvalsQuery(0, WAITING_MAX),
-    enabled: waiting > 0 || markedID !== undefined,
+    enabled: waiting > 0,
+  })
+  const markedQuery = useQuery({
+    ...approvalQuery(markedID ?? ''),
+    enabled: markedID !== undefined,
   })
   const markedRef = useRef<HTMLElement>(null)
   const hasScrolled = useRef(false)
-  const items = query.data?.items ?? []
-  const shown = items.filter((item) => item.status === 'waiting')
-  const marked = markedID
-    ? items.find((item) => item.id === markedID)
-    : undefined
+  const waitingItems = (query.data?.items ?? []).filter(
+    (item) => item.status === 'waiting',
+  )
+  const marked = markedQuery.data
   const isMarkedWaiting = marked?.status === 'waiting'
+  // A link can point past the first page of waiting requests
+  const shown =
+    marked &&
+    isMarkedWaiting &&
+    !waitingItems.some((item) => item.id === marked.id)
+      ? [marked, ...waitingItems]
+      : waitingItems
+  // 400: an id that isn't one at all, such as a link cut short
+  const isMarkedMissing =
+    markedQuery.error instanceof ApiError &&
+    (markedQuery.error.status === 404 || markedQuery.error.status === 400)
 
   useEffect(() => {
     if (!isMarkedWaiting || hasScrolled.current || !markedRef.current) return
@@ -42,34 +58,24 @@ export function WaitingApprovals({ waiting, markedID }: WaitingApprovalsProps) {
   }, [isMarkedWaiting])
 
   const answered =
-    markedID && query.data && !isMarkedWaiting ? (
-      marked ? (
-        <Banner
-          status="info"
-          title={`That request was ${APPROVAL_DOTS[marked.status].label.toLowerCase()}${marked.decided_at ? ` ${formatWhenInSentence(marked.decided_at)}` : ''}`}
-          description={`${marked.connection_name} asked to message ${marked.recipient_name ?? marked.recipient}. ${afterwards(marked)}`}
-          endContent={
-            <Button
-              label="Earlier requests"
-              size="sm"
-              href="/agents/approvals"
-            />
-          }
-        />
-      ) : (
-        <Banner
-          status="info"
-          title="That request isn’t waiting any more"
-          description="It was answered, expired, or its connection was revoked. Earlier requests shows what became of each."
-          endContent={
-            <Button
-              label="Earlier requests"
-              size="sm"
-              href="/agents/approvals"
-            />
-          }
-        />
-      )
+    marked && !isMarkedWaiting ? (
+      <Banner
+        status="info"
+        title={`That request was ${APPROVAL_DOTS[marked.status].label.toLowerCase()}${marked.decided_at ? ` ${formatWhenInSentence(marked.decided_at)}` : ''}`}
+        description={`${marked.connection_name} asked to message ${marked.recipient_name ?? (marked.recipient_type === 'contact' ? formatPhoneNumber(marked.recipient) : 'a group')}. ${afterwards(marked)}`}
+        endContent={
+          <Button label="Earlier requests" size="sm" href="/agents/approvals" />
+        }
+      />
+    ) : isMarkedMissing ? (
+      <Banner
+        status="info"
+        title="That request can’t be found"
+        description="The link may be incomplete, or the request belonged to another account. Earlier requests lists every request your agents made."
+        endContent={
+          <Button label="Earlier requests" size="sm" href="/agents/approvals" />
+        }
+      />
     ) : null
 
   if (shown.length === 0) return answered
