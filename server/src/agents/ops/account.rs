@@ -164,16 +164,17 @@ pub fn summary(grant: &Grant) -> Vec<String> {
             let limit = chats
                 .default
                 .daily_limit
-                .map(|limit| format!(", at most {limit} messages a day per chat"))
-                .unwrap_or_default();
+                .map_or_default(|limit| format!(", at most {limit} messages a day per chat"));
             lines.push(format!(
                 "It may use any chat. Unless a chat has a rule of its own, it {how}{limit}."
             ));
-            if !chats.rules.is_empty() {
-                lines.push(format!(
-                    "{} chats have a rule of their own; find_chats shows each one's.",
-                    chats.rules.len()
-                ));
+            match chats.rules.len() {
+                0 => {}
+                1 => lines
+                    .push("One chat has a rule of its own, which applies there instead.".into()),
+                count => lines.push(format!(
+                    "{count} chats have a rule of their own, which applies there instead."
+                )),
             }
             lines.push(
                 match chats.strangers {
@@ -188,11 +189,13 @@ pub fn summary(grant: &Grant) -> Vec<String> {
                 .to_owned(),
             );
         }
-        Scope::Selected => lines.push(format!(
-            "It may use only the {} chats the owner selected, each with its own rule. find_chats \
-             shows them.",
-            chats.rules.len()
-        )),
+        Scope::Selected => lines.push(match chats.rules.len() {
+            0 => "It may use no chats, since the owner hasn't selected any.".to_owned(),
+            1 => "It may use only the one chat the owner selected, under its own rule.".to_owned(),
+            count => format!(
+                "It may use only the {count} chats the owner selected, each under its own rule."
+            ),
+        }),
     }
     lines.push(format!(
         "It may send at most {DAILY_CEILING} messages in any 24 hours, and have at most \

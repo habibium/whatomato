@@ -28,6 +28,9 @@ const ACCOUNT_REFILL: Duration = Duration::from_secs(90);
 const WRONG_CODES_ALERT_EVERY: Duration = Duration::from_hours(6);
 const LINK_BURST: NonZeroU32 = NonZeroU32::new(5).unwrap();
 const LINK_REFILL: Duration = Duration::from_mins(10);
+const AGENT_CALLS_PER_MINUTE: NonZeroU32 = NonZeroU32::new(120).unwrap();
+const AGENT_KEY_FAILURES_BURST: NonZeroU32 = NonZeroU32::new(20).unwrap();
+const AGENT_KEY_FAILURES_REFILL: Duration = Duration::from_secs(6);
 
 /// Limits writes per client IP to a burst of 20, then one every 6 seconds (10 a minute). Reads
 /// pass untouched: route guards poll the session on every page load.
@@ -119,6 +122,8 @@ pub struct RateLimits {
     reauth: Arc<DefaultKeyedRateLimiter<Uuid>>,
     wrong_codes_alert: Arc<DefaultKeyedRateLimiter<Uuid>>,
     whatsapp_link: Arc<DefaultKeyedRateLimiter<Uuid>>,
+    agent_calls: Arc<DefaultKeyedRateLimiter<Uuid>>,
+    agent_key_failures: Arc<DefaultKeyedRateLimiter<IpAddr>>,
 }
 
 impl Default for RateLimits {
@@ -138,11 +143,21 @@ impl Default for RateLimits {
                     .expect("refill period is nonzero")
                     .allow_burst(LINK_BURST),
             )),
+            agent_calls: Arc::new(RateLimiter::keyed(Quota::per_minute(
+                AGENT_CALLS_PER_MINUTE,
+            ))),
+            agent_key_failures: Arc::new(RateLimiter::keyed(
+                Quota::with_period(AGENT_KEY_FAILURES_REFILL)
+                    .expect("refill period is nonzero")
+                    .allow_burst(AGENT_KEY_FAILURES_BURST),
+            )),
         };
         sweep(&limits.signin);
         sweep(&limits.reauth);
         sweep(&limits.wrong_codes_alert);
         sweep(&limits.whatsapp_link);
+        sweep(&limits.agent_calls);
+        sweep(&limits.agent_key_failures);
 
         limits
     }
@@ -169,6 +184,17 @@ impl RateLimits {
     /// connection to WhatsApp, which limits pair codes per number as well.
     pub(crate) fn whatsapp_link(&self, user_id: Uuid) -> Result<(), AppError> {
         check(&self.whatsapp_link, &user_id)
+    }
+
+    /// Counts a request on `/mcp` by the agent connection `connection_id`: 120 a minute
+    pub(crate) fn agent_call(&self, connection_id: Uuid) -> Result<(), AppError> {
+        check(&self.agent_calls, &connection_id)
+    }
+
+    /// Counts a request on `/mcp` from `ip` that brought no usable key: 20, then one every 6
+    /// seconds. Requests with a key that works never count, as cloud agents share addresses.
+    pub(crate) fn agent_key_failure(&self, ip: IpAddr) -> Result<(), AppError> {
+        check(&self.agent_key_failures, &ip)
     }
 }
 

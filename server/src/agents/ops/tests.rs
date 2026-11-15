@@ -13,7 +13,7 @@ use super::{
     Caller, OpError, Page,
     account::{
         FindChatsInput, ListTemplatesInput, WhatsAppStatus, WhoAmIInput, find_chats,
-        list_templates, whoami,
+        list_templates, summary, whoami,
     },
     approvals::{GetApprovalInput, ListApprovalsInput, get_approval, list_approvals},
     review::{self, Request, ReviewError},
@@ -324,6 +324,46 @@ async fn a_paused_expired_or_garbled_connection_can_do_nothing(pool: PgPool) {
         Caller::from_key_match(&state.app_url, found).map(|_| ()),
         "grant_unreadable",
     );
+}
+
+#[test]
+fn the_summary_names_no_tool_and_counts_chats_in_words() {
+    let mut grant = Preset::AskBeforeSending.grant();
+    grant = with_rule(grant, ADA, SendLevel::Yes, None);
+    let lines = summary(&grant);
+    assert!(lines.contains(&"One chat has a rule of its own, which applies there instead.".into()));
+    grant = with_rule(grant, STRANGER, SendLevel::No, None);
+    assert!(
+        summary(&grant)
+            .contains(&"2 chats have a rule of their own, which applies there instead.".into())
+    );
+
+    grant.chats.scope = Scope::Selected;
+    assert!(summary(&grant).contains(
+        &"It may use only the 2 chats the owner selected, each under its own rule.".into()
+    ));
+    grant.chats.rules.truncate(1);
+    assert!(
+        summary(&grant).contains(
+            &"It may use only the one chat the owner selected, under its own rule.".into()
+        )
+    );
+    grant.chats.rules.clear();
+    assert!(
+        summary(&grant)
+            .contains(&"It may use no chats, since the owner hasn't selected any.".into())
+    );
+
+    let tools = [
+        "find_chats",
+        "send_message",
+        "whoami",
+        "list_",
+        "schedule_message",
+    ];
+    for line in summary(&grant).iter().chain(&lines) {
+        assert!(!tools.iter().any(|tool| line.contains(tool)), "{line}");
+    }
 }
 
 #[sqlx::test]
@@ -1121,9 +1161,8 @@ async fn approving_a_send_queues_it_once_for_the_connection(pool: PgPool) {
 
     connected(&state, owner);
     let approved = review::approve(&state, id, owner, None).await.unwrap();
-    assert_eq!(approved.approval.status, ApprovalStatus::Approved);
+    assert_eq!(approved.status, ApprovalStatus::Approved);
     let delivery_id = approved.delivery_id.unwrap();
-    assert_eq!(approved.approval.delivery_id, Some(delivery_id));
     assert_eq!(
         delivery_rows(&state.pool, owner).await,
         [(

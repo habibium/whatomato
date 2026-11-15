@@ -125,7 +125,7 @@ impl AgentConnection {
                     .to_owned()
             }),
             preset: grant.as_ref().and_then(Preset::of),
-            summary: grant.as_ref().map(summary).unwrap_or_default(),
+            summary: grant.as_ref().map_or_default(summary),
             grant,
             paused_at: connection.paused_at,
             expires_at: connection.expires_at,

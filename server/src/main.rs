@@ -73,6 +73,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let (router, api) = server::router();
+    let (mcp, mcp_shutdown) = server::mcp::router(state.clone(), config.port);
 
     // `precompressed_*` serves the .br/.gz siblings the web build emits, so the
     // CompressionLayer below only ever has to compress API and docs responses.
@@ -110,6 +111,7 @@ async fn main() -> anyhow::Result<()> {
     let app = router
         .fallback_service(web_router)
         .with_state(state)
+        .merge(mcp)
         .merge(Scalar::with_url("/api/docs", api))
         .nest_service("/assets", assets_router)
         .layer(Extension(ClientIpHeader(config.client_ip_header)))
@@ -144,6 +146,8 @@ async fn main() -> anyhow::Result<()> {
     )
     .with_graceful_shutdown(shutdown_signal())
     .await?;
+    // Only now: cancelling while serve drains would cut off agent calls still running
+    mcp_shutdown.cancel();
 
     // Sends finish on their clients, and clients flush their keys to the database, so they stop in
     // this order before the pool closes

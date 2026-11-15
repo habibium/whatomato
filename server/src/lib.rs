@@ -7,6 +7,7 @@ mod db;
 pub mod email;
 mod error;
 mod extract;
+pub mod mcp;
 mod rate_limit;
 mod routes;
 pub mod scheduler;

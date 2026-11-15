@@ -5,12 +5,7 @@ pub(crate) mod alerts;
 pub mod decide;
 pub mod grant;
 pub mod key;
-// Crate-wide, since its signatures carry database rows. The owner's API uses only `review` and
-// `account::summary`; the tools are for the MCP endpoint, still to come.
-#[allow(
-    dead_code,
-    reason = "the agent tools are called by the MCP endpoint, still to come"
-)]
+// Crate-wide, since its signatures carry database rows
 pub(crate) mod ops;
 
 pub use decide::{

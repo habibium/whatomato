@@ -278,13 +278,6 @@ impl From<sqlx::Error> for ReviewError {
     }
 }
 
-/// What approving made
-pub struct Approved {
-    pub approval: Approval,
-    pub delivery_id: Option<Uuid>,
-    pub scheduled_message_id: Option<Uuid>,
-}
-
 /// Opens a waiting approval of `user_id`'s, or says why it can't be answered
 async fn waiting(pool: &PgPool, id: Uuid, user_id: Uuid) -> Result<Approval, ReviewError> {
     let approval = agent_approvals::find(pool, id, user_id)
@@ -319,7 +312,7 @@ pub async fn approve(
     id: Uuid,
     user_id: Uuid,
     body: Option<String>,
-) -> Result<Approved, ReviewError> {
+) -> Result<Approval, ReviewError> {
     let approval = waiting(&state.pool, id, user_id).await?;
     let mut request = open(&state.cipher, &approval)?;
     if let Some(body) = body {
@@ -342,11 +335,7 @@ pub async fn approve(
         return Err(decided(&state.pool, id, user_id).await);
     };
     transaction.commit().await?;
-    Ok(Approved {
-        approval,
-        delivery_id: became.delivery_id,
-        scheduled_message_id: became.scheduled_message_id,
-    })
+    Ok(approval)
 }
 
 /// Checks `request` as if it were made now, and for a send gives its text with the variables

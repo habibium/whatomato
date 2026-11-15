@@ -111,7 +111,6 @@ pub async fn find(
 }
 
 /// Paused and expired connections are found too, so the caller can tell the agent which
-#[allow(dead_code, reason = "called by the MCP endpoint, still to come")]
 pub async fn find_by_key(
     db: impl PgExecutor<'_>,
     key_hash: &[u8],

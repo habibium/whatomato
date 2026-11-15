@@ -16,7 +16,6 @@ pub mod sends;
 mod tests;
 
 use anyhow::anyhow;
-use chrono::Utc;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use url::Url;
@@ -68,9 +67,12 @@ impl Caller {
 
     /// # Errors
     /// As [`Self::from_key_match`].
+    #[cfg(test)]
     pub fn from_connection(app_url: &Url, connection: Connection) -> Result<Self, OpError> {
         let paused = connection.paused_at.is_some();
-        let expired = connection.expires_at.is_some_and(|at| at <= Utc::now());
+        let expired = connection
+            .expires_at
+            .is_some_and(|at| at <= chrono::Utc::now());
         Self::build(app_url, connection, paused, expired)
     }
 

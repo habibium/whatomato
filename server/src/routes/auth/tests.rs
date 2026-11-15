@@ -46,7 +46,7 @@ pub struct TestApp {
 
 pub struct TestResponse {
     pub status: StatusCode,
-    headers: HeaderMap,
+    pub headers: HeaderMap,
     pub body: Value,
 }
 
@@ -111,9 +111,10 @@ impl TestApp {
             agent_access,
         };
         let (router, _) = crate::router();
+        let (mcp, _) = crate::mcp::router(state.clone(), 8000);
 
         Self {
-            router: router.with_state(state.clone()),
+            router: router.with_state(state.clone()).merge(mcp),
             pool,
             state,
             outbox,
