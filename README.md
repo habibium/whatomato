@@ -269,7 +269,7 @@ You can let an AI agent, such as Claude Code, Codex, OpenCode, Antigravity or Cu
 On the Agents page, create a connection: give it a name, choose its permissions and enter your password. The page then shows its access key once, so copy it before you leave. Below the key are the setup steps for each client. Agents talk to Whatomato over MCP, the protocol these tools use to reach outside services, at your site's address followed by `/mcp`. For Claude Code it's one command:
 
 ```sh
-claude mcp add --transport http whatomato https://whatomato.example.com/mcp \
+claude mcp add --scope user --transport http whatomato https://whatomato.example.com/mcp \
   --header "Authorization: Bearer $WHATOMATO_KEY"
 ```
 

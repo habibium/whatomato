@@ -55,9 +55,9 @@ export function setupSteps(
     case 'claude-code':
       return [
         {
-          text: 'Run this in a terminal, in the folder you use Claude Code in.',
+          text: 'Run this in a terminal.',
           title: 'Terminal',
-          code: `claude mcp add --transport http ${SERVER_NAME} ${url} \\\n  --header "Authorization: ${bearer}"`,
+          code: `claude mcp add --scope user --transport http ${SERVER_NAME} ${url} \\\n  --header "Authorization: ${bearer}"`,
           language: 'bash',
         },
         {
