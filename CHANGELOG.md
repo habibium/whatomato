@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.2.0] - 2026-11-16
+
+### Features
+
+- The permission rules and tables for letting AI agents use an account (ce168f0)
+- What an AI agent can do with an account, one operation per tool (1e8b32d)
+- The owner's side of agent access: create and manage connections, answer approvals, read the activity log (299bc2d)
+- An Agents page to connect an AI agent and choose what it may do (a2dfc89)
+- An MCP endpoint at /mcp, so AI agents can use an account with an access key (1ebfe91)
+- Approve what an agent asks to send, manage a connection, and see what agents did (7109487)
+- MAX_LINKED_ACCOUNTS caps how many WhatsApp accounts an instance holds (4dc69a7)
+- The Agents pages say when a request's connection is paused, when the server is full, and that pausing holds an agent's scheduled messages (f701204)
+
+### Bug Fixes
+
+- An agent's limits hold for its schedules and for calls made at the same moment (446a5b9)
+- A schedule belongs to whoever last decided what it sends, and an agent holds at most 50 (f8eabc3)
+- A chat added to an agent's permissions starts no higher than "Ask me first", and other rough edges on the Agents pages (9fbd233)
+- Approving a change to a schedule that has changed since is refused, and a change that changes nothing takes nothing over (57b51bd)
+- Unlinking waits for WhatsApp to reconnect, tries twice and logs why the phone wasn't told (5afa3aa)
+- With only selected chats, an agent sees schedules and history for those chats alone (d98bc00)
+
+### Documentation
+
+- Add a self-hosting section to the README: Compose, HTTPS, upgrades and backups (ffe7b7c)
+- Agent access in the README: connecting an agent, permissions, approvals, limits and what is stored (79c44d7)
+- The Agents pages and the README say that a schedule an agent changed is its own, and that an agent holds at most 50 (0b7d30c)
 ## [0.1.5] - 2026-11-12
 
 ### Features
