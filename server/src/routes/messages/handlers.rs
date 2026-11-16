@@ -14,6 +14,7 @@ use super::dto::{
 use crate::{
     auth::session::Session,
     db::{
+        Chats,
         deliveries::{self, NewDelivery},
         scheduled_messages::{self, BelongsTo},
     },
@@ -42,7 +43,8 @@ pub async fn list_messages(
     State(state): State<AppState>,
     session: Session,
 ) -> Result<Json<Vec<ScheduledMessage>>, AppError> {
-    let messages = scheduled_messages::list(&state.pool, session.user.id, None).await?;
+    let messages =
+        scheduled_messages::list(&state.pool, session.user.id, None, Chats::default()).await?;
     Ok(Json(messages.into_iter().map(Into::into).collect()))
 }
 

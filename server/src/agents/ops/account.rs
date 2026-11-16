@@ -223,6 +223,10 @@ pub fn summary(grant: &Grant) -> Vec<String> {
                 "It can schedule messages, and see and manage only its own: the ones it scheduled \
                  or changed."
             }
+            Schedules::All if chats.scope == Scope::Selected => {
+                "It can schedule messages, and see and manage its own and any to the chats the \
+                 owner selected. One it changes without asking becomes its own."
+            }
             Schedules::All => {
                 "It can schedule messages, and see and manage all of them. One it changes without \
                  asking becomes its own."
@@ -246,6 +250,10 @@ pub fn summary(grant: &Grant) -> Vec<String> {
     lines.push(
         match grant.deliveries {
             Deliveries::Own => "It sees whether the messages it caused went out.",
+            Deliveries::All if chats.scope == Scope::Selected => {
+                "It sees whether the messages it caused, and any to the chats the owner selected, \
+                 went out."
+            }
             Deliveries::All => "It sees whether any of the account's messages went out.",
         }
         .to_owned(),

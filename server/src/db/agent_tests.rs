@@ -452,9 +452,10 @@ async fn revoking_keeps_history_and_optionally_its_schedules(pool: PgPool) {
     ask(&pool, agent.id, ApprovalKind::Send, ADA).await;
     activity(&pool, owner, &agent).await;
 
-    let only_its = super::scheduled_messages::list(&pool, owner, Some(agent.id))
-        .await
-        .unwrap();
+    let only_its =
+        super::scheduled_messages::list(&pool, owner, Some(agent.id), super::Chats::default())
+            .await
+            .unwrap();
     assert_eq!(
         only_its
             .iter()
@@ -463,8 +464,8 @@ async fn revoking_keeps_history_and_optionally_its_schedules(pool: PgPool) {
         [its]
     );
     let filter = Filter {
-        recipient: None,
         connection_id: Some(agent.id),
+        ..Filter::default()
     };
     assert_eq!(deliveries::count(&pool, owner, filter).await.unwrap(), 1);
 

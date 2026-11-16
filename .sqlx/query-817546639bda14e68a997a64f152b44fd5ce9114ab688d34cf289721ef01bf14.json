@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT m.id AS \"id!\", m.user_id AS \"user_id!\", m.connection_id,\n               c.name AS \"connection_name?\",\n               m.recipient_type AS \"recipient_type!: RecipientType\", m.recipient AS \"recipient!\",\n               m.recipient_name, m.body AS \"body!\",\n               m.schedule_kind AS \"schedule_kind!: ScheduleKind\",\n               m.run_at, m.recurrence AS \"recurrence: Json<Recurrence>\", m.timezone AS \"timezone!\",\n               m.template_id, m.enabled AS \"enabled!\", m.next_run_at, m.last_run_at,\n               m.created_at AS \"created_at!\", m.updated_at AS \"updated_at!\"\n           FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id\n           WHERE m.user_id = $1 AND ($2::uuid IS NULL OR m.connection_id = $2)\n           ORDER BY m.created_at, m.id",
+  "query": "SELECT m.id AS \"id!\", m.user_id AS \"user_id!\", m.connection_id,\n               c.name AS \"connection_name?\",\n               m.recipient_type AS \"recipient_type!: RecipientType\", m.recipient AS \"recipient!\",\n               m.recipient_name, m.body AS \"body!\",\n               m.schedule_kind AS \"schedule_kind!: ScheduleKind\",\n               m.run_at, m.recurrence AS \"recurrence: Json<Recurrence>\", m.timezone AS \"timezone!\",\n               m.template_id, m.enabled AS \"enabled!\", m.next_run_at, m.last_run_at,\n               m.created_at AS \"created_at!\", m.updated_at AS \"updated_at!\"\n           FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id\n           WHERE m.user_id = $1\n               AND ($2::uuid IS NULL OR m.connection_id = $2\n                   OR (m.recipient_type, m.recipient)\n                       IN (SELECT * FROM unnest($3::text[], $4::text[])))\n           ORDER BY m.created_at, m.id",
   "describe": {
     "columns": [
       {
@@ -205,7 +205,9 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid"
+        "Uuid",
+        "TextArray",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -229,5 +231,5 @@
       false
     ]
   },
-  "hash": "38a5050c47b06dd8918fdd1258df16949c63b9801050a161563993096b9521c2"
+  "hash": "817546639bda14e68a997a64f152b44fd5ce9114ab688d34cf289721ef01bf14"
 }

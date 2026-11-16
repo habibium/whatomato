@@ -22,6 +22,13 @@ use sqlx::PgPool;
 
 use crate::auth::two_factor::SETUP_TTL;
 
+/// Chats named as two parallel arrays, the form Postgres's `unnest` takes; empty for none
+#[derive(Clone, Copy, Default)]
+pub struct Chats<'a> {
+    pub types: &'a [String],
+    pub recipients: &'a [String],
+}
+
 /// Hourly sweep of expired rows and of agent activity past 90 days.
 ///
 /// Covers sessions, email links, passkey ceremonies, second-factor challenges, two-step setups and

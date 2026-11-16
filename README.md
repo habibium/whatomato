@@ -282,7 +282,7 @@ A connection starts from one of these, which you can then change:
 - Send without asking: it sends without asking, up to 20 messages a day per chat.
 - Full access: it sends without asking, messages people who aren't saved contacts, and manages every schedule and delivery, not just its own.
 
-A connection covers all chats or only the ones you select. Each chat has a rule: whether the agent may send there (no, ask me first, or yes), an optional daily limit, and an optional note for the agent, such as "reply in Bangla". The agent sees the note, but nothing enforces it. A separate setting covers people who aren't saved contacts: never, ask me first, or allowed.
+A connection covers all chats or only the ones you select. With only selected chats, what it sees of your scheduled messages and history stops at those chats too, plus whatever it made itself. Each chat has a rule: whether the agent may send there (no, ask me first, or yes), an optional daily limit, and an optional note for the agent, such as "reply in Bangla". The agent sees the note, but nothing enforces it. A separate setting covers people who aren't saved contacts: never, ask me first, or allowed.
 
 Any change to a connection's permissions asks for your password again and emails you. A connection can also be given an expiry date.
 

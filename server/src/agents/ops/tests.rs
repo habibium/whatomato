@@ -29,7 +29,9 @@ use super::{
 use crate::{
     agents::{
         ApprovalKind, ApprovalStatus, Grant, Outcome, Preset,
-        grant::{Chat, ChatRule, Contacts, Schedules, Scope, SendLevel, Strangers, Templates},
+        grant::{
+            Chat, ChatRule, Contacts, Deliveries, Schedules, Scope, SendLevel, Strangers, Templates,
+        },
         key::AccessKey,
     },
     auth::pwned::PwnedPasswords,
@@ -2434,4 +2436,132 @@ async fn whoami_counts_the_schedules_held_against_the_cap(pool: PgPool) {
     );
     assert!(summary.contains("once an hour"), "{summary}");
     assert!(summary.contains("scheduled or changed"), "{summary}");
+}
+
+#[sqlx::test]
+async fn the_selected_chats_bound_what_all_shows(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    connected(&state, owner);
+    // The owner's own history and schedules, one each to three chats
+    for (kind, recipient) in [("contact", ADA), ("contact", STRANGER), ("group", GROUP)] {
+        sqlx::query(
+            "INSERT INTO deliveries (user_id, recipient_type, recipient, body, status) \
+             VALUES ($1, $2, $3, 'By hand', 'sent')",
+        )
+        .bind(owner)
+        .bind(kind)
+        .bind(recipient)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO scheduled_messages (user_id, recipient_type, recipient, body, \
+             schedule_kind, run_at, timezone, next_run_at) \
+             VALUES ($1, $2, $3, 'Hello', 'once', now() + interval '1 day', 'UTC', \
+                 now() + interval '1 day')",
+        )
+        .bind(owner)
+        .bind(kind)
+        .bind(recipient)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    }
+
+    let mut selected = Preset::FullAccess.grant();
+    selected.chats.scope = Scope::Selected;
+    let selected = with_rule(selected, ADA, SendLevel::Yes, None);
+    let agent = connect(&state, owner, &selected).await;
+    send_message(&state, &agent, send_to(ADA, "Mine"))
+        .await
+        .unwrap();
+
+    // Its own, then the owner's to the chat it may reach; nothing of the other two chats
+    let history = list_deliveries(&state, &agent, ListDeliveriesInput::default())
+        .await
+        .unwrap();
+    let seen: Vec<_> = history
+        .deliveries
+        .iter()
+        .map(|delivery| (delivery.recipient.as_str(), delivery.by_this_connection))
+        .collect();
+    assert_eq!(seen, [(ADA, true), (ADA, false)]);
+    let schedules = list_scheduled_messages(&state, &agent, ListSchedulesInput::default())
+        .await
+        .unwrap();
+    let to: Vec<_> = schedules
+        .schedules
+        .iter()
+        .map(|schedule| schedule.recipient.as_str())
+        .collect();
+    assert_eq!(to, [ADA]);
+    assert!(
+        crate::agents::ops::account::summary(agent.grant())
+            .iter()
+            .any(|line| line.contains("any to the chats the owner selected")),
+    );
+
+    // A schedule to a chat outside the selection answers as if it weren't there
+    let outside: Uuid = sqlx::query_scalar(
+        "SELECT id FROM scheduled_messages WHERE user_id = $1 AND recipient = $2",
+    )
+    .bind(owner)
+    .bind(GROUP)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    let mut change = update(outside);
+    change.body = Some("Changed".to_owned());
+    let mut off = update(outside);
+    off.enabled = Some(false);
+    for input in [change, off] {
+        assert!(matches!(
+            update_scheduled_message(&state, &agent, input).await,
+            Err(OpError::NotFound(_))
+        ));
+    }
+    assert!(matches!(
+        delete_scheduled_message(
+            &state,
+            &agent,
+            DeleteScheduleInput {
+                scheduled_message_id: outside
+            }
+        )
+        .await,
+        Err(OpError::NotFound(_))
+    ));
+    let untouched: (String, bool) =
+        sqlx::query_as("SELECT body, enabled FROM scheduled_messages WHERE id = $1")
+            .bind(outside)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+    assert_eq!(untouched, ("Hello".to_owned(), true));
+
+    // With every chat in reach, "all" is everything
+    let everywhere = connect(&state, owner, &Preset::FullAccess.grant()).await;
+    let history = list_deliveries(&state, &everywhere, ListDeliveriesInput::default())
+        .await
+        .unwrap();
+    assert_eq!(history.deliveries.len(), 4);
+    let schedules = list_scheduled_messages(&state, &everywhere, ListSchedulesInput::default())
+        .await
+        .unwrap();
+    assert_eq!(schedules.schedules.len(), 3);
+
+    // "Its own" stays its own, whatever chats are selected
+    let mut own = selected;
+    own.deliveries = Deliveries::Own;
+    own.schedules = Schedules::Own;
+    let own = connect(&state, owner, &own).await;
+    let history = list_deliveries(&state, &own, ListDeliveriesInput::default())
+        .await
+        .unwrap();
+    assert!(history.deliveries.is_empty());
+    let schedules = list_scheduled_messages(&state, &own, ListSchedulesInput::default())
+        .await
+        .unwrap();
+    assert!(schedules.schedules.is_empty());
 }

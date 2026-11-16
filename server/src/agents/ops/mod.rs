@@ -30,9 +30,11 @@ use self::{
 use super::{
     Grant, Outcome, Reason, alerts,
     decide::{ChatRef, Facts},
+    grant::Scope,
 };
 use crate::{
     db::{
+        Chats,
         agent_activity::{self, ActivityChat, NewActivity},
         agent_approvals::{self, Approval, NewApproval},
         agent_connections::{self, Connection, KeyMatch},
@@ -50,6 +52,69 @@ pub const PAGE_MAX: u32 = 50;
 /// Characters of other people's text (bodies, names) one page may carry, about 10,000 tokens, so a
 /// page stays far under the 25,000 tokens some clients cut tool output at
 const TEXT_BUDGET: usize = 40_000;
+
+/// Which of the account's schedules or deliveries a connection sees. Even at the level "all", the
+/// chats the owner selected bound it: the selection is all of the account's chats it may know of.
+pub(super) struct Seen {
+    /// Empty when it sees everything
+    connection_id: Option<Uuid>,
+    types: Vec<String>,
+    recipients: Vec<String>,
+}
+
+impl Seen {
+    /// `own_only` is the grant's level for what's listed: only what belongs to the connection
+    pub(super) fn new(caller: &Caller, own_only: bool) -> Self {
+        let chats = &caller.grant.chats;
+        let bounded = chats.scope == Scope::Selected;
+        let (types, recipients) = if bounded && !own_only {
+            chats
+                .rules
+                .iter()
+                .map(|rule| {
+                    (
+                        rule.chat.recipient_type.as_str().to_owned(),
+                        rule.chat.id.clone(),
+                    )
+                })
+                .unzip()
+        } else {
+            (Vec::new(), Vec::new())
+        };
+        Self {
+            connection_id: (own_only || bounded).then(|| caller.id()),
+            types,
+            recipients,
+        }
+    }
+
+    pub(super) const fn connection_id(&self) -> Option<Uuid> {
+        self.connection_id
+    }
+
+    pub(super) fn chats(&self) -> Chats<'_> {
+        Chats {
+            types: &self.types,
+            recipients: &self.recipients,
+        }
+    }
+
+    /// Whether something sent to `recipient`, belonging to `connection_id`, is seen
+    pub(super) fn includes(
+        &self,
+        recipient_type: RecipientType,
+        recipient: &str,
+        connection_id: Option<Uuid>,
+    ) -> bool {
+        self.connection_id.is_none()
+            || connection_id == self.connection_id
+            || self
+                .types
+                .iter()
+                .zip(&self.recipients)
+                .any(|(kind, id)| kind == recipient_type.as_str() && id == recipient)
+    }
+}
 
 /// Who is calling: a connection that may be used now, and its grant
 pub struct Caller {

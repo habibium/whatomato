@@ -129,7 +129,7 @@ async fn list_deliveries(
     let user_id = session.user.id;
     let filter = deliveries::Filter {
         recipient: page.recipient.as_deref(),
-        connection_id: None,
+        ..deliveries::Filter::default()
     };
     let (items, total) = tokio::try_join!(
         deliveries::page(&state.pool, user_id, filter, page.limit, page.offset),

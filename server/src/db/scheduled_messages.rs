@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use sqlx::{PgExecutor, types::Json};
 use uuid::Uuid;
 
+use super::Chats;
 use crate::scheduler::{RecipientType, ScheduleKind, recurrence::Recurrence};
 
 pub struct Message {
@@ -42,11 +43,13 @@ pub struct Fields<'a> {
     pub next_run_at: Option<DateTime<Utc>>,
 }
 
-/// The user's messages, oldest first; only those belonging to `connection_id` if it's given
+/// The user's messages, oldest first; if `connection_id` is given, only those belonging to it and
+/// those sent to `also_to`
 pub async fn list(
     db: impl PgExecutor<'_>,
     user_id: Uuid,
     connection_id: Option<Uuid>,
+    also_to: Chats<'_>,
 ) -> sqlx::Result<Vec<Message>> {
     sqlx::query_as!(
         Message,
@@ -59,10 +62,15 @@ pub async fn list(
                m.template_id, m.enabled AS "enabled!", m.next_run_at, m.last_run_at,
                m.created_at AS "created_at!", m.updated_at AS "updated_at!"
            FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id
-           WHERE m.user_id = $1 AND ($2::uuid IS NULL OR m.connection_id = $2)
+           WHERE m.user_id = $1
+               AND ($2::uuid IS NULL OR m.connection_id = $2
+                   OR (m.recipient_type, m.recipient)
+                       IN (SELECT * FROM unnest($3::text[], $4::text[])))
            ORDER BY m.created_at, m.id"#,
         user_id,
         connection_id,
+        also_to.types,
+        also_to.recipients,
     )
     .fetch_all(db)
     .await

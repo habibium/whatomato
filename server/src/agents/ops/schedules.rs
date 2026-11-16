@@ -8,7 +8,7 @@ use uuid::Uuid;
 use validator::ValidationErrors;
 
 use super::{
-    Caller, More, OpError, Page, Trace, approval_url, ask, chat_facts, facts, fit, lock,
+    Caller, More, OpError, Page, Seen, Trace, approval_url, ask, chat_facts, facts, fit, lock,
     review::{Request, ScheduleRequest},
     tell_owner,
 };
@@ -303,14 +303,21 @@ pub async fn list_scheduled_messages(
 }
 
 async fn run_list(state: &AppState, caller: &Caller, page: Page) -> Result<SchedulesPage, OpError> {
-    let connection_id = match decide(&caller.grant, Action::ListSchedules, &Facts::default()) {
+    let own_only = match decide(&caller.grant, Action::ListSchedules, &Facts::default()) {
         Decision::Deny(reason) => return Err(caller.refused(reason)),
         // `decide` never asks here; were it to, the narrower view is the safe one
-        Decision::AllowOwn | Decision::Ask => Some(caller.id()),
-        Decision::Allow => None,
+        Decision::AllowOwn | Decision::Ask => true,
+        Decision::Allow => false,
     };
+    let seen = Seen::new(caller, own_only);
     let (limit, offset) = page.bounds()?;
-    let messages = scheduled_messages::list(&state.pool, caller.user_id(), connection_id).await?;
+    let messages = scheduled_messages::list(
+        &state.pool,
+        caller.user_id(),
+        seen.connection_id(),
+        seen.chats(),
+    )
+    .await?;
     let (messages, more) = fit(messages, limit, offset, |message| {
         message.body.len() + message.recipient_name.as_ref().map_or(0, String::len)
     });
@@ -438,6 +445,20 @@ const CHANGED_MEANWHILE: &str = "The scheduled message was changed while this re
                                  handled. Call update_scheduled_message again.";
 const UNCHANGED: &str = "Nothing changed: the scheduled message already holds these values.";
 
+/// The message if the caller may know of it. One to a chat outside those the owner selected, and
+/// not the caller's own, answers as if there were none, whatever the caller may do with schedules.
+fn visible(message: Option<Message>, caller: &Caller) -> Result<Message, OpError> {
+    message
+        .filter(|message| {
+            Seen::new(caller, false).includes(
+                message.recipient_type,
+                &message.recipient,
+                message.connection_id,
+            )
+        })
+        .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))
+}
+
 fn owner(message: &Message, caller: &Caller) -> Owner {
     if message.connection_id == Some(caller.id()) {
         Owner::ThisConnection
@@ -473,9 +494,10 @@ async fn switch_off(
 ) -> Result<ScheduleResult, OpError> {
     let mut transaction = state.pool.begin().await?;
     let grant = lock(&mut transaction, caller).await?;
-    let locked = scheduled_messages::find_locked(&mut *transaction, id, caller.user_id())
-        .await?
-        .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
+    let locked = visible(
+        scheduled_messages::find_locked(&mut *transaction, id, caller.user_id()).await?,
+        caller,
+    )?;
     may_manage(&grant, caller, &locked)?;
     if !locked.enabled {
         return Ok(unchanged(locked, caller));
@@ -538,9 +560,10 @@ async fn run_update(
     trace: &mut Trace,
 ) -> Result<ScheduleResult, OpError> {
     let id = input.scheduled_message_id;
-    let message = scheduled_messages::find(&state.pool, id, caller.user_id())
-        .await?
-        .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
+    let message = visible(
+        scheduled_messages::find(&state.pool, id, caller.user_id()).await?,
+        caller,
+    )?;
     trace.chat(
         message.recipient_type,
         &message.recipient,
@@ -586,9 +609,10 @@ async fn run_update(
 
     let mut transaction = state.pool.begin().await?;
     let grant = lock(&mut transaction, caller).await?;
-    let locked = scheduled_messages::find_locked(&mut *transaction, id, caller.user_id())
-        .await?
-        .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
+    let locked = visible(
+        scheduled_messages::find_locked(&mut *transaction, id, caller.user_id()).await?,
+        caller,
+    )?;
     let Some(request) = merge_locked(&input, &request, checked, &locked)? else {
         may_manage(&grant, caller, &locked)?;
         return Ok(unchanged(locked, caller));
@@ -675,9 +699,10 @@ async fn run_delete(
     id: Uuid,
     trace: &mut Trace,
 ) -> Result<ScheduleDeleted, OpError> {
-    let message = scheduled_messages::find(&state.pool, id, caller.user_id())
-        .await?
-        .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
+    let message = visible(
+        scheduled_messages::find(&state.pool, id, caller.user_id()).await?,
+        caller,
+    )?;
     trace.chat(
         message.recipient_type,
         &message.recipient,
@@ -685,9 +710,10 @@ async fn run_delete(
     );
     let mut transaction = state.pool.begin().await?;
     let grant = lock(&mut transaction, caller).await?;
-    let locked = scheduled_messages::find_locked(&mut *transaction, id, caller.user_id())
-        .await?
-        .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
+    let locked = visible(
+        scheduled_messages::find_locked(&mut *transaction, id, caller.user_id()).await?,
+        caller,
+    )?;
     let owner = owner(&locked, caller);
     if let Decision::Deny(reason) =
         decide(&grant, Action::DeleteSchedule { owner }, &Facts::default())

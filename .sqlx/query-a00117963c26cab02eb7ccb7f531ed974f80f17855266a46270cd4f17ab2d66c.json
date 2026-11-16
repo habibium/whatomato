@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT d.id, d.scheduled_message_id, d.connection_id, c.name AS \"connection_name?\",\n               d.recipient_type AS \"recipient_type: RecipientType\", d.recipient,\n               d.recipient_name, d.body, d.status AS \"status: DeliveryStatus\", d.error,\n               d.created_at, d.sent_at\n           FROM deliveries d LEFT JOIN agent_connections c ON c.id = d.connection_id\n           WHERE d.user_id = $1 AND ($2::text IS NULL OR d.recipient = $2)\n               AND ($3::uuid IS NULL OR d.connection_id = $3)\n           ORDER BY d.created_at DESC, d.id LIMIT $4 OFFSET $5",
+  "query": "SELECT d.id, d.scheduled_message_id, d.connection_id, c.name AS \"connection_name?\",\n               d.recipient_type AS \"recipient_type: RecipientType\", d.recipient,\n               d.recipient_name, d.body, d.status AS \"status: DeliveryStatus\", d.error,\n               d.created_at, d.sent_at\n           FROM deliveries d LEFT JOIN agent_connections c ON c.id = d.connection_id\n           WHERE d.user_id = $1 AND ($2::text IS NULL OR d.recipient = $2)\n               AND ($3::uuid IS NULL OR d.connection_id = $3\n                   OR (d.recipient_type, d.recipient)\n                       IN (SELECT * FROM unnest($6::text[], $7::text[])))\n           ORDER BY d.created_at DESC, d.id LIMIT $4 OFFSET $5",
   "describe": {
     "columns": [
       {
@@ -142,7 +142,9 @@
         "Text",
         "Uuid",
         "Int8",
-        "Int8"
+        "Int8",
+        "TextArray",
+        "TextArray"
       ]
     },
     "nullable": [
@@ -160,5 +162,5 @@
       true
     ]
   },
-  "hash": "08824f55d18acef720bb39194dee1538956f90b4de498245b41373322a75348b"
+  "hash": "a00117963c26cab02eb7ccb7f531ed974f80f17855266a46270cd4f17ab2d66c"
 }

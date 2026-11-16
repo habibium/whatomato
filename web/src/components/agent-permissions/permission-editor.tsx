@@ -272,6 +272,11 @@ function StrangersSection({ value, onChange }: SectionProps) {
 }
 
 function AccountSection({ value, onChange }: SectionProps) {
+  // The selected chats are all it may know of, so they bound "All" too
+  const reach =
+    value.chats.scope === 'selected'
+      ? ' “All” stops at the chats it may reach.'
+      : ''
   return (
     <SettingsSection
       id="permissions-account"
@@ -290,7 +295,7 @@ function AccountSection({ value, onChange }: SectionProps) {
       />
       <Choice
         label="Scheduled messages"
-        description="Seeing, creating and changing messages that go out later."
+        description={`Seeing, creating and changing messages that go out later.${reach}`}
         value={value.schedules}
         options={[
           ['none', 'None'],
@@ -312,7 +317,7 @@ function AccountSection({ value, onChange }: SectionProps) {
       />
       <Choice
         label="History"
-        description="Seeing whether messages went out, as on your History page."
+        description={`Seeing who a message went to, when, and whether it went out, as on your History page. Never its text.${reach}`}
         value={value.deliveries}
         options={[
           ['own', 'Its own messages'],

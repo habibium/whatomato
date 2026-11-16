@@ -7,7 +7,7 @@ use uuid::Uuid;
 use validator::ValidationErrors;
 
 use super::{
-    Caller, More, OpError, Page, Trace, approval_url, ask, chat_facts, facts, lock,
+    Caller, More, OpError, Page, Seen, Trace, approval_url, ask, chat_facts, facts, lock,
     review::{Request, SendRequest},
     tell_owner, whatsapp_ready,
 };
@@ -243,16 +243,18 @@ async fn run_list_deliveries(
     caller: &Caller,
     page: Page,
 ) -> Result<DeliveriesPage, OpError> {
-    let connection_id = match decide(&caller.grant, Action::ListDeliveries, &Facts::default()) {
+    let own_only = match decide(&caller.grant, Action::ListDeliveries, &Facts::default()) {
         Decision::Deny(reason) => return Err(caller.refused(reason)),
         // `decide` never asks here; were it to, the narrower view is the safe one
-        Decision::AllowOwn | Decision::Ask => Some(caller.id()),
-        Decision::Allow => None,
+        Decision::AllowOwn | Decision::Ask => true,
+        Decision::Allow => false,
     };
+    let seen = Seen::new(caller, own_only);
     let (limit, offset) = page.bounds()?;
     let filter = Filter {
         recipient: None,
-        connection_id,
+        connection_id: seen.connection_id(),
+        also_to: seen.chats(),
     };
     let mut rows = deliveries::page(
         &state.pool,

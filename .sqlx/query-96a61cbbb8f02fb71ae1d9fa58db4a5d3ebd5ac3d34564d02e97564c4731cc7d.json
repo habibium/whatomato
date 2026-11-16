@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"count!\" FROM deliveries\n           WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)\n               AND ($3::uuid IS NULL OR connection_id = $3\n                   OR (recipient_type, recipient)\n                       IN (SELECT * FROM unnest($4::text[], $5::text[])))",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "96a61cbbb8f02fb71ae1d9fa58db4a5d3ebd5ac3d34564d02e97564c4731cc7d"
+}

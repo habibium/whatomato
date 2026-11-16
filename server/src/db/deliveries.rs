@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgExecutor;
 use uuid::Uuid;
 
+use super::Chats;
 use crate::scheduler::{DeliveryStatus, RecipientType};
 
 pub struct Delivery {
@@ -102,8 +103,10 @@ pub async fn create_skipped(
 #[derive(Clone, Copy, Default)]
 pub struct Filter<'a> {
     pub recipient: Option<&'a str>,
-    /// Only what this agent connection caused
+    /// Only what this agent connection caused, and whatever went to `also_to`
     pub connection_id: Option<Uuid>,
+    /// Read only with `connection_id`
+    pub also_to: Chats<'a>,
 }
 
 /// A page of the user's deliveries that pass `filter`, newest first
@@ -122,13 +125,17 @@ pub async fn page(
                d.created_at, d.sent_at
            FROM deliveries d LEFT JOIN agent_connections c ON c.id = d.connection_id
            WHERE d.user_id = $1 AND ($2::text IS NULL OR d.recipient = $2)
-               AND ($3::uuid IS NULL OR d.connection_id = $3)
+               AND ($3::uuid IS NULL OR d.connection_id = $3
+                   OR (d.recipient_type, d.recipient)
+                       IN (SELECT * FROM unnest($6::text[], $7::text[])))
            ORDER BY d.created_at DESC, d.id LIMIT $4 OFFSET $5"#,
         user_id,
         filter.recipient,
         filter.connection_id,
         limit,
         offset,
+        filter.also_to.types,
+        filter.also_to.recipients,
     )
     .fetch_all(db)
     .await
@@ -142,10 +149,14 @@ pub async fn count(
     sqlx::query_scalar!(
         r#"SELECT count(*) AS "count!" FROM deliveries
            WHERE user_id = $1 AND ($2::text IS NULL OR recipient = $2)
-               AND ($3::uuid IS NULL OR connection_id = $3)"#,
+               AND ($3::uuid IS NULL OR connection_id = $3
+                   OR (recipient_type, recipient)
+                       IN (SELECT * FROM unnest($4::text[], $5::text[])))"#,
         user_id,
         filter.recipient,
         filter.connection_id,
+        filter.also_to.types,
+        filter.also_to.recipients,
     )
     .fetch_one(db)
     .await
