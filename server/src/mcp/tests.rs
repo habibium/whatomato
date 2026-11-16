@@ -886,6 +886,7 @@ async fn a_key_never_reaches_another_accounts_data(pool: PgPool) {
     deliveries::create(
         &app.pool,
         NewDelivery {
+            reply_to: None,
             user_id: grace,
             scheduled_message_id: None,
             connection_id: None,

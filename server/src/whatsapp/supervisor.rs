@@ -25,7 +25,10 @@ use whatsapp_rust::{
     prelude::{
         Bot, BotHandle, Client, DeregistrationOutcome, Event as LibraryEvent, EventKind, Jid, wa,
     },
-    wacore::{proto_helpers::MessageBuilderExt, store::DevicePropsOverride},
+    wacore::{
+        proto_helpers::{MessageBuilderExt, build_quote_context_with_info},
+        store::DevicePropsOverride,
+    },
 };
 
 use super::{
@@ -144,6 +147,15 @@ pub enum CommandError {
 pub struct Group {
     pub id: String,
     pub name: String,
+}
+
+/// The message a reply quotes
+#[derive(Debug)]
+pub struct Quote {
+    pub message_id: String,
+    /// As WhatsApp addressed whoever wrote it
+    pub sender_jid: String,
+    pub text: Option<String>,
 }
 
 /// Where a message goes
@@ -273,7 +285,12 @@ enum Command {
     Groups(oneshot::Sender<Result<Vec<Group>, CommandError>>),
     Picture(Jid, oneshot::Sender<Option<Image>>),
     SendTestMessage(oneshot::Sender<Result<(), CommandError>>),
-    Send(Recipient, String, oneshot::Sender<Result<(), SendFailure>>),
+    Send(
+        Recipient,
+        String,
+        Option<Quote>,
+        oneshot::Sender<Result<(), SendFailure>>,
+    ),
     Shutdown(oneshot::Sender<()>),
 }
 
@@ -342,8 +359,13 @@ impl Handle {
     ///
     /// # Errors
     /// Why it didn't go out, or may not have.
-    pub async fn send_text(&self, to: Recipient, body: String) -> Result<(), SendFailure> {
-        self.ask(|reply| Command::Send(to, body, reply))
+    pub async fn send_text(
+        &self,
+        to: Recipient,
+        body: String,
+        quote: Option<Quote>,
+    ) -> Result<(), SendFailure> {
+        self.ask(|reply| Command::Send(to, body, quote, reply))
             .await
             .map_err(|_| SendFailure::Offline)?
     }
@@ -516,7 +538,9 @@ impl Supervisor {
                 Wake::Command(Command::Groups(reply)) => self.groups(reply),
                 Wake::Command(Command::Picture(jid, reply)) => self.picture(jid, reply),
                 Wake::Command(Command::SendTestMessage(reply)) => self.send_test_message(reply),
-                Wake::Command(Command::Send(to, body, reply)) => self.send(to, body, reply),
+                Wake::Command(Command::Send(to, body, quote, reply)) => {
+                    self.send(to, body, quote, reply);
+                }
                 Wake::Command(Command::Shutdown(reply)) => {
                     self.stop_client().await;
                     let _ = reply.send(());
@@ -1077,7 +1101,13 @@ impl Supervisor {
         });
     }
 
-    fn send(&self, to: Recipient, body: String, reply: oneshot::Sender<Result<(), SendFailure>>) {
+    fn send(
+        &self,
+        to: Recipient,
+        body: String,
+        quote: Option<Quote>,
+        reply: oneshot::Sender<Result<(), SendFailure>>,
+    ) {
         let Ok(client) = self.connected_client() else {
             let failure =
                 SendFailure::for_status(&self.status.borrow()).unwrap_or(SendFailure::Offline);
@@ -1086,9 +1116,22 @@ impl Supervisor {
         };
         let acks = self.acks.clone();
         tokio::spawn(async move {
-            let _ = reply.send(send_and_confirm(client, acks, to, body).await);
+            let _ = reply.send(send_and_confirm(client, acks, to, body, quote).await);
         });
     }
+}
+
+/// `body` as a text message, quoting `quote` when it has one that can be addressed
+pub(super) fn text_message(chat: &Jid, body: String, quote: Option<Quote>) -> wa::Message {
+    let Some(quote) = quote else {
+        return wa::Message::text(body);
+    };
+    let Ok(sender) = quote.sender_jid.parse::<Jid>() else {
+        return wa::Message::text(body);
+    };
+    let quoted = wa::Message::text(quote.text.unwrap_or_default());
+    let context = build_quote_context_with_info(quote.message_id, &sender, chat, chat, &quoted);
+    wa::Message::text_with_context(body, context)
 }
 
 async fn send_and_confirm(
@@ -1096,6 +1139,7 @@ async fn send_and_confirm(
     acks: Acks,
     to: Recipient,
     body: String,
+    quote: Option<Quote>,
 ) -> Result<(), SendFailure> {
     let jid = match to {
         Recipient::Number(number) => registered(&client, number, false).await?,
@@ -1107,7 +1151,7 @@ async fn send_and_confirm(
     let id = client.generate_message_id();
     let acknowledged = acks.expect(id.as_str());
     let key = id.as_str().to_owned();
-    let request = SendRequest::new(&jid, wa::Message::text(body))
+    let request = SendRequest::new(&jid, text_message(&jid, body, quote))
         .with_options(SendOptions::default().with_message_id(id));
     let outcome = timeout(SEND_LIMIT, async {
         client.send(request).await?;

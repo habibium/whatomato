@@ -52,6 +52,7 @@ async fn deliver(pool: &PgPool, owner: Uuid, connection: Option<Uuid>, to: &str)
     deliveries::create(
         pool,
         NewDelivery {
+            reply_to: None,
             user_id: owner,
             scheduled_message_id: None,
             connection_id: connection,

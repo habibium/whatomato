@@ -13,10 +13,14 @@ use uuid::Uuid;
 use whatsapp_rust::version;
 
 use super::{
+    inbox::open_body,
     status::{Status, StopReason},
-    supervisor::{self, Context, Handle, Recipient, SendFailure},
+    supervisor::{self, Context, Handle, Quote, Recipient, SendFailure},
 };
-use crate::db::whatsapp_accounts::{self, Account};
+use crate::db::{
+    inbox_messages,
+    whatsapp_accounts::{self, Account},
+};
 
 /// Between two accounts connecting at boot, so a restart doesn't dial every account at once
 const BOOT_SPACING: Duration = Duration::from_secs(2);
@@ -165,12 +169,41 @@ impl WhatsApp {
         user_id: Uuid,
         to: Recipient,
         body: String,
+        reply_to: Option<String>,
     ) -> Result<(), SendFailure> {
         let handle = self.lock().get(&user_id).cloned();
-        match handle {
-            Some(handle) => handle.send_text(to, body).await,
-            None => Err(SendFailure::NotLinked),
-        }
+        let Some(handle) = handle else {
+            return Err(SendFailure::NotLinked);
+        };
+        let quote = match reply_to {
+            Some(message_id) => self.quote(user_id, &to, message_id).await,
+            None => None,
+        };
+        handle.send_text(to, body, quote).await
+    }
+
+    /// The kept message a reply quotes. One no longer kept leaves the reply an ordinary message.
+    async fn quote(&self, user_id: Uuid, to: &Recipient, message_id: String) -> Option<Quote> {
+        let (kind, chat) = match to {
+            Recipient::Number(number) | Recipient::ExactNumber(number) => ("contact", number),
+            Recipient::Group(id) => ("group", id),
+        };
+        let kept = inbox_messages::find(&self.context.pool, user_id, kind, chat, &message_id)
+            .await
+            .inspect_err(
+                |error| tracing::warn!(%user_id, ?error, "couldn't look up a quoted message"),
+            )
+            .ok()??;
+        let body = open_body(&self.context.cipher, &kept)
+            .inspect_err(
+                |error| tracing::warn!(%user_id, "a quoted message didn't open: {error:#}"),
+            )
+            .ok()?;
+        Some(Quote {
+            message_id,
+            sender_jid: body.sender_jid,
+            text: body.text,
+        })
     }
 
     /// Gives `user_id` a supervisor in `status` with no client behind it, so tests can see an

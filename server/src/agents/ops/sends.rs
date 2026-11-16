@@ -16,7 +16,10 @@ use crate::{
         Decision,
         decide::{Action, ChatRef, Facts, decide},
     },
-    db::deliveries::{self, Filter, NewDelivery},
+    db::{
+        deliveries::{self, Filter, NewDelivery},
+        inbox_messages,
+    },
     scheduler::{DeliveryStatus, RecipientType, draft, variables},
     state::AppState,
 };
@@ -34,6 +37,9 @@ pub struct SendInput {
     /// The IANA time zone that `{{date}}`, `{{time}}` and similar variables read in, such as
     /// Asia/Dhaka. UTC when left out.
     pub timezone: Option<String>,
+    /// To answer one message and quote it: its `id` from `read_messages`, in this same chat. It
+    /// needs permission to read the chat. Leave it out for an ordinary message.
+    pub reply_to: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
@@ -56,6 +62,32 @@ pub struct SendResult {
     pub approval_id: Option<Uuid>,
     /// When waiting: the page where the owner approves or rejects it
     pub approval_url: Option<String>,
+}
+
+/// The message a reply quotes: one this connection may read, kept in the chat it sends to
+async fn quoted(
+    state: &AppState,
+    caller: &Caller,
+    chat: ChatRef<'_>,
+    reply_to: Option<&str>,
+) -> Result<Option<String>, OpError> {
+    let Some(id) = reply_to.map(str::trim).filter(|id| !id.is_empty()) else {
+        return Ok(None);
+    };
+    if !state.agent_reading || !caller.grant.reads(chat.recipient_type, chat.recipient) {
+        return Err(OpError::invalid(
+            "`reply_to` needs this connection to be allowed to read this chat. Send without it, \
+             or ask the owner to turn reading on for this chat.",
+        ));
+    }
+    let kind = chat.recipient_type.as_str();
+    inbox_messages::find(&state.pool, caller.user_id(), kind, chat.recipient, id)
+        .await?
+        .ok_or(OpError::NotFound(
+            "The message `reply_to` names isn't kept in this chat. Use an id that read_messages \
+             gave for the same chat, or send without `reply_to`.",
+        ))?;
+    Ok(Some(id.to_owned()))
 }
 
 /// Queues a text message, or asks the owner to approve it first
@@ -93,6 +125,7 @@ async fn run_send(
         recipient_type: input.recipient_type,
         recipient: &recipient,
     };
+    let reply_to = quoted(state, caller, chat, input.reply_to.as_deref()).await?;
     let known = chat_facts(state, caller, chat).await?;
     trace.chat(input.recipient_type, &recipient, known.name.as_deref());
     // Filled in before the lock, since it reads the database through the pool
@@ -128,6 +161,7 @@ async fn run_send(
                     recipient: &recipient,
                     recipient_name: known.name.as_deref(),
                     body: &body,
+                    reply_to: reply_to.as_deref(),
                 },
             )
             .await?;
@@ -148,6 +182,7 @@ async fn run_send(
                 recipient_name: known.name,
                 body: input.body.trim().to_owned(),
                 timezone: input.timezone,
+                reply_to,
             });
             let approval = ask(&mut transaction, state, caller, &request).await?;
             transaction.commit().await?;

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE deliveries SET status = 'sending', attempts = attempts + 1\n           WHERE id IN (\n               SELECT DISTINCT ON (user_id) id FROM deliveries\n               WHERE status = 'pending' AND next_attempt_at <= now() AND user_id <> ALL($1)\n               ORDER BY user_id, next_attempt_at, created_at\n           )\n           RETURNING id, user_id, connection_id,\n               recipient_type AS \"recipient_type: RecipientType\", recipient, body, attempts",
+  "query": "UPDATE deliveries SET status = 'sending', attempts = attempts + 1\n           WHERE id IN (\n               SELECT DISTINCT ON (user_id) id FROM deliveries\n               WHERE status = 'pending' AND next_attempt_at <= now() AND user_id <> ALL($1)\n               ORDER BY user_id, next_attempt_at, created_at\n           )\n           RETURNING id, user_id, connection_id,\n               recipient_type AS \"recipient_type: RecipientType\", recipient, body, reply_to, attempts",
   "describe": {
     "columns": [
       {
@@ -71,6 +71,17 @@
       },
       {
         "ordinal": 6,
+        "name": "reply_to",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "deliveries",
+            "name": "reply_to"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
         "name": "attempts",
         "type_info": "Int4",
         "origin": {
@@ -93,8 +104,9 @@
       false,
       false,
       false,
+      true,
       false
     ]
   },
-  "hash": "48017d5a0c838345188dd0cb1feef12a49efd6ff72a9644689f4b1e81096cd45"
+  "hash": "e39d73bd951be940dcef198b77d80b3a98b62a7280cd892f74914e1ed53f222f"
 }

@@ -168,6 +168,7 @@ fn send_to(recipient: &str, body: &str) -> SendInput {
         recipient: recipient.to_owned(),
         body: body.to_owned(),
         timezone: None,
+        reply_to: None,
     }
 }
 
@@ -2807,5 +2808,62 @@ mod reading {
         );
         let whoami = whoami(&state, &caller, WhoAmIInput {}).await.unwrap();
         assert!(whoami.summary.last().unwrap().contains("turned off"));
+    }
+
+    #[sqlx::test]
+    async fn a_reply_quotes_a_kept_message_of_a_chat_it_may_read(pool: PgPool) {
+        let state = state(pool);
+        let owner = user(&state.pool).await;
+        connected(&state, owner);
+        save_contact(&state, owner, ADA, "Ada Lovelace").await;
+        save_contact(&state, owner, BOB, "Bob").await;
+        let mut grant = reader();
+        for rule in &mut grant.chats.rules {
+            rule.send = SendLevel::Yes;
+        }
+        let caller = connect(&state, owner, &grant).await;
+        keep(&state, owner, ADA, "A1", 10, "Can we meet at 5?").await;
+        keep(&state, owner, BOB, "B1", 10, "Hello").await;
+        let reply = |recipient: &str, id: &str| SendInput {
+            reply_to: Some(id.to_owned()),
+            ..send_to(recipient, "Yes, see you then")
+        };
+
+        let sent = send_message(&state, &caller, reply(ADA, "A1"))
+            .await
+            .unwrap();
+        assert_eq!(sent.outcome, SendOutcome::Queued);
+        let quoted: Option<String> =
+            sqlx::query_scalar("SELECT reply_to FROM deliveries WHERE id = $1")
+                .bind(sent.delivery_id.unwrap())
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(quoted.as_deref(), Some("A1"));
+
+        // Only a message of the same chat, and only where it may read
+        let elsewhere = send_message(&state, &caller, reply(ADA, "B1")).await;
+        assert!(
+            matches!(elsewhere, Err(OpError::NotFound(_))),
+            "{elsewhere:?}"
+        );
+        let unread = send_message(&state, &caller, reply(BOB, "B1")).await;
+        assert!(matches!(unread, Err(OpError::Invalid(_))), "{unread:?}");
+
+        // A reply that waits for approval keeps what it quotes
+        let asking = connect(&state, owner, &reader()).await;
+        let waiting = send_message(&state, &asking, reply(ADA, "A1"))
+            .await
+            .unwrap();
+        assert_eq!(waiting.outcome, SendOutcome::WaitingForApproval);
+        let approved = review::approve(&state, waiting.approval_id.unwrap(), owner, None).await;
+        let delivery = approved.unwrap().delivery_id.unwrap();
+        let quoted: Option<String> =
+            sqlx::query_scalar("SELECT reply_to FROM deliveries WHERE id = $1")
+                .bind(delivery)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(quoted.as_deref(), Some("A1"));
     }
 }

@@ -176,6 +176,7 @@ pub trait Sender: Clone + Send + Sync + 'static {
         user_id: Uuid,
         to: Recipient,
         body: String,
+        reply_to: Option<String>,
     ) -> impl Future<Output = Result<(), SendFailure>> + Send;
 }
 
@@ -184,8 +185,14 @@ impl Sender for WhatsApp {
         self.may_send().await;
     }
 
-    async fn send(&self, user_id: Uuid, to: Recipient, body: String) -> Result<(), SendFailure> {
-        self.send_text(user_id, to, body).await
+    async fn send(
+        &self,
+        user_id: Uuid,
+        to: Recipient,
+        body: String,
+        reply_to: Option<String>,
+    ) -> Result<(), SendFailure> {
+        self.send_text(user_id, to, body, reply_to).await
     }
 }
 
@@ -322,6 +329,7 @@ pub(crate) async fn enqueue_due(
         )
         .await;
         let delivery = NewDelivery {
+            reply_to: None,
             user_id: message.user_id,
             scheduled_message_id: Some(message.id),
             connection_id,
@@ -358,6 +366,7 @@ async fn deliver(pool: PgPool, sender: impl Sender, delivery: Claimed) {
         recipient_type,
         recipient,
         body,
+        reply_to,
         attempts,
     } = delivery;
     let to = match (recipient_type, connection_id) {
@@ -366,7 +375,7 @@ async fn deliver(pool: PgPool, sender: impl Sender, delivery: Claimed) {
         (RecipientType::Contact, None) => Recipient::Number(recipient),
         (RecipientType::Group, _) => Recipient::Group(recipient),
     };
-    let outcome = sender.send(user_id, to, body).await;
+    let outcome = sender.send(user_id, to, body, reply_to).await;
     if let Err(failure) = &outcome {
         tracing::warn!(delivery = %id, %user_id, ?failure, attempts, "a send failed");
     }
@@ -445,6 +454,7 @@ mod tests {
             user_id: Uuid,
             to: Recipient,
             _body: String,
+            _reply_to: Option<String>,
         ) -> Result<(), SendFailure> {
             tokio::task::yield_now().await;
             self.exact
@@ -581,6 +591,7 @@ mod tests {
         deliveries::create(
             pool,
             NewDelivery {
+                reply_to: None,
                 user_id: owner,
                 scheduled_message_id: None,
                 connection_id: None,

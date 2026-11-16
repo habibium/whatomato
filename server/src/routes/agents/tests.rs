@@ -100,6 +100,7 @@ async fn ask(app: &TestApp, owner: Uuid, connection_id: Uuid, body: &str) -> Uui
         recipient: ADA.to_owned(),
         body: body.to_owned(),
         timezone: None,
+        reply_to: None,
     };
     send_message(&app.state, &caller, input)
         .await

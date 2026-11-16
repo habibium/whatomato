@@ -515,3 +515,35 @@ async fn readers_come_from_the_connections_that_read(pool: PgPool) {
     assert!(!readers.reads(account_id, RecipientType::Group, GROUP));
     assert!(!readers.reads(Uuid::new_v4(), RecipientType::Contact, ADA));
 }
+
+#[test]
+fn a_reply_quotes_the_kept_message() {
+    use crate::whatsapp::supervisor::{Quote, text_message};
+
+    let chat = Jid::pn(ADA);
+    let quote = Quote {
+        message_id: "A1".to_owned(),
+        sender_jid: "99887766@lid".to_owned(),
+        text: Some("Can we meet at 5?".to_owned()),
+    };
+    let reply = text_message(&chat, "Yes, see you then".to_owned(), Some(quote));
+    let text = reply.extended_text_message.as_option().unwrap();
+    assert_eq!(text.text.as_deref(), Some("Yes, see you then"));
+    let context = text.context_info.as_option().unwrap();
+    assert_eq!(context.stanza_id.as_deref(), Some("A1"));
+    assert_eq!(context.participant.as_deref(), Some("99887766@lid"));
+    assert_eq!(context.remote_jid, None);
+    let quoted = context.quoted_message.as_option().unwrap();
+    assert_eq!(quoted.conversation.as_deref(), Some("Can we meet at 5?"));
+
+    let plain = text_message(&chat, "Hello".to_owned(), None);
+    assert_eq!(plain.conversation.as_deref(), Some("Hello"));
+    // A sender that can't be addressed leaves an ordinary message rather than a failed send
+    let unaddressed = Quote {
+        message_id: "A1".to_owned(),
+        sender_jid: String::new(),
+        text: None,
+    };
+    let fallback = text_message(&chat, "Hello".to_owned(), Some(unaddressed));
+    assert_eq!(fallback.conversation.as_deref(), Some("Hello"));
+}

@@ -108,6 +108,7 @@ pub async fn send_now(
     let delivery_id = deliveries::create(
         &state.pool,
         NewDelivery {
+            reply_to: None,
             user_id,
             scheduled_message_id: None,
             connection_id: None,

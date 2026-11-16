@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO deliveries (user_id, scheduled_message_id, connection_id, recipient_type, recipient, recipient_name, body) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+  "query": "INSERT INTO deliveries (user_id, scheduled_message_id, connection_id, recipient_type, recipient, recipient_name, body, reply_to) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
   "describe": {
     "columns": [
       {
@@ -23,6 +23,7 @@
         "Text",
         "Text",
         "Text",
+        "Text",
         "Text"
       ]
     },
@@ -30,5 +31,5 @@
       false
     ]
   },
-  "hash": "35ee633444088116adea95fc0972e4bade9519431184661bffef49f60945293d"
+  "hash": "889329f96cae5dffdd88e2b6377b79909c32e5cdc3d46aeef0ab1440c4b1a156"
 }

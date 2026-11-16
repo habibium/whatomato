@@ -63,6 +63,9 @@ pub struct SendRequest {
     /// As written, variables not yet filled in
     pub body: String,
     pub timezone: Option<String>,
+    /// The id of the message it quotes
+    #[serde(default)]
+    pub reply_to: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -499,6 +502,7 @@ async fn carry_out(
                     recipient: &send.recipient,
                     recipient_name: send.recipient_name.as_deref(),
                     body: filled.unwrap_or(&send.body),
+                    reply_to: send.reply_to.as_deref(),
                 },
             )
             .await?;

@@ -30,6 +30,8 @@ pub struct NewDelivery<'a> {
     pub recipient: &'a str,
     pub recipient_name: Option<&'a str>,
     pub body: &'a str,
+    /// The id of the message this one quotes, in the same chat
+    pub reply_to: Option<&'a str>,
 }
 
 /// A delivery taken off the queue to send
@@ -41,6 +43,7 @@ pub struct Claimed {
     pub recipient_type: RecipientType,
     pub recipient: String,
     pub body: String,
+    pub reply_to: Option<String>,
     /// Counting this one
     pub attempts: i32,
 }
@@ -49,8 +52,8 @@ pub async fn create(db: impl PgExecutor<'_>, delivery: NewDelivery<'_>) -> sqlx:
     sqlx::query_scalar!(
         "INSERT INTO deliveries \
          (user_id, scheduled_message_id, connection_id, recipient_type, recipient, \
-          recipient_name, body) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
+          recipient_name, body, reply_to) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
         delivery.user_id,
         delivery.scheduled_message_id,
         delivery.connection_id,
@@ -58,6 +61,7 @@ pub async fn create(db: impl PgExecutor<'_>, delivery: NewDelivery<'_>) -> sqlx:
         delivery.recipient,
         delivery.recipient_name,
         delivery.body,
+        delivery.reply_to,
     )
     .fetch_one(db)
     .await
@@ -194,7 +198,7 @@ pub async fn claim(db: impl PgExecutor<'_>, busy: &[Uuid]) -> sqlx::Result<Vec<C
                ORDER BY user_id, next_attempt_at, created_at
            )
            RETURNING id, user_id, connection_id,
-               recipient_type AS "recipient_type: RecipientType", recipient, body, attempts"#,
+               recipient_type AS "recipient_type: RecipientType", recipient, body, reply_to, attempts"#,
         busy,
     )
     .fetch_all(db)
