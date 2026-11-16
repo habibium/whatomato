@@ -21,7 +21,7 @@ use crate::{
     auth::{reauth, session::Session},
     db::{
         agent_activity, agent_approvals,
-        agent_connections::{self, Connection, MAX_PER_USER, NewConnection},
+        agent_connections::{self, Connection, Credential, MAX_PER_USER, NewConnection},
     },
     email::templates::AgentAlert,
     error::{AppError, ErrorBody},
@@ -50,7 +50,7 @@ impl FromRequestParts<AppState> for Enabled {
     }
 }
 
-const AT_CAP: &str = "You already have 20 agent connections, the most an account can have. \
+pub(super) const AT_CAP: &str = "You already have 20 agent connections, the most an account can have. \
                       Revoke one you no longer use, then try again.";
 
 /// Whether agent access is on, the account's agent connections and how many approvals wait
@@ -131,8 +131,10 @@ pub async fn create_agent(
         NewConnection {
             user_id,
             name: input.name.trim(),
-            key_hash: &key.hash,
-            key_hint: &key.hint,
+            credential: Credential::Key {
+                hash: &key.hash,
+                hint: &key.hint,
+            },
             grant: &grant,
             expires_at: input
                 .expires_in_days
@@ -320,9 +322,15 @@ pub async fn rotate_agent_key(
     ValidatedJson(input): ValidatedJson<RotateKeyRequest>,
 ) -> Result<Json<AgentKeyIssued>, AppError> {
     let user_id = session.user.id;
-    agent_connections::find(&state.pool, id, user_id)
+    let found = agent_connections::find(&state.pool, id, user_id)
         .await?
         .ok_or(AppError::NotFound)?;
+    if found.key_hint.is_none() {
+        return Err(AppError::Conflict(
+            "This connection signs in and has no key to replace. To cut it off, pause or revoke \
+             it.",
+        ));
+    }
     reauth::confirm_password(&state, user_id, input.password).await?;
     let key = AccessKey::generate()?;
     let connection = agent_connections::rotate_key(&state.pool, id, user_id, &key.hash, &key.hint)
@@ -518,7 +526,7 @@ pub async fn list_agent_activity(
     }))
 }
 
-fn checked(grant: Grant) -> Result<Grant, AppError> {
+pub(super) fn checked(grant: Grant) -> Result<Grant, AppError> {
     grant.check().map_err(|problems| AppError::Unprocessable {
         field: "grant",
         problems,

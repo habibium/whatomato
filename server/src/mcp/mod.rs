@@ -32,11 +32,12 @@ use url::Url;
 
 use crate::{
     agents::{
-        key,
+        key::{self, Issued},
         ops::{Caller, OpError},
     },
     db::agent_connections,
     error::AppError,
+    oauth,
     rate_limit::ClientIp,
     state::AppState,
 };
@@ -45,8 +46,8 @@ use crate::{
 const BODY_LIMIT: usize = 64 * 1024;
 
 const NO_KEY: &str = "This needs a working Whatomato access key, sent as `Authorization: Bearer \
-                      <key>`. The account's owner creates connections and their keys in the \
-                      Whatomato web app.";
+                      <key>`, or an app that has signed in. The account's owner connects agents \
+                      in the Whatomato web app.";
 
 /// `/mcp`, and the token that stops rmcp's own tasks. Cancel it only once the server has stopped
 /// taking requests, or calls still running are cut off.
@@ -224,18 +225,22 @@ async fn bearer(State(state): State<AppState>, mut request: Request, next: Next)
         .unwrap_or(IpAddr::V6(Ipv6Addr::UNSPECIFIED));
     let has_header = request.headers().contains_key(header::AUTHORIZATION);
     // Refused by its form alone, so no key and a malformed one never cost a lookup
-    let Some(key_hash) = presented(request.headers()).map(key::hash) else {
+    let Some(presented) = presented(request.headers()) else {
         return failed(&state, ip, has_header, NO_KEY);
     };
-    if let Err(limited) = state.rate_limits.agent_key_lookup(ip, &key_hash) {
+    if let Err(limited) = state.rate_limits.agent_key_lookup(ip, presented.hash()) {
         return limited.into_response();
     }
-    let caller = match authenticate(&state, key_hash).await {
+    let caller = match authenticate(&state, presented).await {
         Ok(caller) => caller,
         Err(Refusal::Internal(error)) => return AppError::Db(error).into_response(),
         Err(Refusal::NoKey) => return failed(&state, ip, has_header, NO_KEY),
-        Err(Refusal::Stopped(message)) => return unauthorized(has_header, &message),
-        Err(Refusal::Unusable) => return unauthorized(has_header, NO_KEY),
+        // A client that signed in answers a 401 by signing in again, which wouldn't change this
+        Err(Refusal::Stopped(message)) if matches!(presented, Presented::Token(_)) => {
+            return forbidden(&message);
+        }
+        Err(Refusal::Stopped(message)) => return unauthorized(&state, has_header, &message),
+        Err(Refusal::Unusable) => return unauthorized(&state, has_header, NO_KEY),
     };
     let id = caller.connection().id;
     if let Err(limited) = state.rate_limits.agent_call(id) {
@@ -248,23 +253,47 @@ async fn bearer(State(state): State<AppState>, mut request: Request, next: Next)
     next.run(request).await
 }
 
-/// The access key in `Authorization`, if it's shaped like one
-fn presented(headers: &HeaderMap) -> Option<&str> {
-    headers
+/// What came as `Authorization: Bearer`, hashed
+#[derive(Clone, Copy)]
+enum Presented {
+    Key([u8; 32]),
+    /// The access token of a client that signed in
+    Token([u8; 32]),
+}
+
+impl Presented {
+    const fn hash(&self) -> &[u8; 32] {
+        match self {
+            Self::Key(hash) | Self::Token(hash) => hash,
+        }
+    }
+}
+
+/// The access key or token in `Authorization`, if it's shaped like one
+fn presented(headers: &HeaderMap) -> Option<Presented> {
+    let value = headers
         .get(header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.split_once(' '))
         .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
-        .map(|(_, key)| key.trim())
-        .filter(|key| key::is_access_key(key))
+        .map(|(_, value)| value.trim())?;
+    if key::is_access_key(value) {
+        Some(Presented::Key(key::hash(value)))
+    } else if Issued::AccessToken.is(value) {
+        Some(Presented::Token(key::hash(value)))
+    } else {
+        None
+    }
 }
 
-async fn authenticate(state: &AppState, key_hash: [u8; 32]) -> Result<Caller, Refusal> {
-    let found = agent_connections::find_by_key(&state.pool, &key_hash)
-        .await
-        .map_err(Refusal::Internal)?
-        .ok_or(Refusal::NoKey)?;
-    state.rate_limits.agent_key_worked(key_hash);
+async fn authenticate(state: &AppState, presented: Presented) -> Result<Caller, Refusal> {
+    let found = match presented {
+        Presented::Key(hash) => agent_connections::find_by_key(&state.pool, &hash).await,
+        Presented::Token(hash) => agent_connections::find_by_token(&state.pool, &hash).await,
+    }
+    .map_err(Refusal::Internal)?
+    .ok_or(Refusal::NoKey)?;
+    state.rate_limits.agent_key_worked(*presented.hash());
     Caller::from_key_match(&state.app_url, found).map_err(|error| match error {
         OpError::Refused {
             code: "paused" | "expired",
@@ -277,17 +306,24 @@ async fn authenticate(state: &AppState, key_hash: [u8; 32]) -> Result<Caller, Re
 /// Counts a request without a usable key against its address, then refuses it
 fn failed(state: &AppState, ip: IpAddr, presented: bool, message: &str) -> Response {
     match state.rate_limits.agent_key_failure(ip) {
-        Ok(()) => unauthorized(presented, message),
+        Ok(()) => unauthorized(state, presented, message),
         Err(limited) => limited.into_response(),
     }
 }
 
-fn unauthorized(presented: bool, message: &str) -> Response {
-    let challenge = if presented {
-        r#"Bearer error="invalid_token""#
+/// The 401 that also tells a client where to learn how to sign in (RFC 9728)
+fn unauthorized(state: &AppState, presented: bool, message: &str) -> Response {
+    let error = if presented {
+        r#"error="invalid_token", "#
     } else {
-        "Bearer"
+        ""
     };
+    let challenge = format!(
+        r#"Bearer {error}resource_metadata="{}{}", scope="{}""#,
+        oauth::issuer(&state.app_url),
+        oauth::PROTECTED_RESOURCE_PATH,
+        oauth::SCOPE,
+    );
     (
         StatusCode::UNAUTHORIZED,
         [(header::WWW_AUTHENTICATE, challenge)],

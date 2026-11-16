@@ -4,6 +4,7 @@ import { createFileRoute, useLocation } from '@tanstack/react-router'
 import { AlertDialog } from '@astryxdesign/core/AlertDialog'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
+import { Divider } from '@astryxdesign/core/Divider'
 import { HStack } from '@astryxdesign/core/HStack'
 import { useAnnounce, useMediaQuery } from '@astryxdesign/core/hooks'
 import { Link } from '@astryxdesign/core/Link'
@@ -11,19 +12,25 @@ import { Skeleton } from '@astryxdesign/core/Skeleton'
 import { StatusDot } from '@astryxdesign/core/StatusDot'
 import { Table, pixel, proportional } from '@astryxdesign/core/Table'
 import type { TableColumn } from '@astryxdesign/core/Table'
-import { Text } from '@astryxdesign/core/Text'
+import { Heading, Text } from '@astryxdesign/core/Text'
 import { useToast } from '@astryxdesign/core/Toast'
 import { VisuallyHidden } from '@astryxdesign/core/VisuallyHidden'
 import { VStack } from '@astryxdesign/core/VStack'
 
 import { api } from '@/api/client'
+import { AgentSetupSteps } from '@/components/agent-setup-steps'
 import { AppFrame } from '@/components/app-frame'
 import { ListEmpty } from '@/components/list-empty'
 import { OfflineBanner } from '@/components/offline-banner'
 import { PageHeading } from '@/components/page-heading'
 import { WaitingApprovals } from '@/components/waiting-approvals'
 import { describeChats } from '@/lib/agent-grant'
-import { STATUS_DOTS, agentsQuery, presetsQuery } from '@/lib/agents'
+import {
+  STATUS_DOTS,
+  agentsQuery,
+  endpointURL,
+  presetsQuery,
+} from '@/lib/agents'
 import type { AgentConnection, AgentPreset } from '@/lib/agents'
 import { formatDay, formatWhen } from '@/lib/format'
 import { useSessionExpiry } from '@/lib/use-session-expiry'
@@ -125,7 +132,7 @@ function AgentsPage() {
           title="Agents"
           lede={
             isEnabled && connections?.length
-              ? 'AI agents connected to your account, each with its own access key and permissions.'
+              ? 'AI agents connected to your account, each with its own permissions.'
               : 'Let an AI agent schedule and send WhatsApp messages for you, within limits you set.'
           }
           actions={
@@ -222,6 +229,25 @@ function AgentsPage() {
             }
           />
         )}
+
+        {isEnabled ? (
+          <>
+            <Divider />
+            <VStack as="section" gap={4} aria-labelledby="sign-in-steps">
+              <VStack gap={1}>
+                <Heading level={2} id="sign-in-steps">
+                  Connect an app that signs in
+                </Heading>
+                <Text color="secondary">
+                  Claude, ChatGPT and some other apps need no access key. Give
+                  the app Whatomato’s address, and it brings you here to choose
+                  what it may do.
+                </Text>
+              </VStack>
+              <AgentSetupSteps url={endpointURL()} isSigningIn />
+            </VStack>
+          </>
+        ) : null}
       </VStack>
 
       <AlertDialog
@@ -344,7 +370,9 @@ function NameCell({ connection }: { connection: AgentConnection }) {
         <Text weight="medium">{connection.name}</Text>
       </Link>
       <Text type="supporting" hasTabularNumbers>
-        Key ending {connection.key_hint}
+        {connection.signed_in
+          ? `Signed in by ${connection.signed_in.client_host}`
+          : `Key ending ${connection.key_hint}`}
       </Text>
     </VStack>
   )

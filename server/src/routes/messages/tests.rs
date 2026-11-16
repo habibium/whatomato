@@ -642,7 +642,7 @@ async fn the_owners_edit_makes_an_agents_schedule_the_owners(pool: PgPool) {
     use crate::{
         agents::{Preset, key::AccessKey},
         crypto::Cipher,
-        db::agent_connections::{self, NewConnection},
+        db::agent_connections::{self, Credential, NewConnection},
     };
 
     let app = TestApp::new(pool.clone());
@@ -653,8 +653,10 @@ async fn the_owners_edit_makes_an_agents_schedule_the_owners(pool: PgPool) {
         NewConnection {
             user_id: owner,
             name: "Assistant",
-            key_hash: &key.hash,
-            key_hint: &key.hint,
+            credential: Credential::Key {
+                hash: &key.hash,
+                hint: &key.hint,
+            },
             grant: &Preset::FullAccess.grant(),
             expires_at: None,
         },

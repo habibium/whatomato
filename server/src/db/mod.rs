@@ -1,6 +1,8 @@
 pub mod agent_activity;
 pub mod agent_approvals;
 pub mod agent_connections;
+pub mod agent_sign_ins;
+pub mod agent_tokens;
 pub mod deliveries;
 pub mod message_templates;
 pub mod passkey_ceremonies;
@@ -45,9 +47,21 @@ pub fn spawn_cleanup(pool: PgPool) {
                 two_factor::delete_expired_challenges(&pool),
                 two_factor::delete_expired_setups(&pool, SETUP_TTL),
                 agent_approvals::expire_overdue(&pool),
-                agent_activity::delete_old(&pool)
+                agent_activity::delete_old(&pool),
+                agent_sign_ins::delete_expired(&pool),
+                agent_tokens::delete_expired(&pool)
             ) {
-                Ok((sessions, tokens, ceremonies, challenges, setups, approvals, activity)) => {
+                Ok((
+                    sessions,
+                    tokens,
+                    ceremonies,
+                    challenges,
+                    setups,
+                    approvals,
+                    activity,
+                    agent_sign_ins,
+                    agent_tokens,
+                )) => {
                     tracing::debug!(
                         sessions,
                         tokens,
@@ -56,8 +70,11 @@ pub fn spawn_cleanup(pool: PgPool) {
                         setups,
                         approvals,
                         activity,
+                        agent_sign_ins,
+                        agent_tokens,
                         "deleted expired sessions, tokens, passkey ceremonies, challenges and \
-                         setups, expired agent approvals and dropped old agent activity"
+                         setups, expired agent approvals, sign-ins and tokens, and dropped old \
+                         agent activity"
                     );
                 }
                 Err(error) => {

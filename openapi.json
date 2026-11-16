@@ -661,6 +661,174 @@
         }
       }
     },
+    "/api/agents/sign-in/approve": {
+      "post": {
+        "summary": "Let an app sign in",
+        "description": "Checks the request again, then the password, and answers with the address to send the browser\nto. The connection is made, or signed in to again, when the app exchanges the code in that\naddress, which it has a minute to do; the owner is emailed about a new one then.",
+        "operationId": "approve_agent_sign_in",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveSignIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInApproved"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A field is missing or out of range, or the password is incorrect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent access is off on this server, or the connection isn't one this app signed in to",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The account already has 20 connections",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The permissions have problems, under `details.grant`, or the app's request does, under `details.request`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/sign-in/check": {
+      "post": {
+        "summary": "Check an app's request to sign in",
+        "description": "Looks the app up by its `client_id` and checks the request the browser arrived with. Nothing\nis stored.",
+        "operationId": "check_agent_sign_in",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthorizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInCheck"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent access is off on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/agents/{id}": {
       "get": {
         "summary": "One connection, with how many of its scheduled messages still exist",
@@ -4326,6 +4494,7 @@
           "id",
           "name",
           "key_hint",
+          "signed_in",
           "status",
           "grant",
           "grant_problem",
@@ -4374,8 +4543,11 @@
             "format": "uuid"
           },
           "key_hint": {
-            "type": "string",
-            "description": "The key's last 4 characters, to tell keys apart"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The key's last 4 characters, to tell keys apart; empty when it was made by signing in"
           },
           "last_used_at": {
             "type": [
@@ -4404,6 +4576,17 @@
               {
                 "$ref": "#/components/schemas/Preset",
                 "description": "The preset `grant` equals; empty for custom permissions"
+              }
+            ]
+          },
+          "signed_in": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SignedIn",
+                "description": "The client that signed in; empty when it uses an access key"
               }
             ]
           },
@@ -4581,6 +4764,48 @@
           }
         }
       },
+      "ApproveSignIn": {
+        "type": "object",
+        "required": [
+          "request",
+          "password"
+        ],
+        "properties": {
+          "connection_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Sign in again to this connection, keeping its permissions. Left out for a new connection."
+          },
+          "grant": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Grant",
+                "description": "A new connection's permissions"
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A new connection's name, 1 to 60 characters"
+          },
+          "password": {
+            "type": "string",
+            "description": "The account's password, asked again"
+          },
+          "request": {
+            "$ref": "#/components/schemas/AuthorizationRequest"
+          }
+        }
+      },
       "AuthenticatorCode": {
         "type": "object",
         "required": [
@@ -4590,6 +4815,60 @@
           "code": {
             "type": "string",
             "description": "The 6-digit code the authenticator app shows"
+          }
+        }
+      },
+      "AuthorizationRequest": {
+        "type": "object",
+        "description": "The query the client sent the browser to `/oauth/authorize` with, passed on as it came",
+        "properties": {
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code_challenge": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "code_challenge_method": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "redirect_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "resource": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "response_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -5889,6 +6168,129 @@
           }
         }
       },
+      "SignInApproved": {
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Where to send the browser: back to the app, with the code it exchanges for its tokens"
+          }
+        }
+      },
+      "SignInAsk": {
+        "type": "object",
+        "required": [
+          "client_name",
+          "client_host",
+          "redirect_host",
+          "is_local_only",
+          "connections",
+          "can_add",
+          "deny_url"
+        ],
+        "properties": {
+          "can_add": {
+            "type": "boolean",
+            "description": "Whether the account has room for another connection"
+          },
+          "client_host": {
+            "type": "string",
+            "description": "The host the app's identity is published on, such as `claude.ai`"
+          },
+          "client_name": {
+            "type": "string",
+            "description": "What the app calls itself, which anyone can claim"
+          },
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentConnection"
+            },
+            "description": "The connections this app already signed in to, which it can sign in to again"
+          },
+          "deny_url": {
+            "type": "string",
+            "description": "Where to send the browser when the owner says no"
+          },
+          "is_local_only": {
+            "type": "boolean",
+            "description": "The app is reached only on this computer, where any program can claim to be it"
+          },
+          "redirect_host": {
+            "type": "string",
+            "description": "The host the browser is sent back to afterwards"
+          }
+        }
+      },
+      "SignInCheck": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SignInAsk",
+                "description": "The request is sound: ask the owner"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "ask"
+                    ]
+                  }
+                }
+              }
+            ],
+            "description": "The request is sound: ask the owner"
+          },
+          {
+            "type": "object",
+            "description": "Show `message` and stay on the page",
+            "required": [
+              "message",
+              "status"
+            ],
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "refused"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Send the browser to `url`, which tells the app what was wrong with its request",
+            "required": [
+              "url",
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "redirect"
+                ]
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "What to do with an app's request to sign in"
+      },
       "SignInCredentials": {
         "type": "object",
         "required": [
@@ -5940,6 +6342,24 @@
           }
         ],
         "description": "With two-step verification on, the password only starts the sign-in, and\n`POST /signin/two-factor` finishes it"
+      },
+      "SignedIn": {
+        "type": "object",
+        "description": "The client a connection was made with by signing in. Both come from the client itself.",
+        "required": [
+          "client_name",
+          "client_host"
+        ],
+        "properties": {
+          "client_host": {
+            "type": "string",
+            "description": "The host the client's identity is published on, such as `claude.ai`"
+          },
+          "client_name": {
+            "type": "string",
+            "description": "What the client calls itself, which anyone can claim"
+          }
+        }
       },
       "StoppedBecause": {
         "type": "string",

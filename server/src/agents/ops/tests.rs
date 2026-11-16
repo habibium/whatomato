@@ -38,10 +38,11 @@ use crate::{
     crypto::Cipher,
     db::{
         agent_activity, agent_approvals,
-        agent_connections::{self, NewConnection},
+        agent_connections::{self, Credential, NewConnection},
         message_templates, scheduled_messages, whatsapp_accounts, whatsapp_contacts,
     },
     email::Mailer,
+    oauth::client::Clients,
     rate_limit::RateLimits,
     scheduler::{RecipientType, ScheduleKind, recurrence::Recurrence},
     state::AppState,
@@ -68,6 +69,7 @@ fn state(pool: PgPool) -> AppState {
         app_url: Arc::clone(&app_url),
         rate_limits: RateLimits::default(),
         pwned_passwords: PwnedPasswords::Listed(&[]),
+        oauth_clients: Clients::listed([]),
         cipher: cipher.clone(),
         whatsapp: WhatsApp::new(Context::new(pool, cipher, mailer, app_url)),
         agent_access: true,
@@ -92,8 +94,10 @@ async fn connect(state: &AppState, owner: Uuid, grant: &Grant) -> Caller {
         NewConnection {
             user_id: owner,
             name: "Assistant",
-            key_hash: &key.hash,
-            key_hint: &key.hint,
+            credential: Credential::Key {
+                hash: &key.hash,
+                hint: &key.hint,
+            },
             grant,
             expires_at: None,
         },

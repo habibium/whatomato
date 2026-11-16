@@ -8,6 +8,43 @@ pub const PREFIX: &str = "whatomato_ak_";
 const SECRET_LEN: usize = 43;
 const HINT_LEN: usize = 4;
 
+/// What a client that signed in holds. Each kind has its own prefix, so one never passes for
+/// another and secret scanners can tell them apart.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Issued {
+    /// The authorization code, exchanged once for the two tokens
+    Code,
+    AccessToken,
+    RefreshToken,
+}
+
+impl Issued {
+    #[must_use]
+    pub const fn prefix(self) -> &'static str {
+        match self {
+            Self::Code => "whatomato_ac_",
+            Self::AccessToken => "whatomato_at_",
+            Self::RefreshToken => "whatomato_rt_",
+        }
+    }
+
+    /// The value, shown to the client once, and the hash to store
+    ///
+    /// # Errors
+    /// When the system's random source fails.
+    pub fn generate(self) -> anyhow::Result<(String, [u8; 32])> {
+        let value = format!("{}{}", self.prefix(), Token::generate()?.value);
+        let hash = hash(&value);
+        Ok((value, hash))
+    }
+
+    /// Whether `value` has this kind's shape, to turn away anything else before hashing it
+    #[must_use]
+    pub fn is(self, value: &str) -> bool {
+        has_shape(value, self.prefix())
+    }
+}
+
 pub struct AccessKey {
     /// Shown once, never logged
     pub value: String,
@@ -43,7 +80,11 @@ pub fn hint(key: &str) -> String {
 /// Whether `value` has the shape of an access key, to turn away anything else before hashing it
 #[must_use]
 pub fn is_access_key(value: &str) -> bool {
-    value.strip_prefix(PREFIX).is_some_and(|secret| {
+    has_shape(value, PREFIX)
+}
+
+fn has_shape(value: &str, prefix: &str) -> bool {
+    value.strip_prefix(prefix).is_some_and(|secret| {
         secret.len() == SECRET_LEN
             && secret
                 .bytes()
@@ -64,6 +105,20 @@ mod tests {
         assert_eq!(key.hint, key.value[key.value.len() - 4..]);
         assert_eq!(key.hash, hash(&key.value));
         assert_ne!(key.value, AccessKey::generate().unwrap().value);
+    }
+
+    #[test]
+    fn each_issued_kind_passes_only_for_itself() {
+        let kinds = [Issued::Code, Issued::AccessToken, Issued::RefreshToken];
+        for kind in kinds {
+            let (value, stored) = kind.generate().unwrap();
+            assert_eq!(stored, hash(&value));
+            assert!(!is_access_key(&value));
+            for other in kinds {
+                assert_eq!(other.is(&value), other == kind, "{kind:?} as {other:?}");
+            }
+        }
+        assert!(!Issued::AccessToken.is(&AccessKey::generate().unwrap().value));
     }
 
     #[test]

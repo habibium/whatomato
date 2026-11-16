@@ -145,3 +145,70 @@ export function setupSteps(
       ]
   }
 }
+
+export type SignInClientID = 'claude' | 'chatgpt' | 'claude-code' | 'codex'
+
+export const SIGN_IN_CLIENTS: readonly { id: SignInClientID; name: string }[] =
+  [
+    { id: 'claude', name: 'Claude' },
+    { id: 'chatgpt', name: 'ChatGPT' },
+    { id: 'claude-code', name: 'Claude Code' },
+    { id: 'codex', name: 'Codex' },
+  ]
+
+/**
+ * The steps to connect a client that signs in, which needs no key. Shapes follow each client's
+ * documentation as read in docs/agent-access/research/clients.md.
+ */
+export function signInSteps(client: SignInClientID, url: string): SetupStep[] {
+  const address: Pick<SetupStep, 'code' | 'language' | 'title'> = {
+    code: url,
+    language: 'plaintext',
+    title: 'Address',
+  }
+  const approve =
+    'It opens Whatomato in your browser, where you choose what it may do.'
+
+  switch (client) {
+    case 'claude':
+      return [
+        {
+          text: 'In Claude, on the web or in the desktop app, open Customize, then Connectors, and choose to add a custom connector.',
+        },
+        { text: 'Name it Whatomato and give it this address.', ...address },
+        { text: `Choose to sign in. ${approve}` },
+      ]
+    case 'chatgpt':
+      return [
+        {
+          text: 'In ChatGPT on the web, with developer mode on, open Plugins, choose +, then Add custom MCP server.',
+        },
+        { text: 'Name it Whatomato and give it this address.', ...address },
+        {
+          text: `Choose OAuth as the way to sign in, then create it. ${approve}`,
+        },
+      ]
+    case 'claude-code':
+      return [
+        {
+          text: 'Run this in a terminal.',
+          title: 'Terminal',
+          code: `claude mcp add --scope user --transport http ${SERVER_NAME} ${url}`,
+          language: 'bash',
+        },
+        {
+          text: `Start Claude Code, type /mcp, pick ${SERVER_NAME} and sign in. ${approve}`,
+        },
+      ]
+    case 'codex':
+      return [
+        {
+          text: 'Run these in a terminal.',
+          title: 'Terminal',
+          code: `codex mcp add ${SERVER_NAME} --url ${url}\ncodex mcp login ${SERVER_NAME}`,
+          language: 'bash',
+        },
+        { text: approve },
+      ]
+  }
+}

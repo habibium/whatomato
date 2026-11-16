@@ -4,8 +4,8 @@ use sqlx::PgPool;
 use url::Url;
 
 use crate::{
-    auth::pwned::PwnedPasswords, crypto::Cipher, email::Mailer, rate_limit::RateLimits,
-    whatsapp::manager::WhatsApp,
+    auth::pwned::PwnedPasswords, crypto::Cipher, email::Mailer, oauth::client::Clients,
+    rate_limit::RateLimits, whatsapp::manager::WhatsApp,
 };
 
 #[derive(Clone)]
@@ -15,6 +15,8 @@ pub struct AppState {
     pub app_url: Arc<Url>,
     pub rate_limits: RateLimits,
     pub pwned_passwords: PwnedPasswords,
+    /// The apps that sign in to agent connections
+    pub oauth_clients: Clients,
     pub cipher: Cipher,
     pub whatsapp: WhatsApp,
     /// `AGENT_ACCESS`: whether the agent routes and the MCP endpoint answer

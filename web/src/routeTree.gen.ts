@@ -27,6 +27,7 @@ import { Route as AuthenticatedAgentsConnectionIdRouteImport } from './routes/_a
 import { Route as AuthenticatedAgentsActivityRouteImport } from './routes/_authenticated/agents.activity'
 import { Route as AuthenticatedAgentsApprovalsRouteImport } from './routes/_authenticated/agents.approvals'
 import { Route as AuthenticatedAgentsNewRouteImport } from './routes/_authenticated/agents.new'
+import { Route as AuthenticatedAgentsSignInRouteImport } from './routes/_authenticated/agents.sign-in'
 import { Route as AuthenticatedContactsIndexRouteImport } from './routes/_authenticated/contacts.index'
 import { Route as AuthenticatedContactsContactIdRouteImport } from './routes/_authenticated/contacts.$contactId'
 
@@ -123,6 +124,12 @@ const AuthenticatedAgentsNewRoute = AuthenticatedAgentsNewRouteImport.update({
   path: '/agents/new',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedAgentsSignInRoute =
+  AuthenticatedAgentsSignInRouteImport.update({
+    id: '/agents/sign-in',
+    path: '/agents/sign-in',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedContactsIndexRoute =
   AuthenticatedContactsIndexRouteImport.update({
     id: '/',
@@ -153,6 +160,7 @@ export interface FileRoutesByFullPath {
   '/agents/activity': typeof AuthenticatedAgentsActivityRoute
   '/agents/approvals': typeof AuthenticatedAgentsApprovalsRoute
   '/agents/new': typeof AuthenticatedAgentsNewRoute
+  '/agents/sign-in': typeof AuthenticatedAgentsSignInRoute
   '/contacts/$contactId': typeof AuthenticatedContactsContactIdRoute
   '/agents/': typeof AuthenticatedAgentsIndexRoute
   '/contacts/': typeof AuthenticatedContactsIndexRoute
@@ -173,6 +181,7 @@ export interface FileRoutesByTo {
   '/agents/activity': typeof AuthenticatedAgentsActivityRoute
   '/agents/approvals': typeof AuthenticatedAgentsApprovalsRoute
   '/agents/new': typeof AuthenticatedAgentsNewRoute
+  '/agents/sign-in': typeof AuthenticatedAgentsSignInRoute
   '/contacts/$contactId': typeof AuthenticatedContactsContactIdRoute
   '/agents': typeof AuthenticatedAgentsIndexRoute
   '/contacts': typeof AuthenticatedContactsIndexRoute
@@ -196,6 +205,7 @@ export interface FileRoutesById {
   '/_authenticated/agents/activity': typeof AuthenticatedAgentsActivityRoute
   '/_authenticated/agents/approvals': typeof AuthenticatedAgentsApprovalsRoute
   '/_authenticated/agents/new': typeof AuthenticatedAgentsNewRoute
+  '/_authenticated/agents/sign-in': typeof AuthenticatedAgentsSignInRoute
   '/_authenticated/contacts/$contactId': typeof AuthenticatedContactsContactIdRoute
   '/_authenticated/agents/': typeof AuthenticatedAgentsIndexRoute
   '/_authenticated/contacts/': typeof AuthenticatedContactsIndexRoute
@@ -219,6 +229,7 @@ export interface FileRouteTypes {
     | '/agents/activity'
     | '/agents/approvals'
     | '/agents/new'
+    | '/agents/sign-in'
     | '/contacts/$contactId'
     | '/agents/'
     | '/contacts/'
@@ -239,6 +250,7 @@ export interface FileRouteTypes {
     | '/agents/activity'
     | '/agents/approvals'
     | '/agents/new'
+    | '/agents/sign-in'
     | '/contacts/$contactId'
     | '/agents'
     | '/contacts'
@@ -261,6 +273,7 @@ export interface FileRouteTypes {
     | '/_authenticated/agents/activity'
     | '/_authenticated/agents/approvals'
     | '/_authenticated/agents/new'
+    | '/_authenticated/agents/sign-in'
     | '/_authenticated/contacts/$contactId'
     | '/_authenticated/agents/'
     | '/_authenticated/contacts/'
@@ -404,6 +417,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAgentsNewRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/agents/sign-in': {
+      id: '/_authenticated/agents/sign-in'
+      path: '/agents/sign-in'
+      fullPath: '/agents/sign-in'
+      preLoaderRoute: typeof AuthenticatedAgentsSignInRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/contacts/': {
       id: '/_authenticated/contacts/'
       path: '/'
@@ -447,6 +467,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedAgentsActivityRoute: typeof AuthenticatedAgentsActivityRoute
   AuthenticatedAgentsApprovalsRoute: typeof AuthenticatedAgentsApprovalsRoute
   AuthenticatedAgentsNewRoute: typeof AuthenticatedAgentsNewRoute
+  AuthenticatedAgentsSignInRoute: typeof AuthenticatedAgentsSignInRoute
   AuthenticatedAgentsIndexRoute: typeof AuthenticatedAgentsIndexRoute
 }
 
@@ -461,6 +482,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedAgentsActivityRoute: AuthenticatedAgentsActivityRoute,
   AuthenticatedAgentsApprovalsRoute: AuthenticatedAgentsApprovalsRoute,
   AuthenticatedAgentsNewRoute: AuthenticatedAgentsNewRoute,
+  AuthenticatedAgentsSignInRoute: AuthenticatedAgentsSignInRoute,
   AuthenticatedAgentsIndexRoute: AuthenticatedAgentsIndexRoute,
 }
 

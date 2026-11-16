@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE agent_connections SET name = $3, updated_at = now()\n           WHERE id = $1 AND user_id = $2\n           RETURNING id, user_id, name, key_hint, \"grant\", paused_at, expires_at, last_used_at,\n               created_at, updated_at",
+  "query": "INSERT INTO agent_connections\n               (user_id, name, key_hash, key_hint, client_id, client_name, \"grant\", expires_at)\n           SELECT $1, $2, $3, $4, $5, $6, $7, $8\n           WHERE (SELECT count(*) FROM agent_connections WHERE user_id = $1) < $9\n           RETURNING id, user_id, name, key_hint, client_id, client_name, \"grant\", paused_at,\n               expires_at, last_used_at, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,28 @@
       },
       {
         "ordinal": 4,
+        "name": "client_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agent_connections",
+            "name": "client_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "client_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agent_connections",
+            "name": "client_name"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "grant",
         "type_info": "Jsonb",
         "origin": {
@@ -59,7 +81,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 7,
         "name": "paused_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -70,7 +92,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 8,
         "name": "expires_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -81,7 +103,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 9,
         "name": "last_used_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -92,7 +114,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -103,7 +125,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -117,15 +139,23 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Text"
+        "Text",
+        "Bytea",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Timestamptz",
+        "Int8"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      false,
+      true,
+      true,
+      true,
       false,
       true,
       true,
@@ -134,5 +164,5 @@
       false
     ]
   },
-  "hash": "2e2f3c7890be0ab615ca9d3c8b34c0ce0ccd55d154aea983c798a1652395d71f"
+  "hash": "9627033479f7d49e4de15eb08f999825ec7522f1a93503d9f6900ca10617811d"
 }

@@ -17,7 +17,7 @@ use crate::{
         },
     },
     db::{
-        agent_connections::{self, MAX_PER_USER, NewConnection},
+        agent_connections::{self, Credential, MAX_PER_USER, NewConnection},
         scheduled_messages::{self, Fields},
     },
     routes::auth::tests::{PASSWORD, TestApp, TestResponse},
@@ -65,8 +65,10 @@ async fn connection(app: &TestApp, owner: Uuid, name: &str) -> Uuid {
         NewConnection {
             user_id: owner,
             name,
-            key_hash: &key.hash,
-            key_hint: &key.hint,
+            credential: Credential::Key {
+                hash: &key.hash,
+                hint: &key.hint,
+            },
             grant: &Preset::AskBeforeSending.grant(),
             expires_at: None,
         },

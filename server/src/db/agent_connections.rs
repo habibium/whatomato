@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use sqlx::{PgExecutor, PgPool, types::Json};
+use sqlx::{PgConnection, PgExecutor, PgPool, types::Json};
 use uuid::Uuid;
 
 use crate::{agents::Grant, scheduler::RecipientType};
@@ -13,8 +13,12 @@ pub struct Connection {
     pub id: Uuid,
     pub user_id: Uuid,
     pub name: String,
-    /// The key's last 4 characters
-    pub key_hint: String,
+    /// The key's last 4 characters; `None` when it was made by signing in
+    pub key_hint: Option<String>,
+    /// The URL of the metadata document of the client that signed in
+    pub client_id: Option<String>,
+    /// What that document called the client, so never to be trusted
+    pub client_name: Option<String>,
     /// As stored; only [`Grant::parse`] turns it into access, so a bad row gives none
     pub grant: serde_json::Value,
     pub paused_at: Option<DateTime<Utc>>,
@@ -27,10 +31,23 @@ pub struct Connection {
 pub struct NewConnection<'a> {
     pub user_id: Uuid,
     pub name: &'a str,
-    pub key_hash: &'a [u8],
-    pub key_hint: &'a str,
+    pub credential: Credential<'a>,
     pub grant: &'a Grant,
     pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// How the agent proves it is this connection
+#[derive(Clone, Copy)]
+pub enum Credential<'a> {
+    Key {
+        hash: &'a [u8],
+        hint: &'a str,
+    },
+    /// Tokens, issued to the client that signed in
+    SignIn {
+        client_id: &'a str,
+        client_name: &'a str,
+    },
 }
 
 /// The connection a key belongs to, and whether it may be used now
@@ -98,6 +115,16 @@ pub async fn exists(db: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<bool> {
 /// `None` when the user already has [`MAX_PER_USER`] connections
 pub async fn create(pool: &PgPool, new: NewConnection<'_>) -> sqlx::Result<Option<Connection>> {
     let mut transaction = pool.begin().await?;
+    let connection = create_in(&mut transaction, new).await?;
+    transaction.commit().await?;
+    Ok(connection)
+}
+
+/// [`create`] inside the caller's transaction
+pub async fn create_in(
+    transaction: &mut PgConnection,
+    new: NewConnection<'_>,
+) -> sqlx::Result<Option<Connection>> {
     // Holding the user's row makes a second create wait, so it counts this one; a lock taken in the
     // same statement as the count wouldn't, since the count reads the statement's earlier snapshot
     let exists = sqlx::query_scalar!("SELECT id FROM users WHERE id = $1 FOR UPDATE", new.user_id)
@@ -106,32 +133,40 @@ pub async fn create(pool: &PgPool, new: NewConnection<'_>) -> sqlx::Result<Optio
     if exists.is_none() {
         return Ok(None);
     }
-    let connection = sqlx::query_as!(
+    let (key_hash, key_hint, client_id, client_name) = match new.credential {
+        Credential::Key { hash, hint } => (Some(hash), Some(hint), None, None),
+        Credential::SignIn {
+            client_id,
+            client_name,
+        } => (None, None, Some(client_id), Some(client_name)),
+    };
+    sqlx::query_as!(
         Connection,
-        r#"INSERT INTO agent_connections (user_id, name, key_hash, key_hint, "grant", expires_at)
-           SELECT $1, $2, $3, $4, $5, $6
-           WHERE (SELECT count(*) FROM agent_connections WHERE user_id = $1) < $7
-           RETURNING id, user_id, name, key_hint, "grant", paused_at, expires_at, last_used_at,
-               created_at, updated_at"#,
+        r#"INSERT INTO agent_connections
+               (user_id, name, key_hash, key_hint, client_id, client_name, "grant", expires_at)
+           SELECT $1, $2, $3, $4, $5, $6, $7, $8
+           WHERE (SELECT count(*) FROM agent_connections WHERE user_id = $1) < $9
+           RETURNING id, user_id, name, key_hint, client_id, client_name, "grant", paused_at,
+               expires_at, last_used_at, created_at, updated_at"#,
         new.user_id,
         new.name,
-        new.key_hash,
-        new.key_hint,
+        key_hash,
+        key_hint,
+        client_id,
+        client_name,
         Json(new.grant) as _,
         new.expires_at,
         MAX_PER_USER,
     )
     .fetch_optional(&mut *transaction)
-    .await?;
-    transaction.commit().await?;
-    Ok(connection)
+    .await
 }
 
 pub async fn list(db: impl PgExecutor<'_>, user_id: Uuid) -> sqlx::Result<Vec<Connection>> {
     sqlx::query_as!(
         Connection,
-        r#"SELECT id, user_id, name, key_hint, "grant", paused_at, expires_at, last_used_at,
-               created_at, updated_at
+        r#"SELECT id, user_id, name, key_hint, client_id, client_name, "grant", paused_at,
+               expires_at, last_used_at, created_at, updated_at
            FROM agent_connections WHERE user_id = $1 ORDER BY created_at, id"#,
         user_id
     )
@@ -146,8 +181,8 @@ pub async fn find(
 ) -> sqlx::Result<Option<Connection>> {
     sqlx::query_as!(
         Connection,
-        r#"SELECT id, user_id, name, key_hint, "grant", paused_at, expires_at, last_used_at,
-               created_at, updated_at
+        r#"SELECT id, user_id, name, key_hint, client_id, client_name, "grant", paused_at,
+               expires_at, last_used_at, created_at, updated_at
            FROM agent_connections WHERE id = $1 AND user_id = $2"#,
         id,
         user_id
@@ -161,32 +196,78 @@ pub async fn find_by_key(
     db: impl PgExecutor<'_>,
     key_hash: &[u8],
 ) -> sqlx::Result<Option<KeyMatch>> {
-    let row = sqlx::query!(
-        r#"SELECT id, user_id, name, key_hint, "grant", paused_at, expires_at, last_used_at,
-               created_at, updated_at,
+    sqlx::query_as!(
+        Found,
+        r#"SELECT id, user_id, name, key_hint, client_id, client_name, "grant", paused_at,
+               expires_at, last_used_at, created_at, updated_at,
                paused_at IS NOT NULL AS "paused!",
                coalesce(expires_at <= now(), false) AS "expired!"
            FROM agent_connections WHERE key_hash = $1"#,
         key_hash
     )
     .fetch_optional(db)
-    .await?;
-    Ok(row.map(|row| KeyMatch {
-        connection: Connection {
-            id: row.id,
-            user_id: row.user_id,
-            name: row.name,
-            key_hint: row.key_hint,
-            grant: row.grant,
-            paused_at: row.paused_at,
-            expires_at: row.expires_at,
-            last_used_at: row.last_used_at,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-        },
-        paused: row.paused,
-        expired: row.expired,
-    }))
+    .await
+    .map(|found| found.map(KeyMatch::from))
+}
+
+/// [`find_by_key`] for an access token that hasn't run out
+pub async fn find_by_token(
+    db: impl PgExecutor<'_>,
+    access_hash: &[u8],
+) -> sqlx::Result<Option<KeyMatch>> {
+    sqlx::query_as!(
+        Found,
+        r#"SELECT c.id, c.user_id, c.name, c.key_hint, c.client_id, c.client_name, c."grant",
+               c.paused_at, c.expires_at, c.last_used_at, c.created_at, c.updated_at,
+               c.paused_at IS NOT NULL AS "paused!",
+               coalesce(c.expires_at <= now(), false) AS "expired!"
+           FROM agent_tokens t JOIN agent_connections c ON c.id = t.connection_id
+           WHERE t.access_hash = $1 AND t.access_expires_at > now()"#,
+        access_hash
+    )
+    .fetch_optional(db)
+    .await
+    .map(|found| found.map(KeyMatch::from))
+}
+
+struct Found {
+    id: Uuid,
+    user_id: Uuid,
+    name: String,
+    key_hint: Option<String>,
+    client_id: Option<String>,
+    client_name: Option<String>,
+    grant: serde_json::Value,
+    paused_at: Option<DateTime<Utc>>,
+    expires_at: Option<DateTime<Utc>>,
+    last_used_at: Option<DateTime<Utc>>,
+    created_at: DateTime<Utc>,
+    updated_at: DateTime<Utc>,
+    paused: bool,
+    expired: bool,
+}
+
+impl From<Found> for KeyMatch {
+    fn from(found: Found) -> Self {
+        Self {
+            connection: Connection {
+                id: found.id,
+                user_id: found.user_id,
+                name: found.name,
+                key_hint: found.key_hint,
+                client_id: found.client_id,
+                client_name: found.client_name,
+                grant: found.grant,
+                paused_at: found.paused_at,
+                expires_at: found.expires_at,
+                last_used_at: found.last_used_at,
+                created_at: found.created_at,
+                updated_at: found.updated_at,
+            },
+            paused: found.paused,
+            expired: found.expired,
+        }
+    }
 }
 
 pub async fn rename(
@@ -199,8 +280,8 @@ pub async fn rename(
         Connection,
         r#"UPDATE agent_connections SET name = $3, updated_at = now()
            WHERE id = $1 AND user_id = $2
-           RETURNING id, user_id, name, key_hint, "grant", paused_at, expires_at, last_used_at,
-               created_at, updated_at"#,
+           RETURNING id, user_id, name, key_hint, client_id, client_name, "grant", paused_at,
+               expires_at, last_used_at, created_at, updated_at"#,
         id,
         user_id,
         name
@@ -219,8 +300,8 @@ pub async fn set_grant(
         Connection,
         r#"UPDATE agent_connections SET "grant" = $3, updated_at = now()
            WHERE id = $1 AND user_id = $2
-           RETURNING id, user_id, name, key_hint, "grant", paused_at, expires_at, last_used_at,
-               created_at, updated_at"#,
+           RETURNING id, user_id, name, key_hint, client_id, client_name, "grant", paused_at,
+               expires_at, last_used_at, created_at, updated_at"#,
         id,
         user_id,
         Json(grant) as _,
@@ -240,8 +321,8 @@ pub async fn pause(
         r#"UPDATE agent_connections
            SET paused_at = coalesce(paused_at, now()), updated_at = now()
            WHERE id = $1 AND user_id = $2
-           RETURNING id, user_id, name, key_hint, "grant", paused_at, expires_at, last_used_at,
-               created_at, updated_at"#,
+           RETURNING id, user_id, name, key_hint, client_id, client_name, "grant", paused_at,
+               expires_at, last_used_at, created_at, updated_at"#,
         id,
         user_id
     )
@@ -258,8 +339,8 @@ pub async fn resume(
         Connection,
         r#"UPDATE agent_connections SET paused_at = NULL, updated_at = now()
            WHERE id = $1 AND user_id = $2
-           RETURNING id, user_id, name, key_hint, "grant", paused_at, expires_at, last_used_at,
-               created_at, updated_at"#,
+           RETURNING id, user_id, name, key_hint, client_id, client_name, "grant", paused_at,
+               expires_at, last_used_at, created_at, updated_at"#,
         id,
         user_id
     )
@@ -279,7 +360,8 @@ pub async fn pause_all(db: impl PgExecutor<'_>, user_id: Uuid) -> sqlx::Result<u
     Ok(paused.rows_affected())
 }
 
-/// The old key stops working at once
+/// The old key stops working at once. `None` too for a connection made by signing in, which has
+/// no key.
 pub async fn rotate_key(
     db: impl PgExecutor<'_>,
     id: Uuid,
@@ -290,9 +372,9 @@ pub async fn rotate_key(
     sqlx::query_as!(
         Connection,
         r#"UPDATE agent_connections SET key_hash = $3, key_hint = $4, updated_at = now()
-           WHERE id = $1 AND user_id = $2
-           RETURNING id, user_id, name, key_hint, "grant", paused_at, expires_at, last_used_at,
-               created_at, updated_at"#,
+           WHERE id = $1 AND user_id = $2 AND key_hash IS NOT NULL
+           RETURNING id, user_id, name, key_hint, client_id, client_name, "grant", paused_at,
+               expires_at, last_used_at, created_at, updated_at"#,
         id,
         user_id,
         key_hash,

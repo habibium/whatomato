@@ -14,6 +14,7 @@ use crate::{
         agent_approvals::Listed,
         agent_connections::{Connection, Revoked},
     },
+    oauth,
     routes::deliveries::DeliveryState,
     scheduler::{
         RecipientType,
@@ -69,8 +70,12 @@ impl ConnectionStatus {
 pub(super) struct AgentConnection {
     pub id: Uuid,
     pub name: String,
-    /// The key's last 4 characters, to tell keys apart
-    pub key_hint: String,
+    /// The key's last 4 characters, to tell keys apart; empty when it was made by signing in
+    #[schema(required = true)]
+    pub key_hint: Option<String>,
+    /// The client that signed in; empty when it uses an access key
+    #[schema(required = true)]
+    pub signed_in: Option<SignedIn>,
     pub status: ConnectionStatus,
     /// What it may do; empty when the stored permissions can't be read
     #[schema(required = true)]
@@ -96,6 +101,24 @@ pub(super) struct AgentConnection {
     /// When its name, permissions, key or pause last changed
     pub updated_at: DateTime<Utc>,
     pub usage: Usage,
+}
+
+/// The client a connection was made with by signing in. Both come from the client itself.
+#[derive(Serialize, ToSchema)]
+pub(super) struct SignedIn {
+    /// What the client calls itself, which anyone can claim
+    pub client_name: String,
+    /// The host the client's identity is published on, such as `claude.ai`
+    pub client_host: String,
+}
+
+impl SignedIn {
+    pub fn new(client_id: &str, client_name: String) -> Self {
+        Self {
+            client_name,
+            client_host: oauth::client::host(client_id),
+        }
+    }
 }
 
 /// How much of its limits a connection has used
@@ -125,6 +148,10 @@ impl AgentConnection {
             id: connection.id,
             name: connection.name,
             key_hint: connection.key_hint,
+            signed_in: connection
+                .client_id
+                .zip(connection.client_name)
+                .map(|(id, name)| SignedIn::new(&id, name)),
             status,
             grant_problem: grant.is_none().then(|| {
                 "This connection's permissions couldn't be read, so it can't do anything. Choose \
@@ -273,7 +300,7 @@ impl Validate for UpdateConnection {
     }
 }
 
-fn check_name(name: &str, errors: &mut ValidationErrors) {
+pub(super) fn check_name(name: &str, errors: &mut ValidationErrors) {
     if !(1..=NAME_MAX).contains(&name.trim().chars().count()) {
         add(errors, "name", "must be between 1 and 60 characters");
     }

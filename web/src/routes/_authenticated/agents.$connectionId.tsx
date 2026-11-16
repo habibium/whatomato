@@ -372,7 +372,11 @@ function ConnectionDetails({
       <SettingsSection
         id="connection-overview"
         title="Overview"
-        description="Its key, when it was last used, and how close it is to its limits."
+        description={
+          connection.signed_in
+            ? 'The app that signed in, when it was last used, and how close it is to its limits.'
+            : 'Its key, when it was last used, and how close it is to its limits.'
+        }
       >
         <List hasDividers density="compact">
           <Fact label="Status">
@@ -385,7 +389,13 @@ function ConnectionDetails({
               <Text>{dot.label}</Text>
             </HStack>
           </Fact>
-          <Fact label="Access key">Ending {connection.key_hint}</Fact>
+          {connection.signed_in ? (
+            <Fact label="Signed in by">
+              {`${connection.signed_in.client_name} (${connection.signed_in.client_host})`}
+            </Fact>
+          ) : (
+            <Fact label="Access key">Ending {connection.key_hint}</Fact>
+          )}
           <Fact label="Created">{formatWhen(connection.created_at)}</Fact>
           <Fact label="Last used">
             {connection.last_used_at
@@ -497,44 +507,57 @@ function ConnectionDetails({
 
       <Divider />
 
-      <VStack as="section" gap={4} aria-labelledby="setup-steps">
-        <VStack gap={1}>
-          <Heading level={2} id="setup-steps">
-            Set up another machine
-          </Heading>
-          <Text color="secondary">
-            The same steps as when you created it. The key isn’t shown again, so
-            put yours where YOUR_ACCESS_KEY is, or replace the key below.
-          </Text>
-        </VStack>
-        <AgentSetupSteps url={endpointURL()} />
-      </VStack>
+      {connection.signed_in ? null : (
+        <>
+          <VStack as="section" gap={4} aria-labelledby="setup-steps">
+            <VStack gap={1}>
+              <Heading level={2} id="setup-steps">
+                Set up another machine
+              </Heading>
+              <Text color="secondary">
+                The same steps as when you created it. The key isn’t shown
+                again, so put yours where YOUR_ACCESS_KEY is, or replace the key
+                below.
+              </Text>
+            </VStack>
+            <AgentSetupSteps url={endpointURL()} />
+          </VStack>
 
-      <Divider />
+          <Divider />
+        </>
+      )}
 
       <RecentActivity connection={connection} />
 
       <Divider />
 
-      <SettingsSection
-        id="replace-key"
-        title="Replace the key"
-        description="For a key that leaked or was lost. The old key stops working at once, and every agent using it is refused until you give it the new one."
-      >
-        <HStack>
-          <Button
-            label="Replace the key"
-            clickAction={() => setDialog('rotate')}
-          />
-        </HStack>
-      </SettingsSection>
+      {connection.signed_in ? null : (
+        <>
+          <SettingsSection
+            id="replace-key"
+            title="Replace the key"
+            description="For a key that leaked or was lost. The old key stops working at once, and every agent using it is refused until you give it the new one."
+          >
+            <HStack>
+              <Button
+                label="Replace the key"
+                clickAction={() => setDialog('rotate')}
+              />
+            </HStack>
+          </SettingsSection>
 
-      <Divider />
+          <Divider />
+        </>
+      )}
 
       <SettingsSection
         id="revoke"
         title="Revoke"
-        description="Deletes this connection and its key for good. Its activity stays in the log."
+        description={
+          connection.signed_in
+            ? 'Deletes this connection and signs the app out for good. Its activity stays in the log.'
+            : 'Deletes this connection and its key for good. Its activity stays in the log.'
+        }
       >
         <HStack>
           <Button

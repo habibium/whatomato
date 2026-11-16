@@ -89,7 +89,7 @@ whatomato.example.com {
 
 and `CLIENT_IP_HEADER: X-Real-IP` added to the container's environment.
 
-Agents connect at `/mcp`, outside `/api`, so a proxy that routes by path has to send `/mcp` to the server as it does `/api`, with the `Authorization` header intact and without caching or buffering the answers. `AGENT_ACCESS=off` turns [agent access](#agent-access) off instead.
+Agents connect at `/mcp`, outside `/api`, so a proxy that routes by path has to send `/mcp` to the server as it does `/api`, with the `Authorization` header intact and without caching or buffering the answers. Apps that sign in also use `/oauth` and the two documents under `/.well-known/` that begin with `oauth-`, which go to the server the same way. `AGENT_ACCESS=off` turns [agent access](#agent-access) off instead.
 
 ### Upgrading
 
@@ -166,7 +166,7 @@ Environment variables, or a `.env` file in development (see `.env.example`):
 | ------------------ | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `DATABASE_URL`     | required                                                            | Postgres connection string                                                                                                                                                                |
 | `PORT`             | `8000`                                                              | Listen port                                                                                                                                                                               |
-| `WEB_DIR`          | `web/dist`                                                          | Built SPA to serve for every path but `/api`, `/mcp` and the OAuth discovery paths under `/.well-known/`                                                                                  |
+| `WEB_DIR`          | `web/dist`                                                          | Built SPA to serve for every path but `/api`, `/mcp`, `/oauth` and the OAuth discovery paths under `/.well-known/`                                                                                  |
 | `RUST_LOG`         | `warn,server=info` in the image; `warn,server=debug,…` in development | tracing filter. Keep libraries at `warn`: the WhatsApp library logs phone numbers and pair codes at `info`                                                                               |
 | `APP_URL`          | required in release builds; `http://localhost:5173` in debug builds | Public URL of the app. Links in emails point here, and an `https` URL makes the cookies `Secure`                                                                                          |
 | `SMTP_URL`         | required when `APP_URL` is `https`                                  | SMTP server for verification and password reset emails, e.g. `smtps://user:password@host:465`                                                                                             |
@@ -174,7 +174,7 @@ Environment variables, or a `.env` file in development (see `.env.example`):
 | `ENCRYPTION_KEY`   | required in release builds; a fixed development key in debug builds | Encrypts secrets kept in the database, such as authenticator app keys and WhatsApp device keys: 32 random bytes in base64, from `openssl rand -base64 32`                                 |
 | `CLIENT_IP_HEADER` | unset                                                               | Header a trusted proxy sets to the client's address, e.g. `CF-Connecting-IP` behind Cloudflare. Unset, rate limits key on the peer address. `X-Forwarded-For` and `Forwarded` are refused |
 | `MAX_LINKED_ACCOUNTS` | unset                                                               | How many WhatsApp accounts may be linked at once. At the limit, users without a linked account can't start linking; those already linked are unaffected                                   |
-| `AGENT_ACCESS`     | `on`                                                                | `off` turns agent access off: `/mcp` answers 404, the Agents page says it's off, and no agent's schedule runs                                                                             |
+| `AGENT_ACCESS`     | `on`                                                                | `off` turns agent access off: `/mcp` and signing in answer 404, the Agents page says it's off, and no agent's schedule runs                                                                             |
 
 Migrations in `server/migrations` are embedded in the binary and applied at startup.
 
@@ -219,7 +219,7 @@ Everything secret is encrypted with `ENCRYPTION_KEY` (XChaCha20-Poly1305), bound
 
 What a user writes is not encrypted: templates, scheduled messages and the delivery history keep the message text and the recipient in plain columns, so a database dump does show those. Deleting a schedule keeps its history.
 
-For [agent access](#agent-access), Postgres keeps each connection with only the SHA-256 hash of its key and the key's last 4 characters, and its permissions as they were saved, chat names and notes included, unencrypted. A request waiting for approval keeps its recipient in the clear and its text sealed with `ENCRYPTION_KEY`, and goes when its connection is revoked. The activity log records every call an agent makes, with the chat it named and the outcome but never the message text, and is deleted after 90 days. Messages an agent sends or schedules are kept like any other, with the connection that made them.
+For [agent access](#agent-access), Postgres keeps each connection with only the SHA-256 hash of its key and the key's last 4 characters, and its permissions as they were saved, chat names and notes included, unencrypted. A connection made by signing in has no key: Postgres keeps the address and name of the app that signed in, and the SHA-256 hashes of its tokens and of the sign-in code, which is deleted a day after it was issued. A request waiting for approval keeps its recipient in the clear and its text sealed with `ENCRYPTION_KEY`, and goes when its connection is revoked. The activity log records every call an agent makes, with the chat it named and the outcome but never the message text, and is deleted after 90 days. Messages an agent sends or schedules are kept like any other, with the connection that made them.
 
 Unlinking asks WhatsApp to remove the device, then deletes the account's row and, through the cascade, every key. When WhatsApp can't be reached the keys go anyway, and the page tells the user to remove the device from their phone. A link, an unlink, a removal from the phone, another session taking over the keys and a temporary ban each email the owner.
 
@@ -272,6 +272,12 @@ On the Agents page, create a connection: give it a name, choose its permissions 
 claude mcp add --scope user --transport http whatomato https://whatomato.example.com/mcp \
   --header "Authorization: Bearer $WHATOMATO_KEY"
 ```
+
+Apps that sign in need no key. Claude on the web and in the desktop app, ChatGPT, Claude Code and Codex connect this way: you give the app the same address, and it sends you to Whatomato in your browser. There you see which app is asking and where it will send you back, choose its permissions and enter your password. The connection it gets is like any other, so you can change its permissions, pause it or revoke it. The Agents page has the steps for each app.
+
+An app that signs in holds tokens in place of a key: an access token that lasts an hour, and a refresh token that is replaced each time it's used and runs out after 90 days without use. If a spent refresh token or a used sign-in code shows up again, the connection is signed out and the app has to sign in again; its permissions stay.
+
+Whatomato knows an app by the address it publishes its details at, such as `claude.ai`, and shows you that address, since anyone can claim a name. An app that only registers itself on request, the older method Cursor uses, can't sign in; connect it with a key.
 
 ### Permissions
 

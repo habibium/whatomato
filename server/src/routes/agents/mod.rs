@@ -4,6 +4,7 @@ use crate::state::AppState;
 
 mod dto;
 mod handlers;
+mod sign_in;
 #[cfg(test)]
 mod tests;
 
@@ -25,4 +26,6 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::pause_agent))
         .routes(routes!(handlers::resume_agent))
         .routes(routes!(handlers::rotate_agent_key))
+        .routes(routes!(sign_in::check_agent_sign_in))
+        .routes(routes!(sign_in::approve_agent_sign_in))
 }

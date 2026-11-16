@@ -8,6 +8,7 @@ pub mod email;
 mod error;
 mod extract;
 pub mod mcp;
+pub mod oauth;
 mod rate_limit;
 mod routes;
 pub mod scheduler;
@@ -65,22 +66,7 @@ pub fn router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
         // that fallback's catch-all needs a non-empty suffix, so bare "/api/" misses it
         .route("/api/", any(routes::not_found))
         .split_for_parts();
-    (oauth_discovery_not_found(router), api)
-}
-
-/// MCP clients that get a 401 look for OAuth metadata here. There's no OAuth yet, and the SPA
-/// fallback's HTML answering 200 reads to them as broken JSON.
-fn oauth_discovery_not_found(mut router: Router<AppState>) -> Router<AppState> {
-    for path in [
-        "/.well-known/oauth-protected-resource",
-        "/.well-known/oauth-authorization-server",
-        "/.well-known/openid-configuration",
-    ] {
-        router = router
-            .route(path, any(routes::not_found))
-            .route(&format!("{path}/{{*suffix}}"), any(routes::not_found));
-    }
-    router
+    (oauth::routes(router), api)
 }
 
 #[cfg(test)]
@@ -96,7 +82,7 @@ mod tests {
     use crate::routes::auth::tests::TestApp;
 
     #[sqlx::test]
-    async fn oauth_discovery_is_not_found_rather_than_the_web_app(pool: PgPool) {
+    async fn oauth_discovery_never_answers_with_the_web_app(pool: PgPool) {
         let app = TestApp::new(pool);
         let router = crate::router()
             .0
@@ -118,20 +104,28 @@ mod tests {
             }
         };
 
-        for base in [
+        for path in [
+            "/.well-known/openid-configuration",
+            "/.well-known/openid-configuration/mcp",
+            "/.well-known/oauth-authorization-server/mcp",
+            "/.well-known/oauth-protected-resource/other",
+        ] {
+            for method in [Method::GET, Method::POST] {
+                let (status, content_type, bytes) = send(method, path.to_owned()).await;
+                assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
+                assert_eq!(content_type.unwrap(), "application/json", "{path}");
+                let body: Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(body, json!({ "error": "Not Found" }), "{path}");
+            }
+        }
+        // The two this server does publish answer as JSON too
+        for path in [
             "/.well-known/oauth-protected-resource",
             "/.well-known/oauth-authorization-server",
-            "/.well-known/openid-configuration",
         ] {
-            for path in [base.to_owned(), format!("{base}/mcp")] {
-                for method in [Method::GET, Method::POST] {
-                    let (status, content_type, bytes) = send(method, path.clone()).await;
-                    assert_eq!(status, StatusCode::NOT_FOUND, "{path}");
-                    assert_eq!(content_type.unwrap(), "application/json", "{path}");
-                    let body: Value = serde_json::from_slice(&bytes).unwrap();
-                    assert_eq!(body, json!({ "error": "Not Found" }), "{path}");
-                }
-            }
+            let (status, content_type, _) = send(Method::GET, path.to_owned()).await;
+            assert_eq!(status, StatusCode::OK, "{path}");
+            assert_eq!(content_type.unwrap(), "application/json", "{path}");
         }
 
         let (status, _, bytes) = send(Method::GET, "/.well-known/security.txt".into()).await;

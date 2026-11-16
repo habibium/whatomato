@@ -6,20 +6,36 @@ import { Tab, TabList } from '@astryxdesign/core/TabList'
 import { Text } from '@astryxdesign/core/Text'
 import { VStack } from '@astryxdesign/core/VStack'
 
-import { AGENT_CLIENTS, setupSteps } from '@/lib/agent-setup'
-import type { AgentClientID } from '@/lib/agent-setup'
+import {
+  AGENT_CLIENTS,
+  SIGN_IN_CLIENTS,
+  setupSteps,
+  signInSteps,
+} from '@/lib/agent-setup'
+import type { AgentClientID, SignInClientID } from '@/lib/agent-setup'
 
 interface AgentSetupStepsProps {
   /** Where agents connect, from `endpointURL()`. */
   url: string
   /** Filled into the snippets when known; otherwise they show a placeholder. */
   accessKey?: string
+  /** The steps for apps that sign in and need no key, in place of those for a key. */
+  isSigningIn?: boolean
 }
 
 /** Copy-paste steps for each agent, one at a time. */
-export function AgentSetupSteps({ url, accessKey }: AgentSetupStepsProps) {
-  const [client, setClient] = useState<AgentClientID>('claude-code')
-  const steps = setupSteps(client, { url, accessKey })
+export function AgentSetupSteps({
+  url,
+  accessKey,
+  isSigningIn = false,
+}: AgentSetupStepsProps) {
+  const clients = isSigningIn ? SIGN_IN_CLIENTS : AGENT_CLIENTS
+  const [client, setClient] = useState<string>(
+    isSigningIn ? 'claude' : 'claude-code',
+  )
+  const steps = isSigningIn
+    ? signInSteps(client as SignInClientID, url)
+    : setupSteps(client as AgentClientID, { url, accessKey })
   const panelID = useId()
   // On a touch screen the scrolling tab strip shows no sign of the clients past the edge
   const isNarrow = useMediaQuery('(max-width: 639px)')
@@ -32,21 +48,21 @@ export function AgentSetupSteps({ url, accessKey }: AgentSetupStepsProps) {
           size="lg"
           width="100%"
           presentation="adaptive"
-          options={AGENT_CLIENTS.map((item) => ({
+          options={clients.map((item) => ({
             value: item.id,
             label: item.name,
           }))}
           value={client}
-          onChange={(value) => setClient(value as AgentClientID)}
+          onChange={(value) => setClient(value)}
         />
       ) : (
         <TabList
           value={client}
-          onChange={(value) => setClient(value as AgentClientID)}
+          onChange={(value) => setClient(value)}
           hasDivider
           role="tablist"
         >
-          {AGENT_CLIENTS.map((item) => (
+          {clients.map((item) => (
             <Tab
               key={item.id}
               value={item.id}

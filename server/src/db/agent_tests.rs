@@ -4,7 +4,7 @@ use uuid::Uuid;
 use super::{
     agent_activity::{self, ActivityChat, NewActivity},
     agent_approvals::{self, Became, NewApproval},
-    agent_connections::{self, Connection, MAX_PER_USER, NewConnection, Revoked},
+    agent_connections::{self, Connection, Credential, MAX_PER_USER, NewConnection, Revoked},
     deliveries::{self, Filter, NewDelivery},
 };
 use crate::{
@@ -32,8 +32,10 @@ async fn try_connect(pool: &PgPool, owner: Uuid) -> Option<Connection> {
         NewConnection {
             user_id: owner,
             name: "Assistant",
-            key_hash: &key.hash,
-            key_hint: &key.hint,
+            credential: Credential::Key {
+                hash: &key.hash,
+                hint: &key.hint,
+            },
             grant: &Preset::AskBeforeSending.grant(),
             expires_at: None,
         },
@@ -144,8 +146,10 @@ async fn a_key_finds_its_connection_and_says_if_it_is_paused_or_expired(pool: Pg
         NewConnection {
             user_id: owner,
             name: "Assistant",
-            key_hash: &key.hash,
-            key_hint: &key.hint,
+            credential: Credential::Key {
+                hash: &key.hash,
+                hint: &key.hint,
+            },
             grant: &Preset::ViewOnly.grant(),
             expires_at: Some(chrono::Utc::now() + chrono::TimeDelta::days(1)),
         },

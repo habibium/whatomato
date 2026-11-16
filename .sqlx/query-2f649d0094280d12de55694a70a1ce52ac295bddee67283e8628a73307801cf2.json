@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO agent_sign_ins\n               (code_hash, user_id, client_id, client_name, redirect_uri, code_challenge,\n                connection_id, name, \"grant\", expires_at)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2f649d0094280d12de55694a70a1ce52ac295bddee67283e8628a73307801cf2"
+}

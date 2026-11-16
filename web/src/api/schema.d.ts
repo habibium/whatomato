@@ -153,6 +153,49 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agents/sign-in/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Let an app sign in
+         * @description Checks the request again, then the password, and answers with the address to send the browser
+         *     to. The connection is made, or signed in to again, when the app exchanges the code in that
+         *     address, which it has a minute to do; the owner is emailed about a new one then.
+         */
+        post: operations["approve_agent_sign_in"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agents/sign-in/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check an app's request to sign in
+         * @description Looks the app up by its `client_id` and checks the request the browser arrived with. Nothing
+         *     is stored.
+         */
+        post: operations["check_agent_sign_in"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agents/{id}": {
         parameters: {
             query?: never;
@@ -1128,8 +1171,8 @@ export interface components {
             grant_problem: string | null;
             /** Format: uuid */
             id: string;
-            /** @description The key's last 4 characters, to tell keys apart */
-            key_hint: string;
+            /** @description The key's last 4 characters, to tell keys apart; empty when it was made by signing in */
+            key_hint: string | null;
             /**
              * Format: date-time
              * @description To the minute; empty until an agent first uses it
@@ -1142,6 +1185,7 @@ export interface components {
              */
             paused_at: string | null;
             preset: null | components["schemas"]["Preset"];
+            signed_in: null | components["schemas"]["SignedIn"];
             status: components["schemas"]["ConnectionStatus"];
             /** @description What it may do, in a few sentences */
             summary: string[];
@@ -1220,9 +1264,33 @@ export interface components {
              */
             body?: string | null;
         };
+        ApproveSignIn: {
+            /**
+             * Format: uuid
+             * @description Sign in again to this connection, keeping its permissions. Left out for a new connection.
+             */
+            connection_id?: string | null;
+            grant?: null | components["schemas"]["Grant"];
+            /** @description A new connection's name, 1 to 60 characters */
+            name?: string | null;
+            /** @description The account's password, asked again */
+            password: string;
+            request: components["schemas"]["AuthorizationRequest"];
+        };
         AuthenticatorCode: {
             /** @description The 6-digit code the authenticator app shows */
             code: string;
+        };
+        /** @description The query the client sent the browser to `/oauth/authorize` with, passed on as it came */
+        AuthorizationRequest: {
+            client_id?: string | null;
+            code_challenge?: string | null;
+            code_challenge_method?: string | null;
+            redirect_uri?: string | null;
+            resource?: string | null;
+            response_type?: string | null;
+            scope?: string | null;
+            state?: string | null;
         };
         /** @description A chat named as the scheduler names a recipient */
         Chat: {
@@ -1649,6 +1717,39 @@ export interface components {
         SessionResponse: {
             user: null | components["schemas"]["UserResponse"];
         };
+        SignInApproved: {
+            /** @description Where to send the browser: back to the app, with the code it exchanges for its tokens */
+            url: string;
+        };
+        SignInAsk: {
+            /** @description Whether the account has room for another connection */
+            can_add: boolean;
+            /** @description The host the app's identity is published on, such as `claude.ai` */
+            client_host: string;
+            /** @description What the app calls itself, which anyone can claim */
+            client_name: string;
+            /** @description The connections this app already signed in to, which it can sign in to again */
+            connections: components["schemas"]["AgentConnection"][];
+            /** @description Where to send the browser when the owner says no */
+            deny_url: string;
+            /** @description The app is reached only on this computer, where any program can claim to be it */
+            is_local_only: boolean;
+            /** @description The host the browser is sent back to afterwards */
+            redirect_host: string;
+        };
+        /** @description What to do with an app's request to sign in */
+        SignInCheck: (components["schemas"]["SignInAsk"] & {
+            /** @enum {string} */
+            status: "ask";
+        }) | {
+            message: string;
+            /** @enum {string} */
+            status: "refused";
+        } | {
+            /** @enum {string} */
+            status: "redirect";
+            url: string;
+        };
         SignInCredentials: {
             email: string;
             password: string;
@@ -1664,6 +1765,13 @@ export interface components {
         } | {
             /** @enum {string} */
             status: "two_factor_required";
+        };
+        /** @description The client a connection was made with by signing in. Both come from the client itself. */
+        SignedIn: {
+            /** @description The host the client's identity is published on, such as `claude.ai` */
+            client_host: string;
+            /** @description What the client calls itself, which anyone can claim */
+            client_name: string;
         };
         /** @enum {string} */
         StoppedBecause: "replaced" | "temporary_ban" | "outdated" | "refused";
@@ -2324,6 +2432,145 @@ export interface operations {
             };
             /** @description Agent access is off on this server */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    approve_agent_sign_in: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApproveSignIn"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInApproved"];
+                };
+            };
+            /** @description A field is missing or out of range, or the password is incorrect */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Agent access is off on this server, or the connection isn't one this app signed in to */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The account already has 20 connections */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The permissions have problems, under `details.grant`, or the app's request does, under `details.request` */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    check_agent_sign_in: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AuthorizationRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInCheck"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Agent access is off on this server */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

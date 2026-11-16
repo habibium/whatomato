@@ -18,7 +18,7 @@ use crate::{
         key::AccessKey,
     },
     db::{
-        agent_connections::{self, NewConnection},
+        agent_connections::{self, Credential, NewConnection},
         deliveries::{self, NewDelivery},
         message_templates, whatsapp_accounts, whatsapp_contacts,
     },
@@ -72,8 +72,10 @@ async fn connection(app: &TestApp, owner: Uuid, grant: &Grant) -> (String, Uuid)
         NewConnection {
             user_id: owner,
             name: "Assistant",
-            key_hash: &key.hash,
-            key_hint: &key.hint,
+            credential: Credential::Key {
+                hash: &key.hash,
+                hint: &key.hint,
+            },
             grant,
             expires_at: None,
         },

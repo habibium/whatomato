@@ -1,5 +1,6 @@
 use std::{
     net::{Ipv4Addr, SocketAddr},
+    path::Path,
     sync::Arc,
 };
 
@@ -14,6 +15,7 @@ use server::{
     config::Config,
     crypto::Cipher,
     email::Mailer,
+    oauth::client::Clients,
     scheduler::Scheduler,
     state::AppState,
     whatsapp::{manager::WhatsApp, supervisor::Context},
@@ -72,6 +74,7 @@ async fn main() -> anyhow::Result<()> {
         app_url,
         rate_limits: RateLimits::default(),
         pwned_passwords: PwnedPasswords::hibp()?,
+        oauth_clients: Clients::fetched()?,
         cipher,
         whatsapp: whatsapp.clone(),
         agent_access: config.agent_access,
@@ -83,13 +86,6 @@ async fn main() -> anyhow::Result<()> {
 
     // `precompressed_*` serves the .br/.gz siblings the web build emits, so the
     // CompressionLayer below only ever has to compress API and docs responses.
-    let index = ServeFile::new(config.web_dir.join("index.html"))
-        .precompressed_br()
-        .precompressed_gzip();
-    let web = ServeDir::new(&config.web_dir)
-        .precompressed_br()
-        .precompressed_gzip()
-        .fallback(index);
     let assets = ServeDir::new(config.web_dir.join("assets"))
         .precompressed_br()
         .precompressed_gzip();
@@ -107,15 +103,8 @@ async fn main() -> anyhow::Result<()> {
                         .then(|| HeaderValue::from_static("public, max-age=31536000, immutable"))
                 },
             ));
-    let web_router = Router::new()
-        .fallback_service(web)
-        .layer(SetResponseHeaderLayer::overriding(
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("no-cache"),
-        ));
-
     let app = router
-        .fallback_service(web_router)
+        .fallback_service(web_pages(&config.web_dir))
         .with_state(state)
         .merge(mcp)
         .merge(Scalar::with_url("/api/docs", api))
@@ -155,6 +144,32 @@ async fn main() -> anyhow::Result<()> {
     pool.close().await;
     tracing::info!("server stopped");
     Ok(())
+}
+
+/// The web app's pages: every path that isn't a file gets `index.html`
+fn web_pages(web_dir: &Path) -> Router {
+    let index = ServeFile::new(web_dir.join("index.html"))
+        .precompressed_br()
+        .precompressed_gzip();
+    let web = ServeDir::new(web_dir)
+        .precompressed_br()
+        .precompressed_gzip()
+        .fallback(index);
+    Router::new()
+        .fallback_service(web)
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static("no-cache"),
+        ))
+        // No page, the consent page least of all, may be drawn inside another site's frame
+        .layer(SetResponseHeaderLayer::overriding(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static("frame-ancestors 'none'"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
 }
 
 fn compression() -> CompressionLayer<impl Predicate> {

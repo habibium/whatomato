@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE agent_connections\n           SET paused_at = coalesce(paused_at, now()), updated_at = now()\n           WHERE id = $1 AND user_id = $2\n           RETURNING id, user_id, name, key_hint, \"grant\", paused_at, expires_at, last_used_at,\n               created_at, updated_at",
+  "query": "UPDATE agent_connections SET name = $3, updated_at = now()\n           WHERE id = $1 AND user_id = $2\n           RETURNING id, user_id, name, key_hint, client_id, client_name, \"grant\", paused_at,\n               expires_at, last_used_at, created_at, updated_at",
   "describe": {
     "columns": [
       {
@@ -49,6 +49,28 @@
       },
       {
         "ordinal": 4,
+        "name": "client_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agent_connections",
+            "name": "client_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "client_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "agent_connections",
+            "name": "client_name"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
         "name": "grant",
         "type_info": "Jsonb",
         "origin": {
@@ -59,7 +81,7 @@
         }
       },
       {
-        "ordinal": 5,
+        "ordinal": 7,
         "name": "paused_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -70,7 +92,7 @@
         }
       },
       {
-        "ordinal": 6,
+        "ordinal": 8,
         "name": "expires_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -81,7 +103,7 @@
         }
       },
       {
-        "ordinal": 7,
+        "ordinal": 9,
         "name": "last_used_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -92,7 +114,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -103,7 +125,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 11,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -117,14 +139,17 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid"
+        "Uuid",
+        "Text"
       ]
     },
     "nullable": [
       false,
       false,
       false,
-      false,
+      true,
+      true,
+      true,
       false,
       true,
       true,
@@ -133,5 +158,5 @@
       false
     ]
   },
-  "hash": "4203b04a5437bf9cc6847a68d1b5d19d5b60bb830a5538ea70bd690a8bf07e98"
+  "hash": "01fb60dd978923e7b914a696ea217d7b5ef409ad1334d874b899384056017a70"
 }

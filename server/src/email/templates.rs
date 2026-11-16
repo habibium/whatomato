@@ -279,7 +279,7 @@ pub fn agent_alert(alert: &AgentAlert, app_url: &Url) -> anyhow::Result<Email> {
             "An AI agent was connected to your account",
             "An AI agent was connected.",
             format!(
-                "A connection named \u{201c}{name}\u{201d} was created in your {PRODUCT_NAME} account. An AI agent holding its key can now use your WhatsApp within the permissions you chose."
+                "A connection named \u{201c}{name}\u{201d} was created in your {PRODUCT_NAME} account. An AI agent connected through it can now use your WhatsApp within the permissions you chose."
             ),
             PAUSE_AGENTS,
             "Review your agents",
