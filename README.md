@@ -177,6 +177,7 @@ Environment variables, or a `.env` file in development (see `.env.example`):
 | `CLIENT_IP_HEADER` | unset                                                               | Header a trusted proxy sets to the client's address, e.g. `CF-Connecting-IP` behind Cloudflare. Unset, rate limits key on the peer address. `X-Forwarded-For` and `Forwarded` are refused |
 | `MAX_LINKED_ACCOUNTS` | unset                                                               | How many WhatsApp accounts may be linked at once. At the limit, users without a linked account can't start linking; those already linked are unaffected                                   |
 | `AGENT_ACCESS`     | `on`                                                                | `off` turns agent access off: `/mcp` and signing in answer 404, the Agents page says it's off, and no agent's schedule runs                                                                             |
+| `AGENT_READING`    | `off`                                                               | `on` lets you allow a connection to [read chats](#reading-chats), which keeps the last 7 days of those chats' messages. While it is `off`, no received message is stored and the reading tools are hidden |
 
 Migrations in `server/migrations` are embedded in the binary and applied at startup.
 
@@ -217,11 +218,13 @@ Postgres holds what a linked device has to keep to stay linked and to encrypt me
 
 Profile pictures of saved contacts and groups aren't stored: each is looked up when the app shows it, at most two at a time, and kept in the server's memory for a few hours.
 
-Everything secret is encrypted with `ENCRYPTION_KEY` (XChaCha20-Poly1305), bound to its account, table and key, so a database dump alone can't take over a device. Contact names are encrypted the same way. Lookup keys, timestamps and flags stay in the clear, and those include each contact's number and WhatsApp address. Whatomato doesn't download chat history or store the messages it receives.
+Everything secret is encrypted with `ENCRYPTION_KEY` (XChaCha20-Poly1305), bound to its account, table and key, so a database dump alone can't take over a device. Contact names are encrypted the same way. Lookup keys, timestamps and flags stay in the clear, and those include each contact's number and WhatsApp address. Whatomato doesn't download chat history, and it stores no message it receives unless you turned [reading](#reading-chats) on for that chat.
 
 What a user writes is not encrypted: templates, scheduled messages and the delivery history keep the message text and the recipient in plain columns, so a database dump does show those. Deleting a schedule keeps its history.
 
 For [agent access](#agent-access), Postgres keeps each connection with only the SHA-256 hash of its key and the key's last 4 characters, and its permissions as they were saved, chat names and notes included, unencrypted. A connection made by signing in has no key: Postgres keeps the address and name of the app that signed in, and the SHA-256 hashes of its tokens and of the sign-in code, which is deleted a day after it was issued. A request waiting for approval keeps its recipient in the clear and its text sealed with `ENCRYPTION_KEY`, and goes when its connection is revoked. The activity log records every call an agent makes, with the chat it named and the outcome but never the message text, and is deleted after 90 days. Messages an agent sends or schedules are kept like any other, with the connection that made them.
+
+With `AGENT_READING=on`, and only for the chats some connection may read, Postgres keeps each message for 7 days: which chat, when, and whether you sent it in the clear; who wrote it and the text sealed with `ENCRYPTION_KEY`. Pictures and files aren't kept, only their captions and file names. View-once messages are never kept, a disappearing message goes when its timer ends, and a message deleted or edited on WhatsApp is deleted or replaced here. A message that arrives for any other chat is dropped in memory and never written. When no connection may read a chat any more, what was kept of it is deleted within a few minutes.
 
 For [notifications](#notifications), Postgres keeps each browser's address at its push service and the two keys that browser made for encrypting what is sent to it, unencrypted, since they open nothing without the instance's own push key pair. That pair is made at the first start and kept sealed with `ENCRYPTION_KEY`.
 
@@ -295,6 +298,16 @@ A connection starts from one of these, which you can then change:
 A connection covers all chats or only the ones you select. With only selected chats, what it sees of your scheduled messages and history stops at those chats too, plus whatever it made itself. Each chat has a rule: whether the agent may send there (no, ask me first, or yes), an optional daily limit, and an optional note for the agent, such as "reply in Bangla". The agent sees the note, but nothing enforces it. A separate setting covers people who aren't saved contacts: never, ask me first, or allowed.
 
 Any change to a connection's permissions asks for your password again and emails you. A connection can also be given an expiry date.
+
+### Reading chats
+
+Reading is off unless the server runs with `AGENT_READING=on`. I keep it off on the hosted instance for now. With it on, each chat rule gets one more choice, "Read", and so does the default rule for all chats. No preset turns it on.
+
+A connection that may read a chat gets three more tools: `list_chats` for the chats with recent messages, `read_messages` for one chat, and `search_messages` to find text. What it can read is the last 7 days, counted from when you allowed it: Whatomato doesn't fetch older history from your phone. Reading sends no read receipt and doesn't mark anything as read on your phone.
+
+An agent that read a message can answer it: `send_message` takes that message's id as `reply_to`, and the reply quotes it on WhatsApp. A reply follows the chat's sending rule like any other message, so with "ask me first" it waits for you.
+
+Whatever an agent reads goes to the company that runs its model. And anyone who can message you can put text in front of an agent that reads that chat, so a message can try to steer it. Keep sending on "ask me first" for chats it reads, unless you trust everyone in them.
 
 ### Approvals
 
