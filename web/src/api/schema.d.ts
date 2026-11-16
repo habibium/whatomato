@@ -836,6 +836,78 @@ export interface paths {
         patch: operations["toggle_message"];
         trace?: never;
     };
+    "/api/push": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The key browsers subscribe with, and the account's browsers that have notifications on */
+        get: operations["push_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/push/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Turn notifications on for a browser
+         * @description Sending the same subscription again keeps it fresh. An account keeps its 10 newest; a browser
+         *     notifies for whichever account turned notifications on in it last.
+         */
+        post: operations["subscribe_to_push"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/push/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a test notification to every browser of the account that has them on */
+        post: operations["test_push"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/push/unsubscribe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Turn notifications off for a browser */
+        post: operations["unsubscribe_from_push"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/templates": {
         parameters: {
             query?: never;
@@ -1590,6 +1662,27 @@ export interface components {
                 [key: string]: string | null;
             };
         };
+        PushStatus: {
+            /** @description What a browser subscribes with: `applicationServerKey`, in base64url */
+            public_key: string;
+            /** @description The account's browsers with notifications on, oldest first */
+            subscriptions: components["schemas"]["PushSubscription"][];
+        };
+        /** @description A browser with notifications on */
+        PushSubscription: {
+            /** Format: date-time */
+            created_at: string;
+            /** @description The browser's address at its push service, by which a browser recognises itself here */
+            endpoint: string;
+            /** Format: uuid */
+            id: string;
+            /** @description What the browser called itself, such as "Chrome on Linux" */
+            label: string;
+        };
+        PushTested: {
+            /** @description How many browsers the notification was handed over for */
+            sent: number;
+        };
         /** @enum {string} */
         RecipientType: "contact" | "group";
         RecoveryCode: {
@@ -1777,6 +1870,16 @@ export interface components {
         StoppedBecause: "replaced" | "temporary_ban" | "outdated" | "refused";
         /** @enum {string} */
         Strangers: "never" | "ask" | "allowed";
+        /** @description What `PushSubscription.toJSON()` gives in the browser, and a name for it */
+        Subscribe: {
+            /** @description The browser's authentication secret, in base64url */
+            auth: string;
+            endpoint: string;
+            /** @description Up to 60 characters, such as "Chrome on Linux" */
+            label: string;
+            /** @description The browser's public key, in base64url */
+            p256dh: string;
+        };
         Sun: {
             /** @description Cron's day fields: day of the month, month, weekday. `* * *` for every day. */
             days: string;
@@ -1824,6 +1927,9 @@ export interface components {
              *     phone until it's removed there
              */
             removed_from_phone: boolean;
+        };
+        Unsubscribe: {
+            endpoint: string;
         };
         /** @description A new name, new permissions, or both */
         UpdateConnection: {
@@ -4501,6 +4607,194 @@ export interface operations {
             };
             /** @description A one-time message's send time has passed */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    push_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushStatus"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    subscribe_to_push: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Subscribe"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushSubscription"];
+                };
+            };
+            /** @description The subscription isn't one a known browser makes */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    test_push: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PushTested"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    unsubscribe_from_push: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Unsubscribe"];
+            };
+        };
+        responses: {
+            /** @description It no longer gets notifications, whether or not it did */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
                 headers: {
                     [name: string]: unknown;
                 };

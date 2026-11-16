@@ -12,10 +12,12 @@ use axum::{
 };
 use server::{
     ClientIpHeader, PwnedPasswords, RateLimits,
+    agents::events::Events,
     config::Config,
     crypto::Cipher,
     email::Mailer,
     oauth::client::Clients,
+    push::Push,
     scheduler::Scheduler,
     state::AppState,
     whatsapp::{manager::WhatsApp, supervisor::Context},
@@ -68,6 +70,8 @@ async fn main() -> anyhow::Result<()> {
         whatsapp.clone(),
         config.agent_access,
     );
+    let push = Push::start(&pool, &cipher).await?;
+    let events = Events::default();
     let state = AppState {
         pool: pool.clone(),
         mailer,
@@ -77,6 +81,8 @@ async fn main() -> anyhow::Result<()> {
         oauth_clients: Clients::fetched()?,
         cipher,
         whatsapp: whatsapp.clone(),
+        push,
+        events: events.clone(),
         agent_access: config.agent_access,
         max_linked_accounts: config.max_linked_accounts,
     };
@@ -132,7 +138,11 @@ async fn main() -> anyhow::Result<()> {
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal())
+    .with_graceful_shutdown(async move {
+        shutdown_signal().await;
+        // Pages left open hold a stream each, which would keep the server from stopping
+        events.close();
+    })
     .await?;
     // Only now: cancelling while serve drains would cut off agent calls still running
     mcp_shutdown.cancel();

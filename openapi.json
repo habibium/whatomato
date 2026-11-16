@@ -3391,6 +3391,222 @@
         }
       }
     },
+    "/api/push": {
+      "get": {
+        "summary": "The key browsers subscribe with, and the account's browsers that have notifications on",
+        "operationId": "push_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/push/subscriptions": {
+      "post": {
+        "summary": "Turn notifications on for a browser",
+        "description": "Sending the same subscription again keeps it fresh. An account keeps its 10 newest; a browser\nnotifies for whichever account turned notifications on in it last.",
+        "operationId": "subscribe_to_push",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Subscribe"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscription"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The subscription isn't one a known browser makes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/push/test": {
+      "post": {
+        "summary": "Send a test notification to every browser of the account that has them on",
+        "operationId": "test_push",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushTested"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/push/unsubscribe": {
+      "post": {
+        "summary": "Turn notifications off for a browser",
+        "operationId": "unsubscribe_from_push",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Unsubscribe"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "It no longer gets notifications, whether or not it did"
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/templates": {
       "get": {
         "summary": "The account's templates, by name",
@@ -5717,6 +5933,67 @@
           }
         }
       },
+      "PushStatus": {
+        "type": "object",
+        "required": [
+          "public_key",
+          "subscriptions"
+        ],
+        "properties": {
+          "public_key": {
+            "type": "string",
+            "description": "What a browser subscribes with: `applicationServerKey`, in base64url"
+          },
+          "subscriptions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PushSubscription"
+            },
+            "description": "The account's browsers with notifications on, oldest first"
+          }
+        }
+      },
+      "PushSubscription": {
+        "type": "object",
+        "description": "A browser with notifications on",
+        "required": [
+          "id",
+          "endpoint",
+          "label",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endpoint": {
+            "type": "string",
+            "description": "The browser's address at its push service, by which a browser recognises itself here"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "label": {
+            "type": "string",
+            "description": "What the browser called itself, such as \"Chrome on Linux\""
+          }
+        }
+      },
+      "PushTested": {
+        "type": "object",
+        "required": [
+          "sent"
+        ],
+        "properties": {
+          "sent": {
+            "type": "integer",
+            "description": "How many browsers the notification was handed over for",
+            "minimum": 0
+          }
+        }
+      },
       "RecipientType": {
         "type": "string",
         "enum": [
@@ -6378,6 +6655,33 @@
           "allowed"
         ]
       },
+      "Subscribe": {
+        "type": "object",
+        "description": "What `PushSubscription.toJSON()` gives in the browser, and a name for it",
+        "required": [
+          "endpoint",
+          "p256dh",
+          "auth",
+          "label"
+        ],
+        "properties": {
+          "auth": {
+            "type": "string",
+            "description": "The browser's authentication secret, in base64url"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string",
+            "description": "Up to 60 characters, such as \"Chrome on Linux\""
+          },
+          "p256dh": {
+            "type": "string",
+            "description": "The browser's public key, in base64url"
+          }
+        }
+      },
       "Sun": {
         "type": "object",
         "required": [
@@ -6503,6 +6807,17 @@
           "removed_from_phone": {
             "type": "boolean",
             "description": "False when WhatsApp couldn't be told, so the device still shows under Linked devices on the\nphone until it's removed there"
+          }
+        }
+      },
+      "Unsubscribe": {
+        "type": "object",
+        "required": [
+          "endpoint"
+        ],
+        "properties": {
+          "endpoint": {
+            "type": "string"
           }
         }
       },

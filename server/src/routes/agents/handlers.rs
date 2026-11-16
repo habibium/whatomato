@@ -1,9 +1,13 @@
+use std::{convert::Infallible, time::Duration};
+
 use axum::{
     Json,
     extract::{FromRequestParts, Path, State},
     http::{StatusCode, request::Parts},
+    response::sse::{Event, KeepAlive, Sse},
 };
 use chrono::{TimeDelta, Utc};
+use futures_util::{Stream, StreamExt as _, stream};
 use uuid::Uuid;
 
 use super::dto::{
@@ -463,6 +467,7 @@ pub async fn approve_agent_request(
     review::approve(&state, id, user_id, input.body)
         .await
         .map_err(refused)?;
+    state.events.approvals_changed(user_id);
     answered(&state, id, user_id).await
 }
 
@@ -485,6 +490,7 @@ pub async fn reject_agent_request(
     review::reject(&state.pool, id, user_id)
         .await
         .map_err(refused)?;
+    state.events.approvals_changed(user_id);
     answered(&state, id, user_id).await
 }
 
@@ -549,6 +555,24 @@ fn opened(state: &AppState, approval: &agent_approvals::Approval) -> Option<Requ
         })
         .ok()
         .map(Requested::new)
+}
+
+/// Says "approvals" each time one of the account's requests starts or stops waiting
+///
+/// A page that is open listens here, so a new request shows at once. The comment sent every 20
+/// seconds keeps proxies from closing a quiet stream.
+pub async fn agent_events(
+    _: Enabled,
+    State(state): State<AppState>,
+    session: Session,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let changes = state
+        .events
+        .approvals_of(session.user.id)
+        .map(|()| Ok(Event::default().event("approvals").data("changed")));
+    // Something to send at once: some proxies hold the headers back until the body starts
+    let opened = stream::once(async { Ok(Event::default().comment("listening")) });
+    Sse::new(opened.chain(changes)).keep_alive(KeepAlive::new().interval(Duration::from_secs(20)))
 }
 
 async fn answered(

@@ -4,8 +4,8 @@ use sqlx::PgPool;
 use url::Url;
 
 use crate::{
-    auth::pwned::PwnedPasswords, crypto::Cipher, email::Mailer, oauth::client::Clients,
-    rate_limit::RateLimits, whatsapp::manager::WhatsApp,
+    agents::events::Events, auth::pwned::PwnedPasswords, crypto::Cipher, email::Mailer,
+    oauth::client::Clients, push::Push, rate_limit::RateLimits, whatsapp::manager::WhatsApp,
 };
 
 #[derive(Clone)]
@@ -19,6 +19,10 @@ pub struct AppState {
     pub oauth_clients: Clients,
     pub cipher: Cipher,
     pub whatsapp: WhatsApp,
+    /// Notifications to the owner's browsers
+    pub push: Push,
+    /// What open pages are told as it happens
+    pub events: Events,
     /// `AGENT_ACCESS`: whether the agent routes and the MCP endpoint answer
     pub agent_access: bool,
     /// `MAX_LINKED_ACCOUNTS`: how many WhatsApp accounts may be linked at once

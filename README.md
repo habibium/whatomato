@@ -89,6 +89,8 @@ whatomato.example.com {
 
 and `CLIENT_IP_HEADER: X-Real-IP` added to the container's environment.
 
+A page that is open listens at `/api/agents/events`, a stream that stays open: a proxy mustn't buffer it, and the line it sends every 20 seconds keeps it from being closed as idle. To send notifications the server itself connects out to the browsers' push services: `fcm.googleapis.com`, `updates.push.services.mozilla.com`, `web.push.apple.com` and hosts under `notify.windows.com`.
+
 Agents connect at `/mcp`, outside `/api`, so a proxy that routes by path has to send `/mcp` to the server as it does `/api`, with the `Authorization` header intact and without caching or buffering the answers. Apps that sign in also use `/oauth` and the two documents under `/.well-known/` that begin with `oauth-`, which go to the server the same way. `AGENT_ACCESS=off` turns [agent access](#agent-access) off instead.
 
 ### Upgrading
@@ -180,7 +182,7 @@ Migrations in `server/migrations` are embedded in the binary and applied at star
 
 Without `SMTP_URL` the server writes each email, link included, to its log, which is enough for development and refused for an `https` `APP_URL`, since anyone who can read the log could use the links. Percent-encode special characters in the SMTP password (`@` becomes `%40`). `smtps://` connects on port 465 with TLS from the start; for port 587 use `smtp://user:password@host:587?tls=required`.
 
-Keep `ENCRYPTION_KEY` apart from the database and its backups: together they reveal every secret it protects. Replacing or losing it stops every authenticator app set up so far from working, and those users have to sign in with a recovery code and set two-step verification up again. It also cuts off every linked WhatsApp account: see [After losing the key or restoring a backup](#after-losing-the-key-or-restoring-a-backup).
+Keep `ENCRYPTION_KEY` apart from the database and its backups: together they reveal every secret it protects. Replacing or losing it stops every authenticator app set up so far from working, and those users have to sign in with a recovery code and set two-step verification up again. It also cuts off every linked WhatsApp account: see [After losing the key or restoring a backup](#after-losing-the-key-or-restoring-a-backup). And it turns [notifications](#notifications) off in every browser until each turns them on again.
 
 ## Accounts
 
@@ -220,6 +222,8 @@ Everything secret is encrypted with `ENCRYPTION_KEY` (XChaCha20-Poly1305), bound
 What a user writes is not encrypted: templates, scheduled messages and the delivery history keep the message text and the recipient in plain columns, so a database dump does show those. Deleting a schedule keeps its history.
 
 For [agent access](#agent-access), Postgres keeps each connection with only the SHA-256 hash of its key and the key's last 4 characters, and its permissions as they were saved, chat names and notes included, unencrypted. A connection made by signing in has no key: Postgres keeps the address and name of the app that signed in, and the SHA-256 hashes of its tokens and of the sign-in code, which is deleted a day after it was issued. A request waiting for approval keeps its recipient in the clear and its text sealed with `ENCRYPTION_KEY`, and goes when its connection is revoked. The activity log records every call an agent makes, with the chat it named and the outcome but never the message text, and is deleted after 90 days. Messages an agent sends or schedules are kept like any other, with the connection that made them.
+
+For [notifications](#notifications), Postgres keeps each browser's address at its push service and the two keys that browser made for encrypting what is sent to it, unencrypted, since they open nothing without the instance's own push key pair. That pair is made at the first start and kept sealed with `ENCRYPTION_KEY`.
 
 Unlinking asks WhatsApp to remove the device, then deletes the account's row and, through the cascade, every key. When WhatsApp can't be reached the keys go anyway, and the page tells the user to remove the device from their phone. A link, an unlink, a removal from the phone, another session taking over the keys and a temporary ban each email the owner.
 
@@ -294,7 +298,13 @@ Any change to a connection's permissions asks for your password again and emails
 
 ### Approvals
 
-When a send or a schedule needs your approval, it appears at the top of the Agents page with the recipient and the whole text, and you get an email, at most one an hour. You can approve it, edit the text and then approve it, or reject it. Your approval is final, even if you've since changed the connection's permissions or paused it, so the request shows whether the connection is still active. A request nobody answers expires after 24 hours.
+When a send or a schedule needs your approval, it appears at the top of the Agents page with the recipient and the whole text, and you get an email, at most one an hour. A page you have open shows it at once, without a reload. You can approve it, edit the text and then approve it, or reject it. Your approval is final, even if you've since changed the connection's permissions or paused it, so the request shows whether the connection is still active. A request nobody answers expires after 24 hours.
+
+### Notifications
+
+Under Settings you can turn on notifications for the browser you're using. From then on that browser tells you each time an agent needs your approval, even while Whatomato isn't open in it, and a click on the notification opens the request. A notification names the agent and the chat, never the message. Every browser you turn it on in is listed in Settings, where you can turn each off; signing out turns it off for that browser.
+
+Notifications use the browser's own push service, so on an iPhone or iPad they work only after you add Whatomato to the Home Screen and open it from there. Each notification is encrypted for the browser it goes to, so the push service can't read it.
 
 ### Limits
 

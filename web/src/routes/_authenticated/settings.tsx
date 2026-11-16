@@ -8,6 +8,7 @@ import { Timestamp } from '@astryxdesign/core/Timestamp'
 import { VStack } from '@astryxdesign/core/VStack'
 
 import { AppFrame } from '@/components/app-frame'
+import { NotificationsSection } from '@/components/notifications-section'
 import { PageHeading } from '@/components/page-heading'
 import { PasskeysSection } from '@/components/passkeys-section'
 import { SettingsSection } from '@/components/settings-section'
@@ -66,6 +67,8 @@ function Settings() {
         <TwoFactorSection />
         <Divider />
         <PasskeysSection />
+        <Divider />
+        <NotificationsSection />
         <Divider />
 
         <SettingsSection

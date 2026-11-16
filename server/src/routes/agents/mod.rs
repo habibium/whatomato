@@ -1,3 +1,4 @@
+use axum::routing::get;
 use utoipa_axum::{router::OpenApiRouter, routes};
 
 use crate::state::AppState;
@@ -28,4 +29,6 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::rotate_agent_key))
         .routes(routes!(sign_in::check_agent_sign_in))
         .routes(routes!(sign_in::approve_agent_sign_in))
+        // A stream, which the API description has no shape for
+        .route("/events", get(handlers::agent_events))
 }

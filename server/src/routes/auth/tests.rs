@@ -13,6 +13,7 @@ use url::Url;
 use uuid::Uuid;
 
 use crate::{
+    agents::events::Events,
     auth::{
         password,
         pwned::PwnedPasswords,
@@ -23,6 +24,7 @@ use crate::{
     db,
     email::{Email, Mailer},
     oauth::client::{Clients, test_clients},
+    push::Push,
     rate_limit::RateLimits,
     state::AppState,
     whatsapp::{manager::WhatsApp, supervisor::Context},
@@ -123,6 +125,8 @@ impl TestApp {
             oauth_clients: Clients::listed(test_clients()),
             cipher: cipher.clone(),
             whatsapp: WhatsApp::new(Context::new(pool.clone(), cipher, mailer, app_url)),
+            push: Push::outbox(),
+            events: Events::default(),
             agent_access,
             max_linked_accounts,
         };

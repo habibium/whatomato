@@ -3,6 +3,7 @@
 
 pub(crate) mod alerts;
 pub mod decide;
+pub mod events;
 pub(crate) mod firing;
 pub mod grant;
 pub mod key;

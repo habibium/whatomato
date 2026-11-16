@@ -29,6 +29,7 @@ use super::{
 use crate::{
     agents::{
         ApprovalKind, ApprovalStatus, Grant, Outcome, Preset,
+        events::Events,
         grant::{
             Chat, ChatRule, Contacts, Deliveries, Schedules, Scope, SendLevel, Strangers, Templates,
         },
@@ -43,6 +44,7 @@ use crate::{
     },
     email::Mailer,
     oauth::client::Clients,
+    push::Push,
     rate_limit::RateLimits,
     scheduler::{RecipientType, ScheduleKind, recurrence::Recurrence},
     state::AppState,
@@ -72,6 +74,8 @@ fn state(pool: PgPool) -> AppState {
         oauth_clients: Clients::listed([]),
         cipher: cipher.clone(),
         whatsapp: WhatsApp::new(Context::new(pool, cipher, mailer, app_url)),
+        push: Push::outbox(),
+        events: Events::default(),
         agent_access: true,
         max_linked_accounts: None,
     }

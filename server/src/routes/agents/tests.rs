@@ -1132,3 +1132,85 @@ async fn an_approval_shows_its_connections_status_and_stays_approvable(pool: PgP
     .await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
 }
+
+#[sqlx::test]
+async fn a_waiting_request_reaches_the_owners_pages_and_browsers_without_its_text(pool: PgPool) {
+    use futures_util::StreamExt as _;
+
+    let app = TestApp::new(pool);
+    let (owner, session) = app.signed_in("ada@example.com").await;
+    let (other, _) = app.signed_in("grace@example.com").await;
+    connected(&app, owner);
+    let connection_id = connection(&app, owner, "Assistant").await;
+    for (user_id, endpoint) in [
+        (owner, "https://fcm.googleapis.com/fcm/send/adas"),
+        (other, "https://fcm.googleapis.com/fcm/send/graces"),
+    ] {
+        crate::db::push_subscriptions::save(
+            &app.pool,
+            crate::db::push_subscriptions::NewSubscription {
+                user_id,
+                endpoint,
+                p256dh: &[4; 65],
+                auth: &[7; 16],
+                label: "Chrome on Linux",
+            },
+        )
+        .await
+        .unwrap();
+    }
+    let mut page = Box::pin(app.state.events.approvals_of(owner));
+    let mut others_page = Box::pin(app.state.events.approvals_of(other));
+
+    let approval_id = ask(&app, owner, connection_id, "The secret plan").await;
+
+    let wait = std::time::Duration::from_secs(5);
+    assert_eq!(
+        tokio::time::timeout(wait, page.next()).await.unwrap(),
+        Some(())
+    );
+    // The notification is sent off the request's path
+    let sent = tokio::time::timeout(wait, async {
+        loop {
+            let sent = app.state.push.sent();
+            if !sent.is_empty() {
+                break sent;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(sent.len(), 1);
+    let (endpoint, notification) = &sent[0];
+    assert_eq!(endpoint, "https://fcm.googleapis.com/fcm/send/adas");
+    assert_eq!(notification.title, "Assistant wants to send a message");
+    assert_eq!(notification.url, format!("/agents?approval={approval_id}"));
+    assert_eq!(
+        notification.body,
+        format!("To +{ADA}. It waits for your yes or no.")
+    );
+    let whole = serde_json::to_string(notification).unwrap();
+    assert!(!whole.contains("secret plan"), "{whole}");
+
+    // Deciding it tells the owner's other pages, and never anyone else's
+    let rejected = call(
+        &app,
+        Method::POST,
+        &format!("/approvals/{approval_id}/reject"),
+        None,
+        &session,
+    )
+    .await;
+    assert_eq!(rejected.status, StatusCode::OK, "{}", rejected.body);
+    assert_eq!(
+        tokio::time::timeout(wait, page.next()).await.unwrap(),
+        Some(())
+    );
+    let quiet = std::time::Duration::from_millis(50);
+    assert!(
+        tokio::time::timeout(quiet, others_page.next())
+            .await
+            .is_err()
+    );
+}

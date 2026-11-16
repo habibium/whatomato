@@ -9,6 +9,7 @@ mod error;
 mod extract;
 pub mod mcp;
 pub mod oauth;
+pub mod push;
 mod rate_limit;
 mod routes;
 pub mod scheduler;
@@ -54,6 +55,10 @@ pub fn router() -> (Router<AppState>, utoipa::openapi::OpenApi) {
                     routes::templates::router().layer(rate_limit::client_ip_layer()),
                 )
                 .nest("/deliveries", routes::deliveries::router())
+                .nest(
+                    "/push",
+                    routes::push::router().layer(rate_limit::client_ip_layer()),
+                )
                 .nest(
                     "/agents",
                     routes::agents::router().layer(rate_limit::client_ip_layer()),

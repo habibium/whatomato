@@ -38,6 +38,7 @@ import {
 import { api } from '@/api/client'
 import { Wordmark } from '@/components/wordmark'
 import { agentsQuery } from '@/lib/agents'
+import { turnOffPush } from '@/lib/push'
 import { HOME_HREF, SIGNIN_HREF, setSessionUser } from '@/lib/session'
 import { CONNECTION_DOTS, formatPhoneNumber, statusQuery } from '@/lib/whatsapp'
 
@@ -116,6 +117,8 @@ function AppNav() {
 
   const signOut = async () => {
     try {
+      // While the session still stands: this browser mustn't go on notifying for the account
+      await turnOffPush()
       await api.POST('/api/auth/signout')
     } finally {
       // The next person to sign in here mustn't see these messages, even briefly

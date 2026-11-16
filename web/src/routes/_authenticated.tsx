@@ -1,5 +1,6 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { Outlet, createFileRoute, redirect } from '@tanstack/react-router'
 
+import { useAgentEvents } from '@/lib/agent-events'
 import { currentUser } from '@/lib/session'
 
 /** Pathless layout: every route under `_authenticated/` requires a session. */
@@ -11,4 +12,10 @@ export const Route = createFileRoute('/_authenticated')({
     }
     return { user }
   },
+  component: Authenticated,
 })
+
+function Authenticated() {
+  useAgentEvents()
+  return <Outlet />
+}

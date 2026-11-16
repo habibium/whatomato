@@ -15,6 +15,8 @@ pub mod sends;
 #[cfg(test)]
 mod tests;
 
+use std::sync::Arc;
+
 use anyhow::anyhow;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -41,6 +43,7 @@ use crate::{
         whatsapp_contacts,
     },
     email::templates::AgentAlert,
+    push::Notification,
     scheduler::{RecipientType, draft::NAME_MAX},
     state::AppState,
     whatsapp::{contacts::open_names, status::Status},
@@ -645,8 +648,17 @@ async fn ask(
     Ok(approval)
 }
 
-/// Emails the owner about a new approval, at most once an hour
+/// Tells the owner about a new approval: their open pages and their browsers each time, and an
+/// email at most once an hour
 async fn tell_owner(state: &AppState, caller: &Caller, approval: &Approval) {
+    let user_id = caller.user_id();
+    state.events.approvals_changed(user_id);
+    state.push.notify(
+        state.pool.clone(),
+        Arc::clone(&state.app_url),
+        user_id,
+        Notification::approval_waiting(&caller.connection.name, approval),
+    );
     match review::should_email(&state.pool, approval).await {
         Ok(true) => {
             let alert = AgentAlert::ApprovalWaiting {

@@ -21,6 +21,7 @@ import { api } from '@/api/client'
 import { AgentSetupSteps } from '@/components/agent-setup-steps'
 import { AppFrame } from '@/components/app-frame'
 import { ListEmpty } from '@/components/list-empty'
+import { NotificationsHint } from '@/components/notifications-hint'
 import { OfflineBanner } from '@/components/offline-banner'
 import { PageHeading } from '@/components/page-heading'
 import { WaitingApprovals } from '@/components/waiting-approvals'
@@ -176,6 +177,8 @@ function AgentsPage() {
             markedID={approval}
           />
         ) : null}
+
+        {isEnabled && connections?.length ? <NotificationsHint /> : null}
 
         {overview ? (
           !overview.enabled ? (

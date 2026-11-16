@@ -17,10 +17,14 @@ chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 croner = "4"
 dotenvy = "0.15"
+# Already built for the HTTP stack; here for the stream behind live updates
+futures-util = { version = "0.3", default-features = false }
 getrandom = "0.4"
 governor = "0.10"
 lettre = { version = "0.11", default-features = false, features = ["builder", "hostname", "pool", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "webpki-roots"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+# Already built for rustls; here it encrypts and signs push notifications
+ring = "0.17"
 schemars = { version = "1", features = ["chrono04", "uuid1"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }

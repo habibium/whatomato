@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM push_subscriptions WHERE id IN (\n             SELECT id FROM push_subscriptions WHERE user_id = $1\n             ORDER BY created_at DESC, id OFFSET $2)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "aa74ac5e2777192b552f17a6e9c876969cca491f42afb0c8671748a0849861ed"
+}
