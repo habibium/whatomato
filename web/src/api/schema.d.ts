@@ -1775,7 +1775,10 @@ export interface components {
             daily_limit: number | null;
             /** @description Guidance the agent sees; not enforced */
             note: string | null;
-            /** @description Whether the connection may read the chat's messages. Off unless the owner turns it on. */
+            /**
+             * @description Whether the connection may read the chat's messages. Off unless the owner turns it on;
+             *     left out of the stored grant while off, so a grant that reads nothing is unchanged.
+             */
             read?: boolean;
             send: components["schemas"]["SendLevel"];
         };

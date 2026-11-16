@@ -6281,7 +6281,7 @@
           },
           "read": {
             "type": "boolean",
-            "description": "Whether the connection may read the chat's messages. Off unless the owner turns it on."
+            "description": "Whether the connection may read the chat's messages. Off unless the owner turns it on;\nleft out of the stored grant while off, so a grant that reads nothing is unchanged."
           },
           "send": {
             "$ref": "#/components/schemas/SendLevel"

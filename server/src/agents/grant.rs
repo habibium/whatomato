@@ -103,8 +103,9 @@ pub enum Strangers {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
-    /// Whether the connection may read the chat's messages. Off unless the owner turns it on.
-    #[serde(default)]
+    /// Whether the connection may read the chat's messages. Off unless the owner turns it on;
+    /// left out of the stored grant while off, so a grant that reads nothing is unchanged.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub read: bool,
     pub send: SendLevel,
     /// Sends a day by this connection in one chat
@@ -121,7 +122,7 @@ pub struct Rule {
 #[serde(deny_unknown_fields)]
 pub struct ChatRule {
     pub chat: Chat,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub read: bool,
     pub send: SendLevel,
     #[schema(required = true)]
@@ -426,7 +427,7 @@ mod tests {
             "deliveries": "own",
             "chats": {
                 "scope": "all",
-                "default": { "read": false, "send": "ask", "daily_limit": null, "note": null },
+                "default": { "send": "ask", "daily_limit": null, "note": null },
                 "rules": [{
                     "chat": { "type": "contact", "id": "8801700000000", "name": "Ada" },
                     "read": true,
