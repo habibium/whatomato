@@ -28,6 +28,19 @@ export const agentsQuery = queryOptions({
     !(error instanceof ApiError && error.status < 500) && failures < 2,
 })
 
+/** Whether this server lets connections read chats, and for how long messages are kept. */
+export const readingQuery = queryOptions({
+  queryKey: ['agents', 'reading'],
+  queryFn: async () => {
+    const { data, response } = await api.GET('/api/agents/reading')
+    if (!data) throw new ApiError(response.status)
+    return data
+  },
+  staleTime: Infinity,
+  retry: (failures, error) =>
+    !(error instanceof ApiError && error.status < 500) && failures < 2,
+})
+
 export const presetsQuery = queryOptions({
   queryKey: ['agents', 'presets'],
   queryFn: async (): Promise<AgentPreset[]> => {

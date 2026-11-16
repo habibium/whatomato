@@ -21,6 +21,7 @@ export function chatKey(chat: Pick<Chat, 'type' | 'id'>) {
 /** Exactly the fields the server takes: it refuses a grant with any it doesn't know. */
 export function cleanGrant(grant: Grant): Grant {
   const rule = (value: Rule): Rule => ({
+    read: value.read ?? false,
     send: value.send,
     daily_limit: value.daily_limit ?? null,
     note: value.note?.trim() ? value.note : null,
@@ -63,8 +64,30 @@ export function sameGrant(a: Grant, b: Grant) {
   return canonical(a) === canonical(b)
 }
 
+/** Reading is chosen on its own, so it doesn't turn a preset into custom permissions. */
+function withoutReading(grant: Grant): Grant {
+  return {
+    ...grant,
+    chats: {
+      ...grant.chats,
+      default: { ...grant.chats.default, read: false },
+      rules: grant.chats.rules.map((item) => ({ ...item, read: false })),
+    },
+  }
+}
+
 export function matchingPreset(grant: Grant, presets: readonly AgentPreset[]) {
-  return presets.find((preset) => sameGrant(grant, preset.grant)) ?? null
+  const sending = withoutReading(grant)
+  return presets.find((preset) => sameGrant(sending, preset.grant)) ?? null
+}
+
+/** Whether it may read at least one chat. */
+export function readsAny(grant: Grant) {
+  const { scope, rules } = grant.chats
+  return (
+    (scope === 'all' && grant.chats.default.read === true) ||
+    rules.some((item) => item.read === true)
+  )
 }
 
 export function findChatRule(grant: Grant, key: string) {
@@ -82,12 +105,21 @@ export function addChatRule(grant: Grant, chat: Chat): Grant {
   if (rules.length >= MAX_CHAT_RULES || findChatRule(grant, chatKey(chat))) {
     return grant
   }
-  const { send, daily_limit, note } = grant.chats.default
+  const { read, send, daily_limit, note } = grant.chats.default
   return {
     ...grant,
     chats: {
       ...grant.chats,
-      rules: [...rules, { chat, send: newChatSend(send), daily_limit, note }],
+      rules: [
+        ...rules,
+        {
+          chat,
+          read: read ?? false,
+          send: newChatSend(send),
+          daily_limit,
+          note,
+        },
+      ],
     },
   }
 }
@@ -146,9 +178,11 @@ export function describeRule(rule: Rule) {
       : rule.send === 'ask'
         ? 'Asks you first'
         : 'Sends without asking'
-  return rule.send !== 'no' && rule.daily_limit !== null
-    ? `${base}, up to ${rule.daily_limit} a day`
-    : base
+  const sends =
+    rule.send !== 'no' && rule.daily_limit !== null
+      ? `${base}, up to ${rule.daily_limit} a day`
+      : base
+  return rule.read ? `Reads messages · ${sends}` : sends
 }
 
 /** "All chats", "All chats, 2 with their own rule", "3 chats". */
@@ -175,6 +209,8 @@ export function sendsWithoutAsking(grant: Grant) {
 }
 
 export const WARNINGS = {
+  readAndSend:
+    'It reads what other people write and can send without asking, so a message written to trick it could make it send under your name. “Ask me first” keeps you in the loop.',
   sendDefault:
     'It can send to any chat without showing you the message first, so a mistake or a tricked agent goes out under your name.',
   sendChat:

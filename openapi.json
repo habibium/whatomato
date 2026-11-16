@@ -661,6 +661,44 @@
         }
       }
     },
+    "/api/agents/reading": {
+      "get": {
+        "summary": "Whether connections on this server may be allowed to read chats",
+        "operationId": "get_agent_reading",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentReading"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent access is off on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/agents/sign-in/approve": {
       "post": {
         "summary": "Let an app sign in",
@@ -4886,6 +4924,25 @@
           },
           "name": {
             "type": "string"
+          }
+        }
+      },
+      "AgentReading": {
+        "type": "object",
+        "description": "What this server allows of reading chats",
+        "required": [
+          "available",
+          "kept_days"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Whether a connection may be allowed to read chats; set by `AGENT_READING`"
+          },
+          "kept_days": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many days a readable chat's messages are kept"
           }
         }
       },

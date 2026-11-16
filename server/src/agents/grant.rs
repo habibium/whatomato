@@ -252,6 +252,16 @@ impl Grant {
         )
     }
 
+    /// The same grant, reading no chat
+    #[must_use]
+    pub fn without_reading(mut self) -> Self {
+        self.chats.default.read = false;
+        for rule in &mut self.chats.rules {
+            rule.read = false;
+        }
+        self
+    }
+
     /// Whether at least one chat could be read
     #[must_use]
     pub fn reads_any(&self) -> bool {
@@ -369,12 +379,14 @@ impl Preset {
         }
     }
 
-    /// The preset `grant` equals, or `None` for a custom one
+    /// The preset `grant` equals, or `None` for a custom one. Reading is chosen on its own, so it
+    /// doesn't make a preset custom.
     #[must_use]
     pub fn of(grant: &Grant) -> Option<Self> {
+        let sending = grant.clone().without_reading();
         Self::ALL
             .into_iter()
-            .find(|preset| preset.grant() == *grant)
+            .find(|preset| preset.grant() == sending)
     }
 }
 
@@ -577,6 +589,23 @@ mod tests {
             assert_eq!(grant.clone().check(), Ok(grant.clone()), "{preset:?}");
             assert_eq!(Preset::of(&grant), Some(preset));
         }
+    }
+
+    #[test]
+    fn reading_is_chosen_apart_from_a_preset() {
+        let mut grant = Preset::AskBeforeSending.grant();
+        grant.chats.default.read = true;
+        grant.chats.rules.push(ChatRule {
+            read: true,
+            ..rule(RecipientType::Contact, "8801700000000")
+        });
+        assert!(grant.reads_any());
+        let sending = grant.clone().without_reading();
+        assert!(!sending.reads_any());
+        assert_eq!(sending.chats.rules.len(), 1);
+
+        grant.chats.rules.clear();
+        assert_eq!(Preset::of(&grant), Some(Preset::AskBeforeSending));
     }
 
     #[test]

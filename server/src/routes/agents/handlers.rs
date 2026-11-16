@@ -12,9 +12,9 @@ use uuid::Uuid;
 
 use super::dto::{
     ActivityQuery, AgentActivityPage, AgentApproval, AgentApprovalPage, AgentConnection,
-    AgentConnectionDetail, AgentKeyIssued, AgentPreset, AgentRevoked, AgentsOverview, AgentsPaused,
-    ApprovalsQuery, ApproveRequest, CreateConnection, RevokeQuery, RotateKeyRequest, UNREADABLE,
-    UpdateConnection,
+    AgentConnectionDetail, AgentKeyIssued, AgentPreset, AgentReading, AgentRevoked, AgentsOverview,
+    AgentsPaused, ApprovalsQuery, ApproveRequest, CreateConnection, RevokeQuery, RotateKeyRequest,
+    UNREADABLE, UpdateConnection,
 };
 use crate::{
     agents::{
@@ -31,6 +31,7 @@ use crate::{
     error::{AppError, ErrorBody},
     extract::{ValidatedJson, ValidatedQuery},
     state::AppState,
+    whatsapp::inbox::WINDOW_DAYS,
 };
 
 /// Answers 404 when the instance has agent access off, as if the route didn't exist
@@ -96,6 +97,23 @@ pub async fn list_agents(
     }))
 }
 
+/// Whether connections on this server may be allowed to read chats
+#[utoipa::path(get, path = "/reading", responses(
+    (status = OK, body = AgentReading),
+    (status = UNAUTHORIZED, body = ErrorBody),
+    (status = NOT_FOUND, description = "Agent access is off on this server", body = ErrorBody),
+))]
+pub async fn get_agent_reading(
+    _: Enabled,
+    _session: Session,
+    State(state): State<AppState>,
+) -> Json<AgentReading> {
+    Json(AgentReading {
+        available: state.agent_reading,
+        kept_days: WINDOW_DAYS,
+    })
+}
+
 /// The permission presets, in the order to offer them
 #[utoipa::path(get, path = "/presets", responses(
     (status = OK, body = Vec<AgentPreset>),
@@ -127,7 +145,7 @@ pub async fn create_agent(
     ValidatedJson(input): ValidatedJson<CreateConnection>,
 ) -> Result<(StatusCode, Json<AgentKeyIssued>), AppError> {
     let user_id = session.user.id;
-    let grant = checked(input.grant)?;
+    let grant = checked(input.grant, state.agent_reading)?;
     reauth::confirm_password(&state, user_id, input.password).await?;
     let key = AccessKey::generate()?;
     let connection = agent_connections::create(
@@ -215,7 +233,10 @@ pub async fn update_agent(
     let current = agent_connections::find(&state.pool, id, user_id)
         .await?
         .ok_or(AppError::NotFound)?;
-    let grant = input.grant.map(checked).transpose()?;
+    let grant = input
+        .grant
+        .map(|grant| checked(grant, state.agent_reading))
+        .transpose()?;
     if grant.is_some() {
         let password = input.password.unwrap_or_default();
         reauth::confirm_password(&state, user_id, password).await?;
@@ -532,7 +553,14 @@ pub async fn list_agent_activity(
     }))
 }
 
-pub(super) fn checked(grant: Grant) -> Result<Grant, AppError> {
+/// The grant as stored. While the server has reading off, none is saved with reading on, so
+/// turning it on later can't start reading chats nobody chose.
+pub(super) fn checked(grant: Grant, reading: bool) -> Result<Grant, AppError> {
+    let grant = if reading {
+        grant
+    } else {
+        grant.without_reading()
+    };
     grant.check().map_err(|problems| AppError::Unprocessable {
         field: "grant",
         problems,

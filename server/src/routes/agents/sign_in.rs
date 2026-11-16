@@ -186,7 +186,10 @@ pub async fn approve_agent_sign_in(
                 }
             }],
         })?;
-    let grant = input.grant.map(checked).transpose()?;
+    let grant = input
+        .grant
+        .map(|grant| checked(grant, state.agent_reading))
+        .transpose()?;
     let name = input.name.as_deref().map(str::trim);
     let target = match (input.connection_id, name, &grant) {
         (Some(id), ..) => {

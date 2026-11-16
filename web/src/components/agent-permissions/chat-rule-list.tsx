@@ -11,7 +11,12 @@ import { TextInput } from '@astryxdesign/core/TextInput'
 import { VStack } from '@astryxdesign/core/VStack'
 import { MessageSquareText, Search, X } from 'lucide-react'
 
-import { DailyLimitField, NoteField, SendControl } from './rule-fields'
+import {
+  DailyLimitField,
+  NoteField,
+  ReadControl,
+  SendControl,
+} from './rule-fields'
 import { PersonAvatar } from '@/components/person-avatar'
 import { WARNINGS, chatKey } from '@/lib/agent-grant'
 import type { ChatRule, Rule } from '@/lib/agent-grant'
@@ -36,6 +41,18 @@ const styles = stylex.create({
       [WIDE]: 'minmax(0, 1fr) auto 10rem auto',
     },
   },
+  // With reading offered, a checkbox sits between the name and the send choice
+  rowReading: {
+    gridTemplateAreas: {
+      default: '"who actions" "read read" "send send" "limit limit"',
+      [WIDE]: '"who read send limit actions"',
+    },
+    gridTemplateColumns: {
+      default: 'minmax(0, 1fr) auto',
+      [WIDE]: 'minmax(0, 1fr) auto auto 10rem auto',
+    },
+  },
+  read: { gridArea: 'read' },
   who: { gridArea: 'who', minWidth: 0 },
   send: { gridArea: 'send' },
   limit: { gridArea: 'limit' },
@@ -45,12 +62,19 @@ const styles = stylex.create({
 
 interface ChatRuleListProps {
   rules: ChatRule[]
+  /** Whether this server lets connections read chats. */
+  hasReading: boolean
   onChange: (key: string, change: Partial<Rule>) => void
   onRemove: (key: string) => void
 }
 
 /** One row per chat; filtered and paged so 500 stay usable. */
-export function ChatRuleList({ rules, onChange, onRemove }: ChatRuleListProps) {
+export function ChatRuleList({
+  rules,
+  hasReading,
+  onChange,
+  onRemove,
+}: ChatRuleListProps) {
   const { byNumber } = useContactBook()
   const [filter, setFilter] = useState('')
   const [page, setPage] = useState(1)
@@ -119,6 +143,7 @@ export function ChatRuleList({ rules, onChange, onRemove }: ChatRuleListProps) {
                   isSaved={
                     rule.chat.type === 'group' || byNumber.has(rule.chat.id)
                   }
+                  hasReading={hasReading}
                   onChange={(change) => onChange(key, change)}
                   onRemove={() => onRemove(key)}
                 />
@@ -149,6 +174,7 @@ interface ChatRuleRowProps {
   name: string
   pictureID: string | null
   isSaved: boolean
+  hasReading: boolean
   onChange: (change: Partial<Rule>) => void
   onRemove: () => void
 }
@@ -158,6 +184,7 @@ function ChatRuleRow({
   name,
   pictureID,
   isSaved,
+  hasReading,
   onChange,
   onRemove,
 }: ChatRuleRowProps) {
@@ -176,7 +203,11 @@ function ChatRuleRow({
 
   return (
     <VStack as="li" gap={3}>
-      <Grid columnGap={4} rowGap={3} xstyle={styles.row}>
+      <Grid
+        columnGap={4}
+        rowGap={3}
+        xstyle={[styles.row, hasReading && styles.rowReading]}
+      >
         <HStack gap={3} vAlign="center" xstyle={styles.who}>
           <PersonAvatar
             name={name}
@@ -193,6 +224,16 @@ function ChatRuleRow({
             </Text>
           </VStack>
         </HStack>
+        {hasReading ? (
+          <VStack xstyle={styles.read}>
+            <ReadControl
+              label="Read"
+              size="sm"
+              value={rule.read === true}
+              onChange={(read) => onChange({ read })}
+            />
+          </VStack>
+        ) : null}
         <VStack xstyle={styles.send}>
           <SendControl
             label={`May it send to ${name}`}
@@ -242,7 +283,7 @@ function ChatRuleRow({
         <FieldStatus
           type="warning"
           variant="detached"
-          message={WARNINGS.sendChat}
+          message={rule.read ? WARNINGS.readAndSend : WARNINGS.sendChat}
         />
       ) : null}
       {hasNote ? (

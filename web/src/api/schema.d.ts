@@ -153,6 +153,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agents/reading": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether connections on this server may be allowed to read chats */
+        get: operations["get_agent_reading"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agents/sign-in/approve": {
         parameters: {
             query?: never;
@@ -1292,6 +1309,16 @@ export interface components {
             grant: components["schemas"]["Grant"];
             id: components["schemas"]["Preset"];
             name: string;
+        };
+        /** @description What this server allows of reading chats */
+        AgentReading: {
+            /** @description Whether a connection may be allowed to read chats; set by `AGENT_READING` */
+            available: boolean;
+            /**
+             * Format: int32
+             * @description How many days a readable chat's messages are kept
+             */
+            kept_days: number;
         };
         /** @description What revoking did with the scheduled messages the connection created or changed */
         AgentRevoked: {
@@ -2529,6 +2556,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentPreset"][];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Agent access is off on this server */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_agent_reading: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentReading"];
                 };
             };
             401: {

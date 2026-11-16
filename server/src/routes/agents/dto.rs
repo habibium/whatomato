@@ -194,6 +194,15 @@ pub(super) struct AgentKeyIssued {
     pub key: String,
 }
 
+/// What this server allows of reading chats
+#[derive(Serialize, ToSchema)]
+pub(super) struct AgentReading {
+    /// Whether a connection may be allowed to read chats; set by `AGENT_READING`
+    pub available: bool,
+    /// How many days a readable chat's messages are kept
+    pub kept_days: i32,
+}
+
 /// A starting point for a connection's permissions
 #[derive(Serialize, ToSchema)]
 pub(super) struct AgentPreset {

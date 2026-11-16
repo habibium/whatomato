@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query'
 import { useId, useMemo, useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Divider } from '@astryxdesign/core/Divider'
@@ -13,7 +14,12 @@ import { VStack } from '@astryxdesign/core/VStack'
 
 import { ChatPicker } from './chat-picker'
 import { ChatRuleList } from './chat-rule-list'
-import { DailyLimitField, NoteField, SendControl } from './rule-fields'
+import {
+  DailyLimitField,
+  NoteField,
+  ReadControl,
+  SendControl,
+} from './rule-fields'
 import { SettingsSection } from '@/components/settings-section'
 import {
   MAX_CHAT_RULES,
@@ -31,6 +37,7 @@ import {
   updateDefaultRule,
 } from '@/lib/agent-grant'
 import type { Grant, Scope, Strangers } from '@/lib/agent-grant'
+import { readingQuery } from '@/lib/agents'
 import type { AgentPreset } from '@/lib/agents'
 
 const CUSTOM = 'custom'
@@ -128,6 +135,7 @@ function PresetSection({
 }
 
 function ChatsSection({ value, onChange }: SectionProps) {
+  const reading = useQuery(readingQuery)
   const scopeID = useId()
   const { scope, rules } = value.chats
   const listed = useMemo(
@@ -147,6 +155,7 @@ function ChatsSection({ value, onChange }: SectionProps) {
       />
       {rules.length > 0 ? (
         <ChatRuleList
+          hasReading={reading.data?.available === true}
           rules={rules}
           onChange={(key, change) =>
             onChange(updateChatRule(value, key, change))
@@ -183,8 +192,31 @@ function ChatsSection({ value, onChange }: SectionProps) {
         </SegmentedControl>
       </Field>
 
+      {reading.data?.available ? (
+        <Text color="secondary">
+          For a chat it may read, Whatomato keeps the last{' '}
+          {reading.data.kept_days} days of messages, encrypted, so the agent can
+          read and search them. No other chat is stored, reading shows nothing
+          to the people in the chat, and what it kept is deleted within minutes
+          of you turning reading off.
+        </Text>
+      ) : null}
+
       {isAll ? (
         <>
+          {reading.data?.available ? (
+            <ReadControl
+              label="It may read messages"
+              description="For every chat without its own rule."
+              value={value.chats.default.read === true}
+              warning={
+                value.chats.default.read && value.chats.default.send === 'yes'
+                  ? WARNINGS.readAndSend
+                  : null
+              }
+              onChange={(read) => onChange(updateDefaultRule(value, { read }))}
+            />
+          ) : null}
           <SendControl
             label="May it send"
             description="For every chat without its own rule."

@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { CheckboxInput } from '@astryxdesign/core/CheckboxInput'
 import { Field } from '@astryxdesign/core/Field'
 import { HStack } from '@astryxdesign/core/HStack'
 import { NumberInput } from '@astryxdesign/core/NumberInput'
@@ -13,6 +14,35 @@ import type { SendLevel } from '@/lib/agent-grant'
 
 export const NOTE_HINT =
   'Guidance the agent reads, such as “reply in Bangla”. It isn’t enforced.'
+
+interface ReadControlProps {
+  label: string
+  description?: string
+  value: boolean
+  onChange: (value: boolean) => void
+  warning?: string | null
+  size?: 'sm' | 'md'
+}
+
+export function ReadControl({
+  label,
+  description,
+  value,
+  onChange,
+  warning,
+  size = 'md',
+}: ReadControlProps) {
+  return (
+    <CheckboxInput
+      label={label}
+      description={description}
+      size={size}
+      value={value}
+      onChange={onChange}
+      status={warning ? { type: 'warning', message: warning } : undefined}
+    />
+  )
+}
 
 interface SendControlProps {
   label: string
