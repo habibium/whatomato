@@ -41,17 +41,18 @@ const styles = stylex.create({
       [WIDE]: 'minmax(0, 1fr) auto 10rem auto',
     },
   },
-  // With reading offered, a checkbox sits between the name and the send choice
+  // With reading offered the controls take a line of their own, so the name keeps its room
   rowReading: {
     gridTemplateAreas: {
       default: '"who actions" "read read" "send send" "limit limit"',
-      [WIDE]: '"who read send limit actions"',
+      [WIDE]: '"who who actions" "read send limit"',
     },
     gridTemplateColumns: {
       default: 'minmax(0, 1fr) auto',
-      [WIDE]: 'minmax(0, 1fr) auto auto 10rem auto',
+      [WIDE]: 'auto minmax(0, 1fr) minmax(6rem, 10rem)',
     },
   },
+  actionsEnd: { justifySelf: 'end' },
   read: { gridArea: 'read' },
   who: { gridArea: 'who', minWidth: 0 },
   send: { gridArea: 'send' },
@@ -257,7 +258,10 @@ function ChatRuleRow({
             onChange={(daily_limit) => onChange({ daily_limit })}
           />
         </VStack>
-        <HStack gap={1} xstyle={styles.actions}>
+        <HStack
+          gap={1}
+          xstyle={[styles.actions, hasReading && styles.actionsEnd]}
+        >
           <IconButton
             label={
               hasNote ? `Note for ${name} is open` : `Add a note for ${name}`
