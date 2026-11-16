@@ -18,7 +18,8 @@ use tokio::{
 use url::Url;
 use uuid::Uuid;
 use whatsapp_rust::{
-    CacheConfig, MsgSecretPolicy, PresencePolicy, SendError, SendOptions, SendRequest,
+    CacheConfig, DeregistrationSkipReason, MsgSecretPolicy, PresencePolicy, SendError, SendOptions,
+    SendRequest,
     http::{HttpClient, UreqHttpClient},
     pair_code::PairCodeOptions,
     prelude::{
@@ -42,8 +43,17 @@ const DEVICE_NAME: &str = "Whatomato";
 const PAIRING_LIMIT: Duration = Duration::from_mins(5);
 /// A graceful stop flushes the device and pending writes; past this the client is aborted
 const STOP_LIMIT: Duration = Duration::from_secs(15);
-/// How long an unlink waits for a stopped client to come online to tell WhatsApp
+/// How long an unlink waits for a stopped or reconnecting client to come online to tell WhatsApp
 const LOGOUT_CONNECT_LIMIT: Duration = Duration::from_secs(20);
+const LOGOUT_ATTEMPTS: u32 = 2;
+
+/// How an unlink's wait for its client ended
+enum Online {
+    Connected,
+    /// WhatsApp says the device is no longer linked, so nothing is left to remove
+    AlreadyGone,
+    TimedOut,
+}
 const FIRST_RESTART_DELAY: Duration = Duration::from_secs(5);
 const MAX_RESTART_DELAY: Duration = Duration::from_mins(10);
 /// For listing groups and sending through a connected client
@@ -811,13 +821,44 @@ impl Supervisor {
     }
 
     /// Asks WhatsApp to remove the device, then stops the client. A paused or stopped account gets
-    /// a client just long enough to say so. True when WhatsApp confirmed the removal.
+    /// a client just long enough to say so, and one that's reconnecting is given time to. Tried
+    /// twice: a miss leaves the device under Linked devices on the phone, with its keys gone here.
+    /// True when WhatsApp confirmed the removal, or says the device is already gone.
     async fn log_out(&mut self) -> bool {
-        if self.client.is_none()
-            && (self.start_client().await.is_err() || !self.wait_connected().await)
-        {
-            self.stop_client().await;
-            return false;
+        for attempt in 1..=LOGOUT_ATTEMPTS {
+            match self.try_log_out().await {
+                Ok(()) => return true,
+                Err(why) => {
+                    tracing::warn!(user_id = %self.user_id, attempt, "WhatsApp wasn't told of an unlink: {why}");
+                }
+            }
+        }
+        false
+    }
+
+    /// One try at [`Self::log_out`]; the error says why WhatsApp wasn't told, for the log
+    async fn try_log_out(&mut self) -> Result<(), String> {
+        let connected = if let Some(running) = &self.client {
+            running.client.is_socket_connected()
+        } else {
+            if let Err(error) = self.start_client().await {
+                self.stop_client().await;
+                return Err(format!("its client didn't start: {error:#}"));
+            }
+            false
+        };
+        if !connected {
+            match self.wait_online().await {
+                Online::Connected => {}
+                Online::AlreadyGone => {
+                    self.stop_client().await;
+                    return Ok(());
+                }
+                Online::TimedOut => {
+                    self.stop_client().await;
+                    return Err("its client didn't connect in time".to_owned());
+                }
+            }
         }
         let Some(Running {
             handle,
@@ -826,7 +867,7 @@ impl Supervisor {
             contacts_import,
         }) = self.client.take()
         else {
-            return false;
+            return Err("its client had ended".to_owned());
         };
         drop((presence, contacts_import));
         let released = client.store_release();
@@ -834,22 +875,37 @@ impl Supervisor {
         drop(client);
         let _ = timeout(STOP_LIMIT, handle.shutdown()).await;
         let _ = timeout(STOP_LIMIT, released.wait()).await;
-        matches!(report, Ok(report) if matches!(report.deregistration, DeregistrationOutcome::Confirmed))
+        match report.map(|report| report.deregistration) {
+            Ok(DeregistrationOutcome::Confirmed) => Ok(()),
+            Ok(DeregistrationOutcome::Failed { source }) => {
+                Err(format!("WhatsApp didn't confirm it: {source}"))
+            }
+            Ok(DeregistrationOutcome::NotAttempted(DeregistrationSkipReason::Offline)) => {
+                Err("the connection dropped before it could be said".to_owned())
+            }
+            Ok(_) => Err("the device has no WhatsApp identity to remove".to_owned()),
+            Err(_) => Err("WhatsApp didn't answer in time".to_owned()),
+        }
     }
 
-    async fn wait_connected(&mut self) -> bool {
+    async fn wait_online(&mut self) -> Online {
         let generation = self.generation;
-        let connected = async {
+        let online = async {
             while let Some((from, event)) = self.events.recv().await {
-                if from == generation && event == Event::Connected {
-                    return true;
+                if from != generation {
+                    continue;
+                }
+                match event {
+                    Event::Connected => return Online::Connected,
+                    Event::LoggedOut => return Online::AlreadyGone,
+                    _ => {}
                 }
             }
-            false
+            Online::TimedOut
         };
-        timeout(LOGOUT_CONNECT_LIMIT, connected)
+        timeout(LOGOUT_CONNECT_LIMIT, online)
             .await
-            .unwrap_or(false)
+            .unwrap_or(Online::TimedOut)
     }
 
     /// Starts the client's daily presence pulse, or after a reconnect marks it unavailable again in
