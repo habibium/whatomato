@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.2.1] - 2026-11-16
+
+### Maintenance
+
+- **server:** The agent rate limit tests no longer fail on a slow machine (0a22fda)
 ## [0.2.0] - 2026-11-16
 
 ### Features
