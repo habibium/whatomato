@@ -224,6 +224,40 @@ impl Inbox {
         &self.readers
     }
 
+    /// Keeps a text this device sent, if some connection may read its chat
+    pub(super) fn sent(
+        &self,
+        account_id: Uuid,
+        chat: &Jid,
+        message_id: &str,
+        sender_jid: String,
+        text: String,
+        reply_to: Option<String>,
+    ) {
+        let Some(chat) = chat_of_jid(chat) else {
+            return;
+        };
+        let change = Change::Arrived {
+            chat,
+            message_id: message_id.to_owned(),
+            from_me: true,
+            sent_at: Utc::now(),
+            expires_at: None,
+            body: Body {
+                sender_jid,
+                sender_number: None,
+                sender_name: None,
+                kind: Kind::Text,
+                text: Some(text),
+                file_name: None,
+                reply_to,
+                edited: false,
+            },
+        };
+        // Fails only once the writer has gone, at shutdown
+        let _ = self.changes.send((account_id, change));
+    }
+
     pub(super) fn feed(&self, account_id: Uuid) -> Feed {
         Feed {
             account_id,

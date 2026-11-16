@@ -547,3 +547,49 @@ fn a_reply_quotes_the_kept_message() {
     let fallback = text_message(&chat, "Hello".to_owned(), Some(unaddressed));
     assert_eq!(fallback.conversation.as_deref(), Some("Hello"));
 }
+
+#[test]
+fn what_this_device_sends_is_handed_over_as_the_owners_message() {
+    let (changes, mut incoming) = mpsc::unbounded_channel();
+    let inbox = super::Inbox {
+        readers: Readers::default(),
+        changes,
+    };
+    let account_id = Uuid::new_v4();
+    inbox.sent(
+        account_id,
+        &Jid::pn(ADA),
+        "S1",
+        "8801700000000@s.whatsapp.net".to_owned(),
+        "Yes, see you then".to_owned(),
+        Some("A1".to_owned()),
+    );
+    let (account, change) = incoming.try_recv().unwrap();
+    assert_eq!(account, account_id);
+    let Change::Arrived {
+        chat,
+        message_id,
+        from_me,
+        body,
+        ..
+    } = change
+    else {
+        panic!("{change:?}");
+    };
+    assert_eq!(chat, Chat::Number(ADA.to_owned()));
+    assert_eq!(message_id, "S1");
+    assert!(from_me);
+    assert_eq!(body.text.as_deref(), Some("Yes, see you then"));
+    assert_eq!(body.reply_to.as_deref(), Some("A1"));
+
+    // A status update isn't a chat
+    inbox.sent(
+        account_id,
+        &"status@broadcast".parse().unwrap(),
+        "S2",
+        String::new(),
+        "Hello".to_owned(),
+        None,
+    );
+    assert!(incoming.try_recv().is_err());
+}

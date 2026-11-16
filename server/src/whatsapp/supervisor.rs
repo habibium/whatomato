@@ -1115,8 +1115,20 @@ impl Supervisor {
             return;
         };
         let acks = self.acks.clone();
+        // What this device sends never comes back as a received message, so it's kept from here
+        let kept = self.context.inbox.clone().zip(self.account_id);
+        let own = match &*self.status.borrow() {
+            Status::Connected { phone_number } => format!("{phone_number}@s.whatsapp.net"),
+            _ => String::new(),
+        };
         tokio::spawn(async move {
-            let _ = reply.send(send_and_confirm(client, acks, to, body, quote).await);
+            let text = kept.is_some().then(|| body.clone());
+            let reply_to = quote.as_ref().map(|quote| quote.message_id.clone());
+            let sent = send_and_confirm(client, acks, to, body, quote).await;
+            if let (Ok((chat, id)), Some((inbox, account_id)), Some(text)) = (&sent, kept, text) {
+                inbox.sent(account_id, chat, id, own, text, reply_to);
+            }
+            let _ = reply.send(sent.map(drop));
         });
     }
 }
@@ -1140,7 +1152,7 @@ async fn send_and_confirm(
     to: Recipient,
     body: String,
     quote: Option<Quote>,
-) -> Result<(), SendFailure> {
+) -> Result<(Jid, String), SendFailure> {
     let jid = match to {
         Recipient::Number(number) => registered(&client, number, false).await?,
         Recipient::ExactNumber(number) => registered(&client, number, true).await?,
@@ -1161,7 +1173,7 @@ async fn send_and_confirm(
     acks.forget(&key);
 
     match outcome {
-        Ok(Ok(Ok(None))) => Ok(()),
+        Ok(Ok(Ok(None))) => Ok((jid, key)),
         Ok(Ok(Ok(Some(code)))) => Err(SendFailure::Rejected(code)),
         Ok(Err(failure)) => Err(failure),
         Ok(Ok(Err(_))) | Err(_) => Err(SendFailure::Unconfirmed),
