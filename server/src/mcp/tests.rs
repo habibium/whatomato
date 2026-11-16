@@ -837,11 +837,19 @@ async fn each_connection_has_its_own_limit_of_120_requests_a_minute(pool: PgPool
     let (flood, _) = connection(&app, owner, &Preset::AskBeforeSending.grant()).await;
     let (other, _) = connection(&app, owner, &Preset::AskBeforeSending.grant()).await;
 
-    for _ in 0..120 {
+    // A call refills every half second, so a slow run lets a few more through
+    let started = std::time::Instant::now();
+    let refilled = || u32::try_from(started.elapsed().as_millis() / 500).unwrap();
+    let mut passed = 0;
+    let limited = loop {
         let response = legacy(&app, Some(&flood), "tools/list", json!({})).await;
-        assert_eq!(response.status, StatusCode::OK);
-    }
-    let limited = legacy(&app, Some(&flood), "tools/list", json!({})).await;
+        if response.status != StatusCode::OK {
+            break response;
+        }
+        passed += 1;
+        assert!(passed <= 120 + refilled(), "{passed}");
+    };
+    assert!(passed >= 120, "{passed}");
     assert_eq!(limited.status, StatusCode::TOO_MANY_REQUESTS);
     assert!(limited.headers.contains_key(header::RETRY_AFTER));
     assert_no_store(&limited);
@@ -1025,14 +1033,16 @@ async fn a_blocked_address_still_gets_real_keys_looked_up_within_a_budget(pool: 
         StatusCode::TOO_MANY_REQUESTS
     );
 
-    // A key never used since the server started, as after a restart or a rotation, still gets in
+    // A key never used since the server started, as after a restart or a rotation, still gets in.
+    // It is the budget's first lookup, so the refills count from here.
+    let started = std::time::Instant::now();
+    let refilled = || u32::try_from(started.elapsed().as_millis() / 200).unwrap();
     let fresh = legacy(&app, Some(&unused), "tools/list", json!({})).await;
     assert_eq!(fresh.status, StatusCode::OK);
 
     // Without a database a lookup fails with 500, so wrong keys show where the budget ends: 300
     // lookups, one of them spent above, then 5 a second
     app.pool.close().await;
-    let started = std::time::Instant::now();
     let mut looked_up = 0;
     loop {
         let response = legacy(&app, Some(&wrong()), "tools/list", json!({})).await;
@@ -1042,9 +1052,10 @@ async fn a_blocked_address_still_gets_real_keys_looked_up_within_a_budget(pool: 
         }
         assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
         looked_up += 1;
+        // Lookups are free once the address's block lapses, and the loop would never end
+        assert!(looked_up <= 299 + refilled(), "{looked_up}");
     }
-    let refilled = u32::try_from(started.elapsed().as_millis() / 200).unwrap();
-    assert!((299..=299 + refilled).contains(&looked_up), "{looked_up}");
+    assert!(looked_up >= 299, "{looked_up}");
     let malformed = format!("{}tooshort", crate::agents::key::PREFIX);
     for key in [None, Some(malformed.as_str())] {
         let refused = legacy(&app, key, "tools/list", json!({})).await;
