@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.0] - 2026-11-16
+
+### Features
+
+- Apps such as Claude and ChatGPT connect by signing in, with no access key (2789c11)
+- A browser notification when an agent needs your approval, and open pages show the request at once (f96c2a0)
+
+### Bug Fixes
+
+- Update Claude Code setup instructions to include scope parameter in command (2efc040)
 ## [0.2.1] - 2026-11-16
 
 ### Maintenance
