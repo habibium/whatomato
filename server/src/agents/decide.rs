@@ -184,11 +184,14 @@ pub fn decide(grant: &Grant, action: Action<'_>, facts: &Facts) -> Decision {
             Schedules::Own | Schedules::All => chat_action(grant, chat, facts),
         },
         Action::UpdateSchedule { chat, owner } => match may_change_schedule(grant, owner) {
-            // Changed outright, another's schedule becomes this connection's
-            Ok(()) if owner == Owner::Other && facts.schedules >= SCHEDULES_MAX => {
-                Decision::Deny(Reason::TooManySchedules)
-            }
-            Ok(()) => chat_action(grant, chat, facts),
+            // Only a change made outright takes another's schedule over; an approved one keeps its
+            // owner, so asking adds nothing to this connection's count
+            Ok(()) => match chat_action(grant, chat, facts) {
+                Decision::Allow if owner == Owner::Other && facts.schedules >= SCHEDULES_MAX => {
+                    Decision::Deny(Reason::TooManySchedules)
+                }
+                decision => decision,
+            },
             Err(reason) => Decision::Deny(reason),
         },
         Action::DeleteSchedule { owner } => match may_change_schedule(grant, owner) {
@@ -224,7 +227,8 @@ const fn may_change_schedule(grant: &Grant, owner: Owner) -> Result<(), Reason> 
     }
 }
 
-/// The ceiling, the chat's rule, strangers, the chat's limit and the approval queue, in that order
+/// The ceiling, the chat's rule, a rule of `no`, strangers, the chat's limit and the approval
+/// queue, in that order. A rule of `no` comes before strangers: saving the contact wouldn't help.
 fn chat_action(grant: &Grant, chat: ChatRef<'_>, facts: &Facts) -> Decision {
     if facts.connection_sends >= DAILY_CEILING {
         return Decision::Deny(Reason::DailyCeiling);
@@ -236,6 +240,9 @@ fn chat_action(grant: &Grant, chat: ChatRef<'_>, facts: &Facts) -> Decision {
         (None, Scope::All) => (grant.chats.default.send, grant.chats.default.daily_limit),
         (None, Scope::Selected) => return Decision::Deny(Reason::OutOfScope),
     };
+    if send == SendLevel::No {
+        return Decision::Deny(Reason::SendingOff);
+    }
 
     let stranger =
         chat.recipient_type == RecipientType::Contact && !facts.saved_contact && own.is_none();
@@ -245,9 +252,6 @@ fn chat_action(grant: &Grant, chat: ChatRef<'_>, facts: &Facts) -> Decision {
         _ => send,
     };
 
-    if send == SendLevel::No {
-        return Decision::Deny(Reason::SendingOff);
-    }
     if let Some(limit) = daily_limit
         && facts.chat_sends >= limit
     {
@@ -451,6 +455,21 @@ mod tests {
                 deny(Reason::SendingOff),
                 deny(Reason::SendingOff),
             ),
+            // A rule of "no" is the reason, whatever the stranger rule says
+            (
+                Strangers::Never,
+                SendLevel::No,
+                deny(Reason::SendingOff),
+                deny(Reason::SendingOff),
+                deny(Reason::SendingOff),
+            ),
+            (
+                Strangers::Ask,
+                SendLevel::No,
+                deny(Reason::SendingOff),
+                deny(Reason::SendingOff),
+                deny(Reason::SendingOff),
+            ),
         ];
         for (strangers, send, on_saved, on_unsaved, on_group) in cases {
             let grant = grant(Scope::All, send, strangers);
@@ -625,6 +644,18 @@ mod tests {
             decide(&full, take_over, &at(50)),
             deny(Reason::TooManySchedules)
         );
+
+        // Asking to take one over adds none: an approved change keeps its owner
+        let mut asking_all = asking;
+        asking_all.schedules = Schedules::All;
+        assert_eq!(decide(&asking_all, take_over, &at(50)), Decision::Ask);
+        // A refusal for another reason keeps that reason
+        let mut blocked = grant(Scope::All, SendLevel::No, Strangers::Allowed);
+        blocked.schedules = Schedules::All;
+        assert_eq!(
+            decide(&blocked, take_over, &at(50)),
+            deny(Reason::SendingOff)
+        );
     }
 
     #[test]
@@ -779,6 +810,7 @@ mod tests {
             Reason::SendingOff,
             Reason::ChatLimit { limit: 7 },
             Reason::TooManyWaiting,
+            Reason::TooManySchedules,
         ];
         for reason in reasons {
             assert!(reason.message().ends_with('.'), "{reason:?}");

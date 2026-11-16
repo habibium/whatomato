@@ -373,6 +373,21 @@ pub async fn schedules(db: impl PgExecutor<'_>, id: Uuid, user_id: Uuid) -> sqlx
     .await
 }
 
+/// Scheduled messages that belong to `connection_id` and its requests for a new one still
+/// waiting, counted as the cap of 50 counts them
+pub async fn held_schedules(db: impl PgExecutor<'_>, connection_id: Uuid) -> sqlx::Result<u32> {
+    let count = sqlx::query_scalar!(
+        r#"SELECT (SELECT count(*) FROM scheduled_messages WHERE connection_id = $1)
+               + (SELECT count(*) FROM agent_approvals
+                  WHERE connection_id = $1 AND kind = 'schedule_create'
+                      AND status = 'waiting' AND expires_at > now()) AS "count!""#,
+        connection_id,
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(u32::try_from(count).unwrap_or(u32::MAX))
+}
+
 /// Records a call, writing at most once a minute per connection
 pub async fn touch(db: impl PgExecutor<'_>, id: Uuid) -> sqlx::Result<()> {
     sqlx::query!(

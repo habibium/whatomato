@@ -14,7 +14,7 @@ use super::{
 };
 use crate::{
     agents::{
-        Decision,
+        Decision, Grant,
         decide::{Action, ChatRef, Facts, Owner, decide},
     },
     db::scheduled_messages::{self, BelongsTo, Message},
@@ -52,6 +52,8 @@ pub struct ScheduleInput {
 pub enum ScheduleOutcome {
     Created,
     Updated,
+    /// Every value given was already the schedule's, so nothing changed
+    Unchanged,
     /// Waiting for the owner's approval; nothing has changed yet
     WaitingForApproval,
 }
@@ -91,8 +93,9 @@ pub struct ScheduleView {
     /// Empty while it's switched off, and once a one-time message has gone out
     pub next_run_at: Option<DateTime<Utc>>,
     pub last_run_at: Option<DateTime<Utc>>,
-    /// Whether it belongs to this connection: it created it, or last changed it
-    pub created_by_this_connection: bool,
+    /// Whether it belongs to this connection: it created it, or last changed it outright. A
+    /// connection holds at most 50.
+    pub belongs_to_this_connection: bool,
 }
 
 impl ScheduleView {
@@ -111,7 +114,7 @@ impl ScheduleView {
             enabled: message.enabled,
             next_run_at: message.next_run_at,
             last_run_at: message.last_run_at,
-            created_by_this_connection: message.connection_id == Some(caller.id()),
+            belongs_to_this_connection: message.connection_id == Some(caller.id()),
         }
     }
 }
@@ -144,8 +147,20 @@ async fn check(
     )
     .await?;
     draft::finish(errors)?;
+    hourly_at_most(request)
+}
+
+/// [`check`] without the template, which needs the database
+fn check_shape(request: &ScheduleRequest) -> Result<(), OpError> {
+    let mut errors = ValidationErrors::new();
+    request.draft().check(&mut errors);
+    draft::finish(errors)?;
+    hourly_at_most(request)
+}
+
+fn hourly_at_most(request: &ScheduleRequest) -> Result<(), OpError> {
     if too_frequent(request) {
-        return Err(OpError::invalid(
+        return Err(OpError::TooFrequent(
             "`recurrence` would send more often than once an hour, and an agent may not schedule \
              messages that often. The owner can make a more frequent schedule in the Whatomato \
              web app.",
@@ -310,8 +325,10 @@ async fn run_list(state: &AppState, caller: &Caller, page: Page) -> Result<Sched
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct UpdateScheduleInput {
-    /// The scheduled message's id, from `list_scheduled_messages`
-    pub id: Uuid,
+    /// The scheduled message's id: `id` in `list_scheduled_messages`, or the
+    /// `scheduled_message_id` an approval or a delivery gives. `id` is accepted too.
+    #[serde(alias = "id")]
+    pub scheduled_message_id: Uuid,
     /// A new recipient type: `contact` or `group`. Unchanged when left out.
     pub recipient_type: Option<RecipientType>,
     /// A new recipient: a phone number with its country code, or a group's id. Unchanged when left
@@ -335,21 +352,30 @@ pub struct UpdateScheduleInput {
 }
 
 impl UpdateScheduleInput {
-    /// The whole message once changed: what's given, else what it holds now
-    fn merged_into(self, message: &Message) -> ScheduleRequest {
+    /// The whole message once changed: what's given, else what it holds now. The recipient is
+    /// normalized only if it comes from the message.
+    fn merged_into(&self, message: &Message) -> ScheduleRequest {
         ScheduleRequest {
             recipient_type: self.recipient_type.unwrap_or(message.recipient_type),
-            recipient: self.recipient.unwrap_or_else(|| message.recipient.clone()),
+            recipient: self
+                .recipient
+                .clone()
+                .unwrap_or_else(|| message.recipient.clone()),
             recipient_name: None,
             body: self
                 .body
+                .as_ref()
                 .map_or_else(|| message.body.clone(), |body| body.trim().to_owned()),
             schedule_kind: self.schedule_kind.unwrap_or(message.schedule_kind),
             run_at: self.run_at.or(message.run_at),
             recurrence: self
                 .recurrence
+                .clone()
                 .or_else(|| message.recurrence.as_ref().map(|json| json.0.clone())),
-            timezone: self.timezone.unwrap_or_else(|| message.timezone.clone()),
+            timezone: self
+                .timezone
+                .clone()
+                .unwrap_or_else(|| message.timezone.clone()),
             template_id: self.template_id.or(message.template_id),
             enabled: self.enabled.unwrap_or(message.enabled),
         }
@@ -372,10 +398,25 @@ impl UpdateScheduleInput {
     }
 }
 
+/// Whether writing `request`, recipient normalized, would leave every column of `message` as it is
+fn changes_nothing(request: &ScheduleRequest, message: &Message) -> bool {
+    let fields = request.draft().fields(&request.recipient);
+    fields.recipient_type == message.recipient_type
+        && fields.recipient == message.recipient
+        && fields.body == message.body
+        && fields.schedule_kind == message.schedule_kind
+        && fields.run_at == message.run_at
+        && fields.recurrence.as_ref() == message.recurrence.as_ref().map(|json| &json.0)
+        && fields.timezone == message.timezone
+        && fields.template_id == message.template_id
+        && fields.enabled == message.enabled
+}
+
 /// Changes a scheduled message, or asks the owner to approve the change first. The decision is
 /// made for the chat it will send to once changed. A change made outright makes the message this
 /// connection's, since it now decides what it sends; one the owner approved keeps its owner.
 /// Switching one off needs only the right to manage it, since it sends nothing, and keeps its owner.
+/// A change that leaves every field as it is changes nothing, not even whose it is.
 ///
 /// # Errors
 /// [`OpError::NotFound`] for an id that isn't one of the account's, [`OpError::Invalid`] for input
@@ -393,12 +434,34 @@ pub async fn update_scheduled_message(
 
 const NO_SUCH_SCHEDULE: &str = "There's no scheduled message with this id. \
                                 list_scheduled_messages shows the ones this connection can see.";
+const CHANGED_MEANWHILE: &str = "The scheduled message was changed while this request was \
+                                 handled. Call update_scheduled_message again.";
+const UNCHANGED: &str = "Nothing changed: the scheduled message already holds these values.";
 
 fn owner(message: &Message, caller: &Caller) -> Owner {
     if message.connection_id == Some(caller.id()) {
         Owner::ThisConnection
     } else {
         Owner::Other
+    }
+}
+
+/// Refused unless the caller may manage the message, as for switching it off or deleting it
+fn may_manage(grant: &Grant, caller: &Caller, message: &Message) -> Result<(), OpError> {
+    let owner = owner(message, caller);
+    match decide(grant, Action::DeleteSchedule { owner }, &Facts::default()) {
+        Decision::Deny(reason) => Err(caller.refused(reason)),
+        Decision::Allow | Decision::AllowOwn | Decision::Ask => Ok(()),
+    }
+}
+
+fn unchanged(message: Message, caller: &Caller) -> ScheduleResult {
+    ScheduleResult {
+        outcome: ScheduleOutcome::Unchanged,
+        message: UNCHANGED,
+        schedule: Some(ScheduleView::new(message, caller)),
+        approval_id: None,
+        approval_url: None,
     }
 }
 
@@ -413,11 +476,9 @@ async fn switch_off(
     let locked = scheduled_messages::find_locked(&mut *transaction, id, caller.user_id())
         .await?
         .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
-    let owner = owner(&locked, caller);
-    if let Decision::Deny(reason) =
-        decide(&grant, Action::DeleteSchedule { owner }, &Facts::default())
-    {
-        return Err(caller.refused(reason));
+    may_manage(&grant, caller, &locked)?;
+    if !locked.enabled {
+        return Ok(unchanged(locked, caller));
     }
     let message = scheduled_messages::set_enabled(
         &mut *transaction,
@@ -438,13 +499,46 @@ async fn switch_off(
     })
 }
 
+/// `input` merged again onto the row as it is under the lock, so an edit the owner made since
+/// `request` was built isn't undone; empty when that changes nothing. `checked` says whether
+/// `request` was checked.
+fn merge_locked(
+    input: &UpdateScheduleInput,
+    request: &ScheduleRequest,
+    checked: bool,
+    locked: &Message,
+) -> Result<Option<ScheduleRequest>, OpError> {
+    let mut merged = input.merged_into(locked);
+    merged.recipient = merged.recipient_type.normalized(&merged.recipient);
+    merged.recipient_name.clone_from(&request.recipient_name);
+    if changes_nothing(&merged, locked) {
+        return Ok(None);
+    }
+    // Unchecked values that have become a change, because the row changed since, are never written
+    if !checked {
+        return Err(OpError::invalid(CHANGED_MEANWHILE));
+    }
+    if merged != *request {
+        // The chat's facts and the template were read for `request`
+        let facts_still_hold = merged.recipient_type == request.recipient_type
+            && merged.recipient == request.recipient
+            && merged.template_id == request.template_id;
+        if !facts_still_hold {
+            return Err(OpError::invalid(CHANGED_MEANWHILE));
+        }
+        check_shape(&merged)?;
+    }
+    Ok(Some(merged))
+}
+
 async fn run_update(
     state: &AppState,
     caller: &Caller,
     input: UpdateScheduleInput,
     trace: &mut Trace,
 ) -> Result<ScheduleResult, OpError> {
-    let message = scheduled_messages::find(&state.pool, input.id, caller.user_id())
+    let id = input.scheduled_message_id;
+    let message = scheduled_messages::find(&state.pool, id, caller.user_id())
         .await?
         .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
     trace.chat(
@@ -454,18 +548,29 @@ async fn run_update(
     );
 
     if input.only_disables() {
-        return switch_off(state, caller, input.id).await;
+        return switch_off(state, caller, id).await;
     }
     if !input.changes_message() && input.enabled.is_none() {
         return Err(OpError::invalid(
-            "Nothing to change: give at least one field besides `id`.",
+            "Nothing to change: give at least one field besides `scheduled_message_id`.",
         ));
     }
 
-    let same_chat_name = message.recipient_name.clone();
+    // Checked here, since checking reads the database; once the row is locked, only what changed
+    // since needs checking again
     let mut request = input.merged_into(&message);
-    check(state, caller, &request).await?;
-    request.recipient = request.recipient_type.normalized(&request.recipient);
+    let normalized = request.recipient_type.normalized(&request.recipient);
+    let checked = !changes_nothing(
+        &ScheduleRequest {
+            recipient: normalized.clone(),
+            ..request.clone()
+        },
+        &message,
+    );
+    if checked {
+        check(state, caller, &request).await?;
+    }
+    request.recipient = normalized;
     let chat = ChatRef {
         recipient_type: request.recipient_type,
         recipient: &request.recipient,
@@ -475,25 +580,33 @@ async fn run_update(
     let known = chat_facts(state, caller, chat).await?;
     let name = known
         .name
-        .or_else(|| same_chat.then_some(same_chat_name).flatten());
+        .or_else(|| same_chat.then(|| message.recipient_name.clone()).flatten());
     trace.chat(chat.recipient_type, chat.recipient, name.as_deref());
+    request.recipient_name = name;
+
     let mut transaction = state.pool.begin().await?;
     let grant = lock(&mut transaction, caller).await?;
-    // Read again under the lock: whose it is may have changed since
-    let locked = scheduled_messages::find_locked(&mut *transaction, message.id, caller.user_id())
+    let locked = scheduled_messages::find_locked(&mut *transaction, id, caller.user_id())
         .await?
         .ok_or(OpError::NotFound(NO_SUCH_SCHEDULE))?;
+    let Some(request) = merge_locked(&input, &request, checked, &locked)? else {
+        may_manage(&grant, caller, &locked)?;
+        return Ok(unchanged(locked, caller));
+    };
+    let chat = ChatRef {
+        recipient_type: request.recipient_type,
+        recipient: &request.recipient,
+    };
     let owner = owner(&locked, caller);
     let facts = facts(&mut transaction, caller, chat, known.saved).await?;
     let decision = decide(&grant, Action::UpdateSchedule { chat, owner }, &facts);
-    request.recipient_name = name;
 
     match decision {
         Decision::Deny(reason) => Err(caller.refused(reason)),
         Decision::Allow | Decision::AllowOwn => {
             let message = scheduled_messages::update(
                 &mut *transaction,
-                message.id,
+                id,
                 caller.user_id(),
                 request.draft().fields(&request.recipient),
                 BelongsTo::Connection(caller.id()),
@@ -503,8 +616,8 @@ async fn run_update(
             transaction.commit().await?;
             Ok(ScheduleResult {
                 outcome: ScheduleOutcome::Updated,
-                message: "The scheduled message is changed. next_run_at says when it next goes \
-                          out.",
+                message: "The scheduled message is changed, and now belongs to this connection. \
+                          next_run_at says when it next goes out.",
                 schedule: Some(ScheduleView::new(message, caller)),
                 approval_id: None,
                 approval_url: None,
@@ -512,7 +625,8 @@ async fn run_update(
         }
         Decision::Ask => {
             let request = Request::ScheduleUpdate {
-                scheduled_message_id: message.id,
+                scheduled_message_id: id,
+                schedule_updated_at: Some(locked.updated_at),
                 schedule: request,
             };
             let approval = ask(&mut transaction, state, caller, &request).await?;
@@ -526,8 +640,10 @@ async fn run_update(
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DeleteScheduleInput {
-    /// The scheduled message's id, from `list_scheduled_messages`
-    pub id: Uuid,
+    /// The scheduled message's id: `id` in `list_scheduled_messages`, or the
+    /// `scheduled_message_id` an approval or a delivery gives. `id` is accepted too.
+    #[serde(alias = "id")]
+    pub scheduled_message_id: Uuid,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -548,7 +664,7 @@ pub async fn delete_scheduled_message(
     input: DeleteScheduleInput,
 ) -> Result<ScheduleDeleted, OpError> {
     let mut trace = Trace::new("delete_scheduled_message");
-    let result = run_delete(state, caller, input.id, &mut trace).await;
+    let result = run_delete(state, caller, input.scheduled_message_id, &mut trace).await;
     trace.finish(state, caller, &result).await;
     result
 }

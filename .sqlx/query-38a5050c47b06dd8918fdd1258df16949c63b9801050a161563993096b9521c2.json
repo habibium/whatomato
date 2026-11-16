@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT m.id, m.user_id, m.connection_id, c.name AS \"connection_name?\",\n               m.recipient_type AS \"recipient_type: RecipientType\", m.recipient,\n               m.recipient_name, m.body, m.schedule_kind AS \"schedule_kind: ScheduleKind\",\n               m.run_at, m.recurrence AS \"recurrence: Json<Recurrence>\", m.timezone,\n               m.template_id, m.enabled, m.next_run_at, m.last_run_at, m.created_at, m.updated_at\n           FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id\n           WHERE m.id = $1 AND m.user_id = $2",
+  "query": "SELECT m.id AS \"id!\", m.user_id AS \"user_id!\", m.connection_id,\n               c.name AS \"connection_name?\",\n               m.recipient_type AS \"recipient_type!: RecipientType\", m.recipient AS \"recipient!\",\n               m.recipient_name, m.body AS \"body!\",\n               m.schedule_kind AS \"schedule_kind!: ScheduleKind\",\n               m.run_at, m.recurrence AS \"recurrence: Json<Recurrence>\", m.timezone AS \"timezone!\",\n               m.template_id, m.enabled AS \"enabled!\", m.next_run_at, m.last_run_at,\n               m.created_at AS \"created_at!\", m.updated_at AS \"updated_at!\"\n           FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id\n           WHERE m.user_id = $1 AND ($2::uuid IS NULL OR m.connection_id = $2)\n           ORDER BY m.created_at, m.id",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
+        "name": "id!",
         "type_info": "Uuid",
         "origin": {
           "Table": {
@@ -16,7 +16,7 @@
       },
       {
         "ordinal": 1,
-        "name": "user_id",
+        "name": "user_id!",
         "type_info": "Uuid",
         "origin": {
           "Table": {
@@ -49,7 +49,7 @@
       },
       {
         "ordinal": 4,
-        "name": "recipient_type: RecipientType",
+        "name": "recipient_type!: RecipientType",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -60,7 +60,7 @@
       },
       {
         "ordinal": 5,
-        "name": "recipient",
+        "name": "recipient!",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -82,7 +82,7 @@
       },
       {
         "ordinal": 7,
-        "name": "body",
+        "name": "body!",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -93,7 +93,7 @@
       },
       {
         "ordinal": 8,
-        "name": "schedule_kind: ScheduleKind",
+        "name": "schedule_kind!: ScheduleKind",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -126,7 +126,7 @@
       },
       {
         "ordinal": 11,
-        "name": "timezone",
+        "name": "timezone!",
         "type_info": "Text",
         "origin": {
           "Table": {
@@ -148,7 +148,7 @@
       },
       {
         "ordinal": 13,
-        "name": "enabled",
+        "name": "enabled!",
         "type_info": "Bool",
         "origin": {
           "Table": {
@@ -181,7 +181,7 @@
       },
       {
         "ordinal": 16,
-        "name": "created_at",
+        "name": "created_at!",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
@@ -192,7 +192,7 @@
       },
       {
         "ordinal": 17,
-        "name": "updated_at",
+        "name": "updated_at!",
         "type_info": "Timestamptz",
         "origin": {
           "Table": {
@@ -212,7 +212,7 @@
       false,
       false,
       true,
-      true,
+      false,
       false,
       false,
       true,
@@ -229,5 +229,5 @@
       false
     ]
   },
-  "hash": "62eae7596f25869ef3704929c2ce303516a50bc1ce273dea66094f102bc49572"
+  "hash": "38a5050c47b06dd8918fdd1258df16949c63b9801050a161563993096b9521c2"
 }

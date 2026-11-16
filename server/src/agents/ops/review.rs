@@ -10,7 +10,6 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 use validator::ValidationErrors;
 
-use super::{sentences, whatsapp_state};
 use crate::{
     agents::{ApprovalKind, ApprovalStatus},
     crypto::Cipher,
@@ -26,9 +25,11 @@ use crate::{
         variables,
     },
     state::AppState,
+    whatsapp::status::Status,
 };
 
-const PAYLOAD_VERSION: u32 = 1;
+/// 2 added [`Request::ScheduleUpdate`]'s `schedule_updated_at`; a version 1 payload has none
+const PAYLOAD_VERSION: u32 = 2;
 /// Runs shown for a schedule waiting for approval
 const NEXT_RUNS: usize = 3;
 
@@ -47,6 +48,9 @@ pub enum Request {
     ScheduleCreate(ScheduleRequest),
     ScheduleUpdate {
         scheduled_message_id: Uuid,
+        /// The schedule's `updated_at` when the agent asked; empty in a version 1 payload
+        #[serde(default)]
+        schedule_updated_at: Option<DateTime<Utc>>,
         schedule: ScheduleRequest,
     },
 }
@@ -151,10 +155,20 @@ pub fn open(cipher: &Cipher, approval: &Approval) -> anyhow::Result<Request> {
         .context("an approval's payload didn't open")?;
     let payload: Payload = serde_json::from_slice(&plain)?;
     anyhow::ensure!(
-        payload.version == PAYLOAD_VERSION,
+        (1..=PAYLOAD_VERSION).contains(&payload.version),
         "an approval's payload has unknown version {}",
         payload.version
     );
+    if let Request::ScheduleUpdate {
+        schedule_updated_at,
+        ..
+    } = &payload.request
+    {
+        anyhow::ensure!(
+            payload.version == 1 || schedule_updated_at.is_some(),
+            "an approval's payload lacks the schedule's time"
+        );
+    }
     anyhow::ensure!(
         payload.request.kind() == approval.kind,
         "an approval's payload isn't of its kind"
@@ -218,6 +232,7 @@ impl Requested {
             Request::ScheduleUpdate {
                 scheduled_message_id,
                 schedule,
+                ..
             } => (schedule, Some(scheduled_message_id)),
         };
         let now = Utc::now();
@@ -359,16 +374,13 @@ async fn check_now(
         }
     }
     if !errors.is_empty() {
-        return Err(ReviewError::CantApprove(sentences(&errors)));
+        return Err(ReviewError::CantApprove(for_owner(&errors)));
     }
     let Request::Send(send) = request else {
         return Ok(None);
     };
-    let whatsapp = whatsapp_state(&state.whatsapp.status(user_id));
-    if !whatsapp.can_send {
-        return Err(ReviewError::CantApprove(vec![
-            whatsapp.description.to_owned(),
-        ]));
+    if let Some(problem) = whatsapp_for_owner(&state.whatsapp.status(user_id)) {
+        return Err(ReviewError::CantApprove(vec![problem.to_owned()]));
     }
     let to = variables::To {
         recipient_type: send.recipient_type,
@@ -388,6 +400,84 @@ async fn check_now(
         .await,
     ))
 }
+
+/// One sentence per problem, written for the owner, then what to do about them
+fn for_owner(errors: &ValidationErrors) -> Vec<String> {
+    let mut problems: Vec<String> = errors
+        .field_errors()
+        .into_iter()
+        .flat_map(|(field, errors)| {
+            errors.iter().map(move |error| {
+                let field: &str = &field;
+                let message = error.message.as_deref().unwrap_or(&error.code);
+                if (field, message) == ("run_at", "must be in the future") {
+                    return "The time it was to be sent has passed.".to_owned();
+                }
+                let label = match field {
+                    "body" => "text",
+                    "recipient_name" => "recipient's name",
+                    "run_at" => "time to send it",
+                    "recurrence" => "repeat",
+                    "timezone" => "time zone",
+                    "template_id" => "template",
+                    other => other,
+                };
+                let predicate = ["must ", "is ", "isn't ", "can't "]
+                    .iter()
+                    .any(|start| message.starts_with(start));
+                if predicate {
+                    format!("The {label} {message}.")
+                } else {
+                    format!("The {label} has a problem: {message}.")
+                }
+            })
+        })
+        .collect();
+    problems.sort();
+    let only_text = errors.field_errors().keys().all(|field| field == "body");
+    problems.push(
+        if only_text {
+            "Edit the text and approve it, or reject this request."
+        } else {
+            "Reject this request, and have the agent ask again if it's still wanted."
+        }
+        .to_owned(),
+    );
+    problems
+}
+
+/// Why WhatsApp can't take a send now, and what the owner can do; empty when it can
+const fn whatsapp_for_owner(status: &Status) -> Option<&'static str> {
+    Some(match status {
+        Status::Connected { .. } | Status::Syncing { .. } | Status::Reconnecting { .. } => {
+            return None;
+        }
+        Status::Paused { .. } => {
+            "WhatsApp is paused, so this message can't be sent. Resume WhatsApp, then approve it."
+        }
+        Status::Stopped { .. } => {
+            "WhatsApp has stopped, so this message can't be sent. Reconnect WhatsApp, then approve \
+             it."
+        }
+        Status::Pairing(_) => {
+            "WhatsApp is still being linked, so this message can't be sent yet. Approve it once \
+             linking is done."
+        }
+        Status::NotLinked | Status::LinkEnded(_) => {
+            "WhatsApp isn't linked, so this message can't be sent. Link WhatsApp, then approve it."
+        }
+    })
+}
+
+const SCHEDULE_DELETED: &str = "The scheduled message this would change has been deleted, so \
+                                there's nothing left to change. Reject this request.";
+const SCHEDULE_CHANGED: &str = "The scheduled message was changed after the agent asked, and \
+                                approving would undo that change. Reject this request, and have \
+                                the agent ask again if it's still wanted.";
+const SCHEDULE_UNKNOWN: &str = "This request was made by an older version of Whatomato, which \
+                                can't tell whether the scheduled message changed since the agent \
+                                asked. Reject it, and have the agent ask again if it's still \
+                                wanted.";
 
 /// Creates the delivery or creates or changes the schedule, in the approval's transaction
 async fn carry_out(
@@ -432,8 +522,22 @@ async fn carry_out(
         }
         Request::ScheduleUpdate {
             scheduled_message_id,
+            schedule_updated_at,
             schedule,
         } => {
+            let cant = |sentence: &str| ReviewError::CantApprove(vec![sentence.to_owned()]);
+            let locked =
+                scheduled_messages::find_locked(&mut *transaction, *scheduled_message_id, user_id)
+                    .await?
+                    .ok_or_else(|| cant(SCHEDULE_DELETED))?;
+            // Writing the whole request back would undo whatever changed it since
+            match schedule_updated_at {
+                None => return Err(cant(SCHEDULE_UNKNOWN)),
+                Some(asked_at) if locked.updated_at > *asked_at => {
+                    return Err(cant(SCHEDULE_CHANGED));
+                }
+                Some(_) => {}
+            }
             let message = scheduled_messages::update(
                 &mut *transaction,
                 *scheduled_message_id,
@@ -443,11 +547,7 @@ async fn carry_out(
                 BelongsTo::Unchanged,
             )
             .await?
-            .ok_or_else(|| {
-                ReviewError::CantApprove(vec![
-                    "The scheduled message this would change has been deleted.".to_owned(),
-                ])
-            })?;
+            .ok_or_else(|| cant(SCHEDULE_DELETED))?;
             Became {
                 delivery_id: None,
                 scheduled_message_id: Some(message.id),

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE scheduled_messages SET next_run_at = $2, last_run_at = $3, enabled = $2::timestamptz IS NOT NULL, updated_at = CASE WHEN $2::timestamptz IS NULL THEN now() ELSE updated_at END WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "95b1e1a340379a1989bcadf89fdfb59f3d9d946212b1a1f4700ed72c7c99f444"
+}

@@ -10,7 +10,7 @@ use super::{Caller, More, OpError, Page, Trace, fit, whatsapp_state};
 use crate::{
     agents::{
         DAILY_CEILING, Decision, Grant, WAITING_MAX,
-        decide::{Action, Facts, decide},
+        decide::{Action, Facts, SCHEDULES_MAX, decide},
         grant::{Contacts, Deliveries, Schedules, Scope, SendLevel, Strangers, Templates},
     },
     db::{agent_connections, message_templates, whatsapp_contacts},
@@ -101,6 +101,11 @@ pub struct Limits {
     pub approvals_waiting: u32,
     /// The most that may wait at once
     pub approvals_waiting_max: u32,
+    /// Scheduled messages that belong to this connection, counting its requests for a new one
+    /// still waiting for approval
+    pub schedules: u32,
+    /// The most it may hold
+    pub schedules_max: u32,
 }
 
 /// The connection, its WhatsApp, what it may do and how much of its limits it has used
@@ -121,6 +126,7 @@ pub async fn whoami(
 async fn run_whoami(state: &AppState, caller: &Caller) -> Result<WhoAmI, OpError> {
     let grant = &caller.grant;
     let (sends, waiting) = agent_connections::usage(&state.pool, caller.id()).await?;
+    let schedules = agent_connections::held_schedules(&state.pool, caller.id()).await?;
     let chats = &grant.chats;
     Ok(WhoAmI {
         connection_name: caller.connection.name.clone(),
@@ -142,6 +148,8 @@ async fn run_whoami(state: &AppState, caller: &Caller) -> Result<WhoAmI, OpError
             daily_ceiling: DAILY_CEILING,
             approvals_waiting: waiting,
             approvals_waiting_max: WAITING_MAX,
+            schedules,
+            schedules_max: SCHEDULES_MAX,
         },
         default_note: match chats.scope {
             Scope::All => chats.default.note.clone(),
@@ -212,12 +220,22 @@ pub fn summary(grant: &Grant) -> Vec<String> {
         match grant.schedules {
             Schedules::None => "It can't see or manage scheduled messages.",
             Schedules::Own => {
-                "It can schedule messages, and see and manage only the ones it scheduled."
+                "It can schedule messages, and see and manage only its own: the ones it scheduled \
+                 or changed."
             }
-            Schedules::All => "It can schedule messages, and see and manage all of them.",
+            Schedules::All => {
+                "It can schedule messages, and see and manage all of them. One it changes without \
+                 asking becomes its own."
+            }
         }
         .to_owned(),
     );
+    if grant.schedules != Schedules::None {
+        lines.push(format!(
+            "It may hold at most {SCHEDULES_MAX} scheduled messages, and may not schedule one to \
+             go out more often than once an hour."
+        ));
+    }
     lines.push(
         match grant.templates {
             Templates::Read => "It can read message templates.",

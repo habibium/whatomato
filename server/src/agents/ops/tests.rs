@@ -179,7 +179,7 @@ fn tomorrow() -> DateTime<Utc> {
 
 const fn update(id: Uuid) -> UpdateScheduleInput {
     UpdateScheduleInput {
-        id,
+        scheduled_message_id: id,
         recipient_type: None,
         recipient: None,
         body: None,
@@ -506,12 +506,21 @@ async fn refusals_name_their_reason_and_send_nothing(pool: PgPool) {
         send_message(&state, &view_only, send_to(GROUP, "Hi")).await,
         "sending_off",
     );
+    // A rule of no is the reason even for a number that isn't saved
     refused_with(
         send_message(&state, &view_only, send_to(STRANGER, "Hi")).await,
+        "sending_off",
+    );
+
+    let mut wary = Preset::AskBeforeSending.grant();
+    wary.chats.strangers = Strangers::Never;
+    let wary = connect(&state, owner, &wary).await;
+    refused_with(
+        send_message(&state, &wary, send_to(STRANGER, "Hi")).await,
         "strangers_never",
     );
     assert_eq!(
-        last_activity(&state, &view_only).await,
+        last_activity(&state, &wary).await,
         (
             "send_message".to_owned(),
             Outcome::Denied,
@@ -840,7 +849,7 @@ async fn scheduling_creates_asks_or_refuses(pool: PgPool) {
         .unwrap();
     assert_eq!(created.outcome, ScheduleOutcome::Created);
     let schedule = created.schedule.unwrap();
-    assert!(schedule.created_by_this_connection);
+    assert!(schedule.belongs_to_this_connection);
     assert_eq!(schedule.recipient, ADA);
     let stored = scheduled_messages::find(&state.pool, schedule.id, owner)
         .await
@@ -947,7 +956,14 @@ async fn schedules_are_own_or_all_as_the_grant_says(pool: PgPool) {
         "not_own_schedule",
     );
     refused_with(
-        delete_scheduled_message(&state, &own, DeleteScheduleInput { id: theirs.id }).await,
+        delete_scheduled_message(
+            &state,
+            &own,
+            DeleteScheduleInput {
+                scheduled_message_id: theirs.id,
+            },
+        )
+        .await,
         "not_own_schedule",
     );
 
@@ -959,11 +975,24 @@ async fn schedules_are_own_or_all_as_the_grant_says(pool: PgPool) {
     assert_eq!(changed.outcome, ScheduleOutcome::Updated);
     assert_eq!(changed.schedule.unwrap().body, "Changed");
 
-    delete_scheduled_message(&state, &all, DeleteScheduleInput { id: mine.id })
-        .await
-        .unwrap();
+    delete_scheduled_message(
+        &state,
+        &all,
+        DeleteScheduleInput {
+            scheduled_message_id: mine.id,
+        },
+    )
+    .await
+    .unwrap();
     assert!(matches!(
-        delete_scheduled_message(&state, &all, DeleteScheduleInput { id: mine.id }).await,
+        delete_scheduled_message(
+            &state,
+            &all,
+            DeleteScheduleInput {
+                scheduled_message_id: mine.id
+            }
+        )
+        .await,
         Err(OpError::NotFound(_))
     ));
 
@@ -1008,6 +1037,7 @@ async fn an_update_is_decided_for_the_chat_it_will_send_to(pool: PgPool) {
     let Request::ScheduleUpdate {
         scheduled_message_id,
         schedule: whole,
+        ..
     } = review::open(&state.cipher, &waiting).unwrap()
     else {
         panic!("an update")
@@ -1121,14 +1151,21 @@ async fn an_agent_sees_only_its_own_approvals(pool: PgPool) {
         .approval_id
         .unwrap();
 
-    let seen = get_approval(&state, &one, GetApprovalInput { id: mine })
+    let seen = get_approval(&state, &one, GetApprovalInput { approval_id: mine })
         .await
         .unwrap();
     assert_eq!(seen.status, ApprovalStatus::Waiting);
     assert_eq!(seen.kind, ApprovalKind::Send);
     assert!(seen.delivery.is_none());
     assert!(matches!(
-        get_approval(&state, &one, GetApprovalInput { id: theirs }).await,
+        get_approval(
+            &state,
+            &one,
+            GetApprovalInput {
+                approval_id: theirs
+            }
+        )
+        .await,
         Err(OpError::NotFound(_))
     ));
     let listed = list_approvals(&state, &one, ListApprovalsInput::default())
@@ -1155,10 +1192,15 @@ async fn approving_a_send_queues_it_once_for_the_connection(pool: PgPool) {
     let owner = user(&state.pool).await;
     let (caller, id) = asked_send(&state, owner, "Hello").await;
 
-    assert!(matches!(
-        review::approve(&state, id, owner, None).await,
-        Err(ReviewError::CantApprove(_))
-    ));
+    let Err(ReviewError::CantApprove(problems)) = review::approve(&state, id, owner, None).await
+    else {
+        panic!("can't approve")
+    };
+    // Read by the owner, so it says what they can do, not what "the owner" can
+    assert_eq!(
+        problems,
+        ["WhatsApp isn't linked, so this message can't be sent. Link WhatsApp, then approve it."]
+    );
 
     connected(&state, owner);
     let approved = review::approve(&state, id, owner, None).await.unwrap();
@@ -1179,7 +1221,7 @@ async fn approving_a_send_queues_it_once_for_the_connection(pool: PgPool) {
     ));
     assert_eq!(delivery_rows(&state.pool, owner).await.len(), 1);
 
-    let seen = get_approval(&state, &caller, GetApprovalInput { id })
+    let seen = get_approval(&state, &caller, GetApprovalInput { approval_id: id })
         .await
         .unwrap();
     assert_eq!(seen.status, ApprovalStatus::Approved);
@@ -1220,7 +1262,10 @@ async fn the_owner_can_edit_the_text_but_not_into_a_bad_one(pool: PgPool) {
     };
     assert_eq!(
         problems,
-        ["`body` has a problem: {{nope}} isn't a variable."]
+        [
+            "The text has a problem: {{nope}} isn't a variable.",
+            "Edit the text and approve it, or reject this request."
+        ]
     );
     assert_eq!(
         approval(&state, id, owner).await.status,
@@ -1266,7 +1311,7 @@ async fn an_expired_or_rejected_approval_cant_be_approved(pool: PgPool) {
         Err(ReviewError::NotWaiting(ApprovalStatus::Rejected))
     ));
     assert_eq!(delivery_rows(&state.pool, owner).await.len(), 0);
-    let seen = get_approval(&state, &caller, GetApprovalInput { id })
+    let seen = get_approval(&state, &caller, GetApprovalInput { approval_id: id })
         .await
         .unwrap();
     assert_eq!(seen.status, ApprovalStatus::Rejected);
@@ -1327,7 +1372,13 @@ async fn a_schedule_whose_time_has_passed_stays_waiting(pool: PgPool) {
     else {
         panic!("can't approve")
     };
-    assert_eq!(problems, ["`run_at` must be in the future."]);
+    assert_eq!(
+        problems,
+        [
+            "The time it was to be sent has passed.",
+            "Reject this request, and have the agent ask again if it's still wanted."
+        ]
+    );
     assert_eq!(
         approval(&state, id, owner).await.status,
         ApprovalStatus::Waiting
@@ -1382,7 +1433,10 @@ async fn approving_an_update_changes_the_schedule_and_keeps_its_creator(pool: Pg
     };
     assert_eq!(
         problems,
-        ["The scheduled message this would change has been deleted."]
+        [
+            "The scheduled message this would change has been deleted, so there's nothing left to \
+             change. Reject this request."
+        ]
     );
     assert_eq!(
         approval(&state, id, owner).await.status,
@@ -1469,7 +1523,9 @@ fn operations_can_run_on_any_thread() {
         send(&get_approval(
             state,
             caller,
-            GetApprovalInput { id: Uuid::nil() },
+            GetApprovalInput {
+                approval_id: Uuid::nil(),
+            },
         ));
         send(&list_approvals(
             state,
@@ -1490,7 +1546,9 @@ fn operations_can_run_on_any_thread() {
         send(&delete_scheduled_message(
             state,
             caller,
-            DeleteScheduleInput { id: Uuid::nil() },
+            DeleteScheduleInput {
+                scheduled_message_id: Uuid::nil(),
+            },
         ));
         send(&list_templates(
             state,
@@ -1646,8 +1704,9 @@ async fn an_agent_may_schedule_at_most_hourly(pool: PgPool) {
 
     for expression in ["* * * * *", "*/30 * * * *", "0-5 9 * * *", "0,59 9 * * 1"] {
         match schedule_message(&state, &caller, every(expression)).await {
-            Err(OpError::Invalid(problems)) => {
-                let problem = problems.join(" ");
+            Err(error @ OpError::TooFrequent(_)) => {
+                assert_eq!(error.code(), "too_frequent");
+                let problem = error.to_string();
                 assert!(problem.contains("once an hour"), "{expression}: {problem}");
                 assert!(problem.contains("web app"), "{expression}: {problem}");
             }
@@ -1694,7 +1753,7 @@ async fn an_agent_may_schedule_at_most_hourly(pool: PgPool) {
     };
     assert!(matches!(
         update_scheduled_message(&state, &caller, denser).await,
-        Err(OpError::Invalid(_))
+        Err(OpError::TooFrequent(_))
     ));
 }
 
@@ -1855,7 +1914,7 @@ async fn a_schedule_an_agent_changes_becomes_that_agents(pool: PgPool) {
         .unwrap()
         .schedule
         .unwrap();
-    assert!(changed.created_by_this_connection);
+    assert!(changed.belongs_to_this_connection);
     assert_eq!(belongs_to(&state, owners, owner).await, Some(agent_id));
     assert_eq!(
         agent_connections::schedules(&state.pool, agent_id, owner)
@@ -1917,9 +1976,15 @@ async fn switching_off_or_deleting_takes_nothing_over(pool: PgPool) {
     off.enabled = Some(false);
     update_scheduled_message(&state, &agent, off).await.unwrap();
     assert_eq!(belongs_to(&state, ids[0], owner).await, None);
-    delete_scheduled_message(&state, &agent, DeleteScheduleInput { id: ids[1] })
-        .await
-        .unwrap();
+    delete_scheduled_message(
+        &state,
+        &agent,
+        DeleteScheduleInput {
+            scheduled_message_id: ids[1],
+        },
+    )
+    .await
+    .unwrap();
 }
 
 #[sqlx::test]
@@ -1957,7 +2022,14 @@ async fn a_grant_narrowed_after_the_key_was_looked_up_decides(pool: PgPool) {
         "schedules_off",
     );
     refused_with(
-        delete_scheduled_message(&state, &stale, DeleteScheduleInput { id: theirs }).await,
+        delete_scheduled_message(
+            &state,
+            &stale,
+            DeleteScheduleInput {
+                scheduled_message_id: theirs,
+            },
+        )
+        .await,
         "schedules_off",
     );
     assert_eq!(delivery_rows(&state.pool, owner).await.len(), 0);
@@ -2010,13 +2082,25 @@ async fn a_connection_has_at_most_50_schedules(pool: PgPool) {
     own.body = Some("Still mine".to_owned());
     update_scheduled_message(&state, &agent, own).await.unwrap();
 
-    delete_scheduled_message(&state, &agent, DeleteScheduleInput { id: owners })
-        .await
-        .unwrap();
+    delete_scheduled_message(
+        &state,
+        &agent,
+        DeleteScheduleInput {
+            scheduled_message_id: owners,
+        },
+    )
+    .await
+    .unwrap();
     let mine = schedules_of(&state, owner, Some(agent_id), 0).await;
-    delete_scheduled_message(&state, &agent, DeleteScheduleInput { id: mine[0] })
-        .await
-        .unwrap();
+    delete_scheduled_message(
+        &state,
+        &agent,
+        DeleteScheduleInput {
+            scheduled_message_id: mine[0],
+        },
+    )
+    .await
+    .unwrap();
     schedule_message(&state, &agent, once_at(ADA, tomorrow()))
         .await
         .unwrap();
@@ -2055,4 +2139,299 @@ async fn approvals_count_toward_the_50_and_the_owner_may_go_past(pool: PgPool) {
             .unwrap(),
         51
     );
+}
+
+/// An agent that asks before changing any schedule, and the approval for its change to `id`'s text
+async fn asked_update(state: &AppState, owner: Uuid, id: Uuid) -> (Caller, Uuid) {
+    let mut asking = Preset::AskBeforeSending.grant();
+    asking.schedules = Schedules::All;
+    let asker = connect(state, owner, &asking).await;
+    let mut change = update(id);
+    change.body = Some("The agent's text".to_owned());
+    let result = update_scheduled_message(state, &asker, change)
+        .await
+        .unwrap();
+    assert_eq!(result.outcome, ScheduleOutcome::WaitingForApproval);
+    (asker, result.approval_id.unwrap())
+}
+
+#[track_caller]
+fn changed_since(result: Result<agent_approvals::Approval, ReviewError>) {
+    let Err(ReviewError::CantApprove(problems)) = result else {
+        panic!("the approval should have been refused as changed since")
+    };
+    assert_eq!(
+        problems,
+        [
+            "The scheduled message was changed after the agent asked, and approving would undo \
+             that change. Reject this request, and have the agent ask again if it's still wanted."
+        ]
+    );
+}
+
+#[sqlx::test]
+async fn approving_a_change_is_refused_once_the_schedule_changed_since(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let [switched, edited, untouched] = schedules_of(&state, owner, None, 3).await[..] else {
+        panic!("three schedules")
+    };
+
+    // The owner switched it off after the agent asked
+    let (_, id) = asked_update(&state, owner, switched).await;
+    scheduled_messages::set_enabled(&state.pool, switched, owner, false, None)
+        .await
+        .unwrap();
+    changed_since(review::approve(&state, id, owner, None).await);
+    let still = scheduled_messages::find(&state.pool, switched, owner)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(!still.enabled);
+    assert_eq!(still.body, "Hello");
+    assert_eq!(
+        approval(&state, id, owner).await.status,
+        ApprovalStatus::Waiting
+    );
+    review::reject(&state.pool, id, owner).await.unwrap();
+
+    // The owner edited it after the agent asked
+    let (_, id) = asked_update(&state, owner, edited).await;
+    sqlx::query(
+        "UPDATE scheduled_messages SET body = 'The owner''s text', updated_at = now() \
+         WHERE id = $1",
+    )
+    .bind(edited)
+    .execute(&state.pool)
+    .await
+    .unwrap();
+    changed_since(review::approve(&state, id, owner, Some("Edited".to_owned())).await);
+    let still = scheduled_messages::find(&state.pool, edited, owner)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(still.body, "The owner's text");
+    review::reject(&state.pool, id, owner).await.unwrap();
+
+    // Nothing changed in between
+    let (_, id) = asked_update(&state, owner, untouched).await;
+    review::approve(&state, id, owner, None).await.unwrap();
+    let changed = scheduled_messages::find(&state.pool, untouched, owner)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(changed.body, "The agent's text");
+    assert!(changed.enabled);
+}
+
+#[sqlx::test]
+async fn a_recurring_schedule_running_doesnt_count_as_a_change(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let free = connect(&state, owner, &Preset::FullAccess.grant()).await;
+    let hourly = schedule_message(&state, &free, every("0 * * * *"))
+        .await
+        .unwrap()
+        .schedule
+        .unwrap();
+    let (_, id) = asked_update(&state, owner, hourly.id).await;
+
+    fire(&state, hourly.id).await.unwrap();
+    review::approve(&state, id, owner, None).await.unwrap();
+}
+
+#[sqlx::test]
+async fn a_change_asked_for_before_the_time_was_kept_opens_but_cant_be_approved(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let schedule = schedules_of(&state, owner, None, 1).await[0];
+    let (_, id) = asked_update(&state, owner, schedule).await;
+
+    // Sealed as version 1 sealed it: no version 2 field
+    let waiting = approval(&state, id, owner).await;
+    let request = serde_json::to_value(review::open(&state.cipher, &waiting).unwrap()).unwrap();
+    let mut old = request.clone();
+    old.as_object_mut().unwrap().remove("schedule_updated_at");
+    let plain = serde_json::to_vec(&json!({ "version": 1, "request": old })).unwrap();
+    let context = [b"agent_approval:".as_slice(), id.as_bytes()].concat();
+    let sealed = state.cipher.encrypt(&plain, &context).unwrap();
+    sqlx::query("UPDATE agent_approvals SET payload = $2 WHERE id = $1")
+        .bind(id)
+        .bind(&sealed)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+
+    let waiting = approval(&state, id, owner).await;
+    let Request::ScheduleUpdate {
+        schedule_updated_at,
+        ..
+    } = review::open(&state.cipher, &waiting).unwrap()
+    else {
+        panic!("an update")
+    };
+    assert_eq!(schedule_updated_at, None);
+    let Err(ReviewError::CantApprove(problems)) = review::approve(&state, id, owner, None).await
+    else {
+        panic!("can't approve")
+    };
+    assert!(problems[0].contains("older version"), "{problems:?}");
+    review::reject(&state.pool, id, owner).await.unwrap();
+
+    // Version 2 must carry the time
+    let plain = serde_json::to_vec(&json!({ "version": 2, "request": old })).unwrap();
+    let mut forged = waiting;
+    forged.payload = state.cipher.encrypt(&plain, &context).unwrap();
+    assert!(review::open(&state.cipher, &forged).is_err());
+}
+
+#[sqlx::test]
+async fn a_change_that_changes_nothing_writes_nothing(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let agent = connect(&state, owner, &Preset::FullAccess.grant()).await;
+    let other = connect(&state, owner, &Preset::FullAccess.grant()).await;
+    let mut asking = Preset::AskBeforeSending.grant();
+    asking.schedules = Schedules::All;
+    let asker = connect(&state, owner, &asking).await;
+    let owners = schedules_of(&state, owner, None, 1).await[0];
+    let others = schedules_of(&state, owner, Some(other.connection().id), 1).await[0];
+    let stored = |id| {
+        let pool = state.pool.clone();
+        async move {
+            scheduled_messages::find(&pool, id, owner)
+                .await
+                .unwrap()
+                .unwrap()
+        }
+    };
+    let held = |caller: &Caller| {
+        let pool = state.pool.clone();
+        let id = caller.connection().id;
+        async move { agent_connections::held_schedules(&pool, id).await.unwrap() }
+    };
+
+    for (id, belongs) in [(owners, None), (others, Some(other.connection().id))] {
+        let before = stored(id).await;
+        // Equal once normalized
+        let same = || UpdateScheduleInput {
+            enabled: Some(true),
+            body: Some(format!("  {}  ", before.body)),
+            recipient: Some(format!("+{}", before.recipient)),
+            run_at: before.run_at,
+            ..update(id)
+        };
+        for caller in [&agent, &asker] {
+            let answer = update_scheduled_message(&state, caller, same())
+                .await
+                .unwrap();
+            assert_eq!(answer.outcome, ScheduleOutcome::Unchanged);
+            assert!(answer.approval_id.is_none());
+            let shown = answer.schedule.unwrap();
+            assert_eq!(shown.id, id);
+            assert!(!shown.belongs_to_this_connection);
+            assert_eq!(
+                last_activity(&state, caller).await,
+                (
+                    "update_scheduled_message".to_owned(),
+                    Outcome::Allowed,
+                    None
+                )
+            );
+        }
+        assert_eq!(stored(id).await.updated_at, before.updated_at);
+        assert_eq!(stored(id).await.connection_id, belongs);
+
+        // Switching off one that's off changes nothing either
+        set_off(&state, id, owner).await;
+        let off = stored(id).await;
+        let mut again = update(id);
+        again.enabled = Some(false);
+        let answer = update_scheduled_message(&state, &agent, again)
+            .await
+            .unwrap();
+        assert_eq!(answer.outcome, ScheduleOutcome::Unchanged);
+
+        let after = stored(id).await;
+        assert_eq!(after.connection_id, belongs);
+        assert_eq!(after.updated_at, off.updated_at);
+        assert_eq!(after.body, before.body);
+    }
+    assert_eq!(held(&agent).await, 0);
+    assert_eq!(held(&asker).await, 0);
+    assert_eq!(held(&other).await, 1);
+    let approvals: i64 = sqlx::query_scalar("SELECT count(*) FROM agent_approvals")
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
+    assert_eq!(approvals, 0);
+}
+
+async fn set_off(state: &AppState, id: Uuid, owner: Uuid) {
+    scheduled_messages::set_enabled(&state.pool, id, owner, false, None)
+        .await
+        .unwrap();
+}
+
+#[sqlx::test]
+async fn an_owners_edit_made_while_an_agent_waited_for_the_lock_survives(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let agent = connect(&state, owner, &Preset::FullAccess.grant()).await;
+    let agent_id = agent.connection().id;
+    let schedule = schedules_of(&state, owner, None, 1).await[0];
+
+    // Holding the connection's lock keeps the agent between its first read and its lock
+    let mut held = state.pool.begin().await.unwrap();
+    agent_connections::lock(&mut *held, agent_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut change = update(schedule);
+    change.body = Some("The agent's text".to_owned());
+    let call = tokio::spawn({
+        let state = state.clone();
+        async move { update_scheduled_message(&state, &agent, change).await }
+    });
+    // Until the agent waits on the lock, which the owner's edit then follows
+    let waiting = "SELECT count(*) FROM pg_stat_activity \
+                   WHERE datname = current_database() AND wait_event_type = 'Lock' \
+                       AND query LIKE '%FROM agent_connections%'";
+    while sqlx::query_scalar::<_, i64>(waiting)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap()
+        == 0
+    {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    set_off(&state, schedule, owner).await;
+    held.commit().await.unwrap();
+
+    let changed = call.await.unwrap().unwrap().schedule.unwrap();
+    assert_eq!(changed.body, "The agent's text");
+    assert!(!changed.enabled, "the owner's switch-off survives");
+    assert!(changed.belongs_to_this_connection);
+}
+
+#[sqlx::test]
+async fn whoami_counts_the_schedules_held_against_the_cap(pool: PgPool) {
+    let state = state(pool);
+    let owner = user(&state.pool).await;
+    let asker = connect(&state, owner, &Preset::AskBeforeSending.grant()).await;
+    schedules_of(&state, owner, Some(asker.connection().id), 2).await;
+    schedule_message(&state, &asker, once_at(ADA, tomorrow()))
+        .await
+        .unwrap();
+
+    let me = whoami(&state, &asker, WhoAmIInput {}).await.unwrap();
+    assert_eq!(me.limits.schedules, 3);
+    assert_eq!(me.limits.schedules_max, 50);
+    let summary = me.summary.join(" ");
+    assert!(
+        summary.contains("at most 50 scheduled messages"),
+        "{summary}"
+    );
+    assert!(summary.contains("once an hour"), "{summary}");
+    assert!(summary.contains("scheduled or changed"), "{summary}");
 }

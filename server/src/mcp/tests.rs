@@ -750,6 +750,10 @@ async fn an_unknown_tool_is_a_protocol_error_and_bad_input_a_tool_error(pool: Pg
     )
     .await;
     assert!(missing.contains("recipient_type"), "{missing}");
+    assert!(
+        missing.starts_with("The arguments couldn't be read, so nothing was done:"),
+        "{missing}"
+    );
 
     let invalid = tool_error(
         &app,
@@ -761,6 +765,26 @@ async fn an_unknown_tool_is_a_protocol_error_and_bad_input_a_tool_error(pool: Pg
     assert!(
         invalid.starts_with("This request has problems:"),
         "{invalid}"
+    );
+
+    // A call that reached no operation is still in the owner's log; one naming no real tool isn't
+    let recorded: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT tool, outcome, reason FROM agent_activity WHERE user_id = $1 ORDER BY created_at, id",
+    )
+    .bind(owner)
+    .fetch_all(&app.pool)
+    .await
+    .unwrap();
+    let recorded: Vec<_> = recorded
+        .iter()
+        .map(|(tool, outcome, reason)| (tool.as_str(), outcome.as_str(), reason.as_deref()))
+        .collect();
+    assert_eq!(
+        recorded,
+        [
+            ("send_message", "failed", Some("unreadable_arguments")),
+            ("send_message", "failed", Some("invalid_input")),
+        ]
     );
 }
 
@@ -1005,17 +1029,24 @@ async fn a_blocked_address_still_gets_real_keys_looked_up_within_a_budget(pool: 
     let fresh = legacy(&app, Some(&unused), "tools/list", json!({})).await;
     assert_eq!(fresh.status, StatusCode::OK);
 
-    // Wrong keys spend the address's lookups
-    for _ in 0..120 {
-        let refused = legacy(&app, Some(&wrong()), "tools/list", json!({})).await;
-        assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS);
-    }
-
-    // Without a database, a lookup would fail with 500; a refusal before it doesn't
+    // Without a database a lookup fails with 500, so wrong keys show where the budget ends: 300
+    // lookups, one of them spent above, then 5 a second
     app.pool.close().await;
+    let started = std::time::Instant::now();
+    let mut looked_up = 0;
+    loop {
+        let response = legacy(&app, Some(&wrong()), "tools/list", json!({})).await;
+        if response.status == StatusCode::TOO_MANY_REQUESTS {
+            assert!(response.headers.contains_key(header::RETRY_AFTER));
+            break;
+        }
+        assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR);
+        looked_up += 1;
+    }
+    let refilled = u32::try_from(started.elapsed().as_millis() / 200).unwrap();
+    assert!((299..=299 + refilled).contains(&looked_up), "{looked_up}");
     let malformed = format!("{}tooshort", crate::agents::key::PREFIX);
-    let lookups_spent = wrong();
-    for key in [None, Some(malformed.as_str()), Some(lookups_spent.as_str())] {
+    for key in [None, Some(malformed.as_str())] {
         let refused = legacy(&app, key, "tools/list", json!({})).await;
         assert_eq!(refused.status, StatusCode::TOO_MANY_REQUESTS, "{key:?}");
         assert!(refused.headers.contains_key(header::RETRY_AFTER));

@@ -180,6 +180,9 @@ pub enum OpError {
     /// Called too often; says how long to wait
     #[error("{0}")]
     TooOften(&'static str),
+    /// A schedule that would send more often than an agent may schedule
+    #[error("{0}")]
+    TooFrequent(&'static str),
     /// Logged; the agent hears only that something went wrong
     #[error("Something went wrong on the server, so nothing was done. Try again in a few minutes.")]
     Internal(anyhow::Error),
@@ -195,6 +198,7 @@ impl OpError {
             Self::NotFound(_) => "not_found",
             Self::WhatsAppNotReady(_) => "whatsapp_not_ready",
             Self::TooOften(_) => "too_often",
+            Self::TooFrequent(_) => "too_frequent",
             Self::Internal(_) => "internal",
         }
     }
@@ -274,9 +278,9 @@ impl Trace {
         let (outcome, reason) = match result {
             Ok(_) if self.asked => (Outcome::Asked, None),
             Ok(_) => (Outcome::Allowed, None),
-            Err(error @ (OpError::Refused { .. } | OpError::TooOften(_))) => {
-                (Outcome::Denied, Some(error.code()))
-            }
+            Err(
+                error @ (OpError::Refused { .. } | OpError::TooOften(_) | OpError::TooFrequent(_)),
+            ) => (Outcome::Denied, Some(error.code())),
             Err(error) => (Outcome::Failed, Some(error.code())),
         };
         if let Err(OpError::Internal(error)) = result {
@@ -311,6 +315,30 @@ impl Trace {
         }
     }
 }
+
+/// Records a call to `tool` whose arguments couldn't be read, so it reached no operation. A failure
+/// to record is logged, never passed on.
+pub async fn record_unreadable(state: &AppState, caller: &Caller, tool: &str) {
+    let written = agent_activity::insert(
+        &state.pool,
+        NewActivity {
+            user_id: caller.user_id(),
+            connection_id: caller.id(),
+            connection_name: &caller.connection.name,
+            tool,
+            chat: None,
+            outcome: Outcome::Failed,
+            reason: Some(UNREADABLE_ARGUMENTS),
+        },
+    )
+    .await;
+    if let Err(error) = written {
+        tracing::error!(tool, connection_id = %caller.id(), ?error, "couldn't record an agent's activity");
+    }
+}
+
+/// The reason recorded for a call whose arguments couldn't be read
+pub const UNREADABLE_ARGUMENTS: &str = "unreadable_arguments";
 
 /// Paging for every list. `limit` and `offset` are left out of a schema's required fields.
 #[derive(Clone, Copy, Debug, Default, Deserialize, JsonSchema)]
@@ -558,6 +586,7 @@ async fn tell_owner(state: &AppState, caller: &Caller, approval: &Approval) {
         Ok(true) => {
             let alert = AgentAlert::ApprovalWaiting {
                 name: &caller.connection.name,
+                kind: approval.kind,
                 approval_id: approval.id,
             };
             alerts::send(state, caller.user_id(), alert).await;

@@ -34,11 +34,11 @@ const AGENT_KEY_FAILURES_BURST: NonZeroU32 = NonZeroU32::new(20).unwrap();
 const AGENT_KEY_FAILURES_REFILL: Duration = Duration::from_secs(6);
 /// How long a key that worked may still reach the lookup from an address over its failure limit
 const AGENT_KEY_REMEMBERED: Duration = Duration::from_hours(24);
-/// Lookups of well-formed keys an address over its failure limit still gets: 60, then one a second.
-/// Three times the failure burst and six times its refill, so an agent sharing the address keeps
-/// getting in, while a flood of wrong keys costs at most one indexed query a second per address.
-const AGENT_KEY_LOOKUPS_BURST: NonZeroU32 = NonZeroU32::new(60).unwrap();
-const AGENT_KEY_LOOKUPS_REFILL: Duration = Duration::from_secs(1);
+/// Lookups of well-formed keys an address over its failure limit still gets: 300, then 5 a second.
+/// A flood of wrong keys from a shared address can then slow a real key's first call, never block
+/// it, while costing at most five indexed queries a second per address.
+const AGENT_KEY_LOOKUPS_BURST: NonZeroU32 = NonZeroU32::new(300).unwrap();
+const AGENT_KEY_LOOKUPS_REFILL: Duration = Duration::from_millis(200);
 /// Entries each of the agent key maps may hold
 const AGENT_KEY_ENTRIES_MAX: usize = 10_000;
 const AGENT_SEARCHES_PER_MINUTE: NonZeroU32 = NonZeroU32::new(20).unwrap();
@@ -402,6 +402,27 @@ mod tests {
             let _ = limits.agent_key_failure(IpAddr::V4(Ipv4Addr::BROADCAST));
         }
         assert_eq!(limits.agent_key_blocked.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_blocked_address_gets_300_lookups_and_keys_that_worked_skip_them() {
+        let limits = RateLimits::default();
+        let ip = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1));
+        let worked = [1; 32];
+        limits.agent_key_worked(worked);
+        while limits.agent_key_failure(ip).is_ok() {}
+
+        let started = Instant::now();
+        let mut looked_up = 0;
+        while limits.agent_key_lookup(ip, &[2; 32]).is_ok() {
+            looked_up += 1;
+        }
+        // Five a second refill while the loop runs
+        let refilled = u32::try_from(started.elapsed().as_millis() / 200).unwrap();
+        assert!((300..=300 + refilled).contains(&looked_up), "{looked_up}");
+        assert!(limits.agent_key_lookup(ip, &worked).is_ok());
+        let elsewhere = IpAddr::V4(Ipv4Addr::new(192, 0, 2, 2));
+        assert!(limits.agent_key_lookup(elsewhere, &[2; 32]).is_ok());
     }
 
     #[test]

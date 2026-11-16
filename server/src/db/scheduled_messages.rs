@@ -50,11 +50,14 @@ pub async fn list(
 ) -> sqlx::Result<Vec<Message>> {
     sqlx::query_as!(
         Message,
-        r#"SELECT m.id, m.user_id, m.connection_id, c.name AS "connection_name?",
-               m.recipient_type AS "recipient_type: RecipientType", m.recipient,
-               m.recipient_name, m.body, m.schedule_kind AS "schedule_kind: ScheduleKind",
-               m.run_at, m.recurrence AS "recurrence: Json<Recurrence>", m.timezone,
-               m.template_id, m.enabled, m.next_run_at, m.last_run_at, m.created_at, m.updated_at
+        r#"SELECT m.id AS "id!", m.user_id AS "user_id!", m.connection_id,
+               c.name AS "connection_name?",
+               m.recipient_type AS "recipient_type!: RecipientType", m.recipient AS "recipient!",
+               m.recipient_name, m.body AS "body!",
+               m.schedule_kind AS "schedule_kind!: ScheduleKind",
+               m.run_at, m.recurrence AS "recurrence: Json<Recurrence>", m.timezone AS "timezone!",
+               m.template_id, m.enabled AS "enabled!", m.next_run_at, m.last_run_at,
+               m.created_at AS "created_at!", m.updated_at AS "updated_at!"
            FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id
            WHERE m.user_id = $1 AND ($2::uuid IS NULL OR m.connection_id = $2)
            ORDER BY m.created_at, m.id"#,
@@ -72,11 +75,14 @@ pub async fn find(
 ) -> sqlx::Result<Option<Message>> {
     sqlx::query_as!(
         Message,
-        r#"SELECT m.id, m.user_id, m.connection_id, c.name AS "connection_name?",
-               m.recipient_type AS "recipient_type: RecipientType", m.recipient,
-               m.recipient_name, m.body, m.schedule_kind AS "schedule_kind: ScheduleKind",
-               m.run_at, m.recurrence AS "recurrence: Json<Recurrence>", m.timezone,
-               m.template_id, m.enabled, m.next_run_at, m.last_run_at, m.created_at, m.updated_at
+        r#"SELECT m.id AS "id!", m.user_id AS "user_id!", m.connection_id,
+               c.name AS "connection_name?",
+               m.recipient_type AS "recipient_type!: RecipientType", m.recipient AS "recipient!",
+               m.recipient_name, m.body AS "body!",
+               m.schedule_kind AS "schedule_kind!: ScheduleKind",
+               m.run_at, m.recurrence AS "recurrence: Json<Recurrence>", m.timezone AS "timezone!",
+               m.template_id, m.enabled AS "enabled!", m.next_run_at, m.last_run_at,
+               m.created_at AS "created_at!", m.updated_at AS "updated_at!"
            FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id
            WHERE m.id = $1 AND m.user_id = $2"#,
         id,
@@ -94,11 +100,14 @@ pub async fn find_locked(
 ) -> sqlx::Result<Option<Message>> {
     sqlx::query_as!(
         Message,
-        r#"SELECT m.id, m.user_id, m.connection_id, c.name AS "connection_name?",
-               m.recipient_type AS "recipient_type: RecipientType", m.recipient,
-               m.recipient_name, m.body, m.schedule_kind AS "schedule_kind: ScheduleKind",
-               m.run_at, m.recurrence AS "recurrence: Json<Recurrence>", m.timezone,
-               m.template_id, m.enabled, m.next_run_at, m.last_run_at, m.created_at, m.updated_at
+        r#"SELECT m.id AS "id!", m.user_id AS "user_id!", m.connection_id,
+               c.name AS "connection_name?",
+               m.recipient_type AS "recipient_type!: RecipientType", m.recipient AS "recipient!",
+               m.recipient_name, m.body AS "body!",
+               m.schedule_kind AS "schedule_kind!: ScheduleKind",
+               m.run_at, m.recurrence AS "recurrence: Json<Recurrence>", m.timezone AS "timezone!",
+               m.template_id, m.enabled AS "enabled!", m.next_run_at, m.last_run_at,
+               m.created_at AS "created_at!", m.updated_at AS "updated_at!"
            FROM scheduled_messages m LEFT JOIN agent_connections c ON c.id = m.connection_id
            WHERE m.id = $1 AND m.user_id = $2
            FOR UPDATE OF m"#,
@@ -266,6 +275,7 @@ pub async fn lock_due(
 }
 
 /// Records a run. Without a `next_run_at` the message has no more to do, so it's switched off.
+/// `updated_at` moves only then: a run changes nothing anyone set, and an approval compares it.
 pub async fn advance(
     db: impl PgExecutor<'_>,
     id: Uuid,
@@ -275,7 +285,7 @@ pub async fn advance(
     sqlx::query!(
         "UPDATE scheduled_messages \
          SET next_run_at = $2, last_run_at = $3, enabled = $2::timestamptz IS NOT NULL, \
-             updated_at = now() \
+             updated_at = CASE WHEN $2::timestamptz IS NULL THEN now() ELSE updated_at END \
          WHERE id = $1",
         id,
         next_run_at,

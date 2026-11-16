@@ -4,7 +4,7 @@ use url::Url;
 use uuid::Uuid;
 
 use super::{Email, LOGO_CID};
-use crate::{auth::token::Purpose, whatsapp::status::Alert};
+use crate::{agents::ApprovalKind, auth::token::Purpose, whatsapp::status::Alert};
 
 const PRODUCT_NAME: &str = "Whatomato";
 
@@ -252,10 +252,21 @@ fn whatsapp_alert(alert: Alert, app_url: &Url) -> anyhow::Result<Email> {
 /// Something about an AI agent connection the owner should hear of. `name` is the owner's own
 /// label for the connection, escaped before it lands in markup.
 pub enum AgentAlert<'a> {
-    Created { name: &'a str },
-    PermissionsChanged { name: &'a str },
-    KeyReplaced { name: &'a str },
-    ApprovalWaiting { name: &'a str, approval_id: Uuid },
+    Created {
+        name: &'a str,
+    },
+    PermissionsChanged {
+        name: &'a str,
+    },
+    KeyReplaced {
+        name: &'a str,
+    },
+    /// `kind` says what waits; the email never holds the message's text
+    ApprovalWaiting {
+        name: &'a str,
+        kind: ApprovalKind,
+        approval_id: Uuid,
+    },
 }
 
 const PAUSE_AGENTS: &str = "If this wasn't you, pause all agents on the Agents page in Whatomato, then change your password.";
@@ -297,17 +308,41 @@ pub fn agent_alert(alert: &AgentAlert, app_url: &Url) -> anyhow::Result<Email> {
             "/agents".to_owned(),
             NOTHING_ELSE_TO_DO,
         ),
-        AgentAlert::ApprovalWaiting { name, approval_id } => (
-            "A message is waiting for your approval",
-            "A message is waiting for your approval.",
-            format!(
-                "The AI agent connected as \u{201c}{name}\u{201d} asked to send a message from your WhatsApp. It won't go out unless you approve it within 24 hours."
-            ),
-            "If you didn't connect this agent, pause all agents on the Agents page in Whatomato, then change your password.",
-            "Review the message",
-            format!("/agents?approval={approval_id}"),
-            "Other requests in the next hour won't send another email; they wait on the same page.",
-        ),
+        AgentAlert::ApprovalWaiting {
+            name,
+            kind,
+            approval_id,
+        } => {
+            let (subject, heading, asked, action) = match kind {
+                ApprovalKind::Send => (
+                    "A message is waiting for your approval",
+                    "A message is waiting for your approval.",
+                    "asked to send a message from your WhatsApp. It won't go out unless you approve it within 24 hours.",
+                    "Review the message",
+                ),
+                ApprovalKind::ScheduleCreate => (
+                    "A new scheduled message is waiting for your approval",
+                    "A new scheduled message is waiting for your approval.",
+                    "asked to schedule a new message from your WhatsApp. It won't be scheduled unless you approve it within 24 hours.",
+                    "Review the scheduled message",
+                ),
+                ApprovalKind::ScheduleUpdate => (
+                    "A change to a scheduled message is waiting for your approval",
+                    "A change to a scheduled message is waiting for your approval.",
+                    "asked to change one of your scheduled messages. It stays as it is unless you approve the change within 24 hours.",
+                    "Review the change",
+                ),
+            };
+            (
+                subject,
+                heading,
+                format!("The AI agent connected as \u{201c}{name}\u{201d} {asked}"),
+                "If you didn't connect this agent, pause all agents on the Agents page in Whatomato, then change your password.",
+                action,
+                format!("/agents?approval={approval_id}"),
+                "Other requests in the next hour won't send another email; they wait on the same page.",
+            )
+        }
     };
     let link = app_url
         .join(&path)
@@ -446,7 +481,7 @@ mod tests {
         AgentAlert, RESET_NOW, SecurityEvent, agent_alert, escape, reset_password, security_alert,
         verify_email,
     };
-    use crate::whatsapp::status::Alert;
+    use crate::{agents::ApprovalKind, whatsapp::status::Alert};
 
     const PHONE: &str = "8801700000000";
 
@@ -697,8 +732,30 @@ mod tests {
                 "https://example.com/agents",
             ),
             (
-                AgentAlert::ApprovalWaiting { name, approval_id },
+                AgentAlert::ApprovalWaiting {
+                    name,
+                    kind: ApprovalKind::Send,
+                    approval_id,
+                },
                 "A message is waiting for your approval",
+                "https://example.com/agents?approval=00000000-0000-0000-0000-000000000000",
+            ),
+            (
+                AgentAlert::ApprovalWaiting {
+                    name,
+                    kind: ApprovalKind::ScheduleCreate,
+                    approval_id,
+                },
+                "A new scheduled message is waiting for your approval",
+                "https://example.com/agents?approval=00000000-0000-0000-0000-000000000000",
+            ),
+            (
+                AgentAlert::ApprovalWaiting {
+                    name,
+                    kind: ApprovalKind::ScheduleUpdate,
+                    approval_id,
+                },
+                "A change to a scheduled message is waiting for your approval",
                 "https://example.com/agents?approval=00000000-0000-0000-0000-000000000000",
             ),
         ];

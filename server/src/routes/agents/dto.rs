@@ -502,7 +502,7 @@ impl From<Activity> for AgentActivity {
 fn reason_text(code: &str) -> Option<&'static str> {
     Some(match code {
         "schedules_off" => "It isn't allowed to see or manage scheduled messages.",
-        "not_own_schedule" => "It tried to change a scheduled message it didn't create.",
+        "not_own_schedule" => "It tried to change a scheduled message that isn't its own.",
         "contacts_off" => "It isn't allowed to look up contacts and groups.",
         "templates_off" => "It isn't allowed to read templates.",
         "daily_ceiling" => "It had already sent the most it may in 24 hours.",
@@ -511,10 +511,18 @@ fn reason_text(code: &str) -> Option<&'static str> {
         "sending_off" => "It isn't allowed to send to that chat.",
         "chat_limit" => "It had reached its daily limit for that chat.",
         "too_many_waiting" => "Too many of its requests were already waiting for your approval.",
+        "too_many_schedules" => "It already held the most scheduled messages it may: 50.",
         "paused" => "The connection was paused.",
         "expired" => "The connection had expired.",
         "grant_unreadable" => "Its permissions couldn't be read.",
         "invalid_input" => "Its request had a problem, so nothing was done.",
+        "unreadable_arguments" => {
+            "Its request was missing a value or had one of the wrong kind, so nothing was done."
+        }
+        "too_frequent" => {
+            "It asked for a schedule that sends more often than once an hour, which an agent may \
+             not make."
+        }
         "not_found" => "What it asked for wasn't found.",
         "whatsapp_not_ready" => "WhatsApp wasn't ready to send.",
         "too_often" => "It searched chats more often than it may, so it was asked to wait.",

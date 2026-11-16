@@ -24,8 +24,10 @@ use crate::{
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GetApprovalInput {
-    /// The approval's id, as `send_message`, `schedule_message` or `update_scheduled_message` gave it
-    pub id: Uuid,
+    /// The `approval_id` that `send_message`, `schedule_message` or `update_scheduled_message`
+    /// gave, or an approval's `id` from `list_approvals`. `id` is accepted too.
+    #[serde(alias = "id")]
+    pub approval_id: Uuid,
 }
 
 #[derive(Debug, Default, Deserialize, JsonSchema)]
@@ -88,7 +90,7 @@ pub async fn get_approval(
     input: GetApprovalInput,
 ) -> Result<ApprovalView, OpError> {
     let mut trace = Trace::new("get_approval");
-    let result = run_get(state, caller, input.id, &mut trace).await;
+    let result = run_get(state, caller, input.approval_id, &mut trace).await;
     trace.finish(state, caller, &result).await;
     result
 }
