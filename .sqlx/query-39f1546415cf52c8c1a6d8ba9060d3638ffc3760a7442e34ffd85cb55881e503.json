@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT m.chat_type, m.chat_id, max(m.sent_at) AS \"last_message_at!\",\n                  count(*) AS \"messages!\"\n           FROM inbox_messages m\n           JOIN whatsapp_accounts a ON a.id = m.account_id\n           WHERE a.user_id = $1 AND (m.expires_at IS NULL OR m.expires_at > now())\n           GROUP BY m.chat_type, m.chat_id\n           ORDER BY max(m.sent_at) DESC, m.chat_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "chat_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "chat_type"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "chat_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "chat_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "last_message_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "messages!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "39f1546415cf52c8c1a6d8ba9060d3638ffc3760a7442e34ffd85cb55881e503"
+}

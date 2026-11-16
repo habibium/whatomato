@@ -131,6 +131,7 @@ fn asks_but_blocks() -> Grant {
             id: BLOCKED.to_owned(),
             name: None,
         },
+        read: false,
         send: SendLevel::No,
         daily_limit: None,
         note: None,
@@ -739,7 +740,7 @@ async fn an_unknown_tool_is_a_protocol_error_and_bad_input_a_tool_error(pool: Pg
         &app,
         Some(&key),
         "tools/call",
-        json!({ "name": "read_messages", "arguments": {} }),
+        json!({ "name": "get_media", "arguments": {} }),
     )
     .await;
     assert_eq!(unknown.body["error"]["code"], -32602);

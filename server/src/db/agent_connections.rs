@@ -582,3 +582,22 @@ pub async fn counts(
         schedules: small(row.schedules),
     })
 }
+
+/// Every usable connection's grant, with the WhatsApp account of its owner. A paused connection
+/// counts: it reads again once resumed.
+pub async fn grants_by_account(
+    db: impl PgExecutor<'_>,
+) -> sqlx::Result<Vec<(Uuid, serde_json::Value)>> {
+    let rows = sqlx::query!(
+        r#"SELECT a.id AS account_id, c."grant"
+           FROM agent_connections c
+           JOIN whatsapp_accounts a ON a.user_id = c.user_id
+           WHERE c.expires_at IS NULL OR c.expires_at > now()"#
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| (row.account_id, row.grant))
+        .collect())
+}

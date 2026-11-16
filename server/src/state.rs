@@ -25,6 +25,8 @@ pub struct AppState {
     pub events: Events,
     /// `AGENT_ACCESS`: whether the agent routes and the MCP endpoint answer
     pub agent_access: bool,
+    /// `AGENT_READING`: whether connections may read chats
+    pub agent_reading: bool,
     /// `MAX_LINKED_ACCOUNTS`: how many WhatsApp accounts may be linked at once
     pub max_linked_accounts: Option<NonZeroU32>,
 }

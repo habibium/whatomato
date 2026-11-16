@@ -936,6 +936,7 @@ mod tests {
                 id: "15550001".to_owned(),
                 name: None,
             },
+            read: false,
             send,
             daily_limit,
             note: None,

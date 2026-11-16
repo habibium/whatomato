@@ -31,6 +31,7 @@ use whatsapp_rust::{
 use super::{
     alerts,
     contacts::{self, Changes, Feed},
+    inbox::Inbox,
     pictures::{Image, Pictures},
     status::{self, Alert, Code, Effect, Event, Method, Refused, Status, StopReason},
     store::PgStore,
@@ -103,6 +104,8 @@ pub struct Context {
     /// The WhatsApp Web version fetched for every client, the last one that worked; until the
     /// first fetch, each client fetches its own
     pub(super) version: Arc<RwLock<Option<(u32, u32, u32)>>>,
+    /// Set when `AGENT_READING` is on; without it no inbound message is looked at
+    pub(super) inbox: Option<Inbox>,
 }
 
 impl Context {
@@ -115,7 +118,15 @@ impl Context {
             app_url,
             http: Arc::new(UreqHttpClient::new()),
             version: Arc::default(),
+            inbox: None,
         }
+    }
+
+    /// Keeps the messages of the chats agent connections may read
+    #[must_use]
+    pub fn with_inbox(mut self, inbox: Inbox) -> Self {
+        self.inbox = Some(inbox);
+        self
     }
 }
 
@@ -778,6 +789,9 @@ impl Supervisor {
                     }
                 }
             });
+        if let Some(inbox) = &self.context.inbox {
+            builder = builder.with_event_handler(inbox.feed(account_id));
+        }
         if let Some(number) = self.pairing_number() {
             builder = builder.with_pair_code(pair_code_options(&number));
         }

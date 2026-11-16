@@ -20,7 +20,7 @@ use server::{
     push::Push,
     scheduler::Scheduler,
     state::AppState,
-    whatsapp::{manager::WhatsApp, supervisor::Context},
+    whatsapp::{inbox::Inbox, manager::WhatsApp, supervisor::Context},
 };
 use sqlx::postgres::PgPoolOptions;
 use tokio::net::TcpListener;
@@ -56,12 +56,14 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("links in emails point at {}", config.app_url);
     let cipher = Cipher::new(&config.encryption_key);
     let app_url = Arc::new(config.app_url);
-    let whatsapp = WhatsApp::new(Context::new(
+    let agent_reading = config.agent_access && config.agent_reading;
+    let context = Context::new(
         pool.clone(),
         cipher.clone(),
         mailer.clone(),
         Arc::clone(&app_url),
-    ));
+    );
+    let whatsapp = WhatsApp::new(with_inbox(context, agent_reading, &pool, &cipher).await?);
     whatsapp.boot().await?;
     whatsapp.refresh_version_daily();
     let scheduler = Scheduler::spawn(
@@ -84,6 +86,7 @@ async fn main() -> anyhow::Result<()> {
         push,
         events: events.clone(),
         agent_access: config.agent_access,
+        agent_reading,
         max_linked_accounts: config.max_linked_accounts,
     };
 
@@ -226,4 +229,20 @@ async fn shutdown_signal() {
         () = terminate => {},
     }
     tracing::info!("shutting down, letting in-flight requests finish");
+}
+
+/// With reading on, the context that keeps the messages of the chats agents may read
+async fn with_inbox(
+    context: Context,
+    reading: bool,
+    pool: &sqlx::PgPool,
+    cipher: &Cipher,
+) -> anyhow::Result<Context> {
+    if !reading {
+        return Ok(context);
+    }
+    let inbox = Inbox::start(pool.clone(), cipher.clone());
+    // Before any account connects, so its first messages aren't dropped as unreadable
+    inbox.readers().reload(pool).await?;
+    Ok(context.with_inbox(inbox))
 }

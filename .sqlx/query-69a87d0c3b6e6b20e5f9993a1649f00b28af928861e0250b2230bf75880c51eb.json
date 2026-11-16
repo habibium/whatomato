@@ -1,0 +1,105 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT m.account_id, m.chat_type, m.chat_id, m.message_id, m.from_me, m.sent_at, m.body\n         FROM inbox_messages m\n         JOIN whatsapp_accounts a ON a.id = m.account_id\n         WHERE a.user_id = $1 AND m.chat_type = $2 AND m.chat_id = $3\n           AND ($4::timestamptz IS NULL OR (m.sent_at, m.message_id) < ($4, $5))\n           AND (m.expires_at IS NULL OR m.expires_at > now())\n         ORDER BY m.sent_at DESC, m.message_id DESC\n         LIMIT $6",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "account_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "chat_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "chat_type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "chat_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "chat_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "message_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "message_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "from_me",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "from_me"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "sent_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "sent_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "body",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "inbox_messages",
+            "name": "body"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "69a87d0c3b6e6b20e5f9993a1649f00b28af928861e0250b2230bf75880c51eb"
+}

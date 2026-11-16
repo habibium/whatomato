@@ -48,6 +48,10 @@ pub enum Action<'a> {
     ListDeliveries,
     WhoAmI,
     ReadOwnApprovals,
+    /// Reading one chat's messages
+    ReadChat(ChatRef<'a>),
+    /// Listing or searching the chats it may read
+    ReadChats,
 }
 
 /// What the database knows that the decision needs. Only actions aimed at a chat read it.
@@ -88,6 +92,7 @@ pub enum Reason {
     ChatLimit { limit: u32 },
     TooManyWaiting,
     TooManySchedules,
+    ReadingOff,
 }
 
 impl Reason {
@@ -106,6 +111,7 @@ impl Reason {
             Self::ChatLimit { .. } => "chat_limit",
             Self::TooManyWaiting => "too_many_waiting",
             Self::TooManySchedules => "too_many_schedules",
+            Self::ReadingOff => "reading_off",
         }
     }
 
@@ -167,6 +173,11 @@ impl Reason {
                  connection may have, counting those waiting for the owner's approval. Delete some \
                  of them first, or ask the owner to."
             ),
+            Self::ReadingOff => {
+                "This connection isn't allowed to read messages here. The owner can turn reading \
+                 on in this connection's chat rules."
+                    .to_owned()
+            }
         }
     }
 }
@@ -216,6 +227,18 @@ pub fn decide(grant: &Grant, action: Action<'_>, facts: &Facts) -> Decision {
             Deliveries::All => Decision::Allow,
         },
         Action::WhoAmI | Action::ReadOwnApprovals => Decision::Allow,
+        Action::ReadChat(chat) => {
+            let own = grant.rule_for(chat.recipient_type, chat.recipient);
+            if own.is_none() && grant.chats.scope == Scope::Selected {
+                Decision::Deny(Reason::OutOfScope)
+            } else if grant.reads(chat.recipient_type, chat.recipient) {
+                Decision::Allow
+            } else {
+                Decision::Deny(Reason::ReadingOff)
+            }
+        }
+        Action::ReadChats if grant.reads_any() => Decision::Allow,
+        Action::ReadChats => Decision::Deny(Reason::ReadingOff),
     }
 }
 
@@ -303,6 +326,7 @@ mod tests {
         let mut grant = Preset::AskBeforeSending.grant();
         grant.chats.scope = scope;
         grant.chats.default = Rule {
+            read: false,
             send,
             daily_limit: None,
             note: None,
@@ -323,6 +347,7 @@ mod tests {
                 id: id.to_owned(),
                 name: None,
             },
+            read: false,
             send,
             daily_limit,
             note: None,

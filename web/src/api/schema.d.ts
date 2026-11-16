@@ -1381,6 +1381,7 @@ export interface components {
             /** Format: int32 */
             daily_limit: number | null;
             note: string | null;
+            read?: boolean;
             send: components["schemas"]["SendLevel"];
         };
         Chats: {
@@ -1747,6 +1748,8 @@ export interface components {
             daily_limit: number | null;
             /** @description Guidance the agent sees; not enforced */
             note: string | null;
+            /** @description Whether the connection may read the chat's messages. Off unless the owner turns it on. */
+            read?: boolean;
             send: components["schemas"]["SendLevel"];
         };
         /** @enum {string} */

@@ -9,6 +9,7 @@
 
 pub mod account;
 pub mod approvals;
+pub mod inbox;
 pub mod review;
 pub mod schedules;
 pub mod sends;

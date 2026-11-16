@@ -84,6 +84,8 @@ pub struct Permissions {
     /// Under scope `all`, the messages a day this connection may send to one chat without its own
     /// rule; empty for no limit
     pub default_daily_limit: Option<u32>,
+    /// Under scope `all`, whether it may read the messages of a chat without its own rule
+    pub default_read: bool,
     /// Messages to people who aren't saved contacts and have no rule of their own
     pub strangers: Strangers,
     /// How many chats have a rule of their own; `find_chats` shows each one's
@@ -139,10 +141,15 @@ async fn run_whoami(state: &AppState, caller: &Caller) -> Result<WhoAmI, OpError
             chat_scope: chats.scope,
             default_send: chats.default.send,
             default_daily_limit: chats.default.daily_limit,
+            default_read: state.agent_reading && chats.default.read,
             strangers: chats.strangers,
             chat_rules: chats.rules.len(),
         },
-        summary: summary(&caller.grant),
+        summary: {
+            let mut lines = summary(&caller.grant);
+            lines.push(reading_line(state.agent_reading, grant).to_owned());
+            lines
+        },
         limits: Limits {
             sends_last_24_hours: sends,
             daily_ceiling: DAILY_CEILING,
@@ -293,6 +300,8 @@ pub struct FoundChat {
 
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct ChatRuleView {
+    /// Whether this connection may read the chat's messages
+    pub read: bool,
     /// `yes`: messages go out without asking. `ask`: each waits for the owner's approval. `no`:
     /// this connection can't send here.
     pub send: SendLevel,
@@ -317,6 +326,42 @@ pub async fn find_chats(
     let result = run_find_chats(state, caller, &input).await;
     trace.finish(state, caller, &result).await;
     result
+}
+
+const fn reading_line(reading: bool, grant: &Grant) -> &'static str {
+    match (reading, grant.chats.scope, grant.chats.default.read) {
+        (false, ..) => "It can't read messages: reading is turned off on this Whatomato server.",
+        (true, Scope::All, true) => {
+            "It may read the recent messages of any chat, unless a chat's own rule says otherwise. \
+             list_chats shows the chats with messages."
+        }
+        (true, ..) => {
+            "It may read the recent messages of only the chats whose own rule allows it; \
+             list_chats shows them."
+        }
+    }
+}
+
+fn rule_view(
+    grant: &Grant,
+    reading: bool,
+    recipient_type: RecipientType,
+    recipient: &str,
+) -> ChatRuleView {
+    grant.rule_for(recipient_type, recipient).map_or_else(
+        || ChatRuleView {
+            read: reading && grant.chats.default.read,
+            send: grant.chats.default.send,
+            daily_limit: grant.chats.default.daily_limit,
+            note: grant.chats.default.note.clone(),
+        },
+        |rule| ChatRuleView {
+            read: reading && rule.read,
+            send: rule.send,
+            daily_limit: rule.daily_limit,
+            note: rule.note.clone(),
+        },
+    )
 }
 
 /// Counts a search against the connection's limit
@@ -411,18 +456,7 @@ async fn run_find_chats(
     let chats = found
         .into_iter()
         .map(|(recipient_type, recipient, name)| {
-            let rule = grant.rule_for(recipient_type, &recipient).map_or_else(
-                || ChatRuleView {
-                    send: grant.chats.default.send,
-                    daily_limit: grant.chats.default.daily_limit,
-                    note: grant.chats.default.note.clone(),
-                },
-                |rule| ChatRuleView {
-                    send: rule.send,
-                    daily_limit: rule.daily_limit,
-                    note: rule.note.clone(),
-                },
-            );
+            let rule = rule_view(grant, state.agent_reading, recipient_type, &recipient);
             FoundChat {
                 recipient_type,
                 recipient,

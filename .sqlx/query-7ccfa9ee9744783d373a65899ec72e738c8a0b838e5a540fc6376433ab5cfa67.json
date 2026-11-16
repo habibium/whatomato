@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM inbox_messages\n         WHERE account_id = $1 AND chat_type = $2 AND chat_id = $3 AND message_id = $4",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "7ccfa9ee9744783d373a65899ec72e738c8a0b838e5a540fc6376433ab5cfa67"
+}

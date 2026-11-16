@@ -128,6 +128,7 @@ impl TestApp {
             push: Push::outbox(),
             events: Events::default(),
             agent_access,
+            agent_reading: agent_access,
             max_linked_accounts,
         };
         let (router, _) = crate::router();

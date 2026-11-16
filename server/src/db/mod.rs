@@ -4,6 +4,7 @@ pub mod agent_connections;
 pub mod agent_sign_ins;
 pub mod agent_tokens;
 pub mod deliveries;
+pub mod inbox_messages;
 pub mod instance_keys;
 pub mod message_templates;
 pub mod passkey_ceremonies;

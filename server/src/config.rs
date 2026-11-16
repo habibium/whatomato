@@ -22,6 +22,8 @@ pub struct Config {
     pub encryption_key: [u8; 32],
     /// Whether users may connect AI agents to their accounts
     pub agent_access: bool,
+    /// Whether connections may be allowed to read chats, which keeps those chats' recent messages
+    pub agent_reading: bool,
     /// How many WhatsApp accounts may be linked at once; `None` for no limit
     pub max_linked_accounts: Option<NonZeroU32>,
 }
@@ -34,7 +36,7 @@ impl Config {
     /// `DATABASE_URL` missing, `APP_URL` or `ENCRYPTION_KEY` missing from a release build, `PORT`,
     /// `APP_URL` or `ENCRYPTION_KEY` malformed, an https `APP_URL` without `SMTP_URL`, `SMTP_URL`
     /// without a valid `EMAIL_FROM`, a `CLIENT_IP_HEADER` that is malformed or one proxies
-    /// append to, an `AGENT_ACCESS` other than `on` or `off`, or a `MAX_LINKED_ACCOUNTS` that isn't a
+    /// append to, an `AGENT_ACCESS` or `AGENT_READING` other than `on` or `off`, or a `MAX_LINKED_ACCOUNTS` that isn't a
     /// positive whole number.
     pub fn from_env() -> anyhow::Result<Self> {
         let port = match env::var("PORT") {
@@ -109,6 +111,12 @@ impl Config {
             Ok(_) => anyhow::bail!("AGENT_ACCESS must be on or off"),
         };
 
+        let agent_reading = match env::var("AGENT_READING").as_deref() {
+            Err(_) | Ok("" | "off") => false,
+            Ok("on") => true,
+            Ok(_) => anyhow::bail!("AGENT_READING must be on or off"),
+        };
+
         let max_linked_accounts =
             parse_max_linked_accounts(env::var("MAX_LINKED_ACCOUNTS").ok().as_deref())?;
 
@@ -123,6 +131,7 @@ impl Config {
             client_ip_header,
             encryption_key,
             agent_access,
+            agent_reading,
             max_linked_accounts,
         })
     }

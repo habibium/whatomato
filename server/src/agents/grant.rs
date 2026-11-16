@@ -103,6 +103,9 @@ pub enum Strangers {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Rule {
+    /// Whether the connection may read the chat's messages. Off unless the owner turns it on.
+    #[serde(default)]
+    pub read: bool,
     pub send: SendLevel,
     /// Sends a day by this connection in one chat
     #[schema(required = true)]
@@ -118,6 +121,8 @@ pub struct Rule {
 #[serde(deny_unknown_fields)]
 pub struct ChatRule {
     pub chat: Chat,
+    #[serde(default)]
+    pub read: bool,
     pub send: SendLevel,
     #[schema(required = true)]
     pub daily_limit: Option<u32>,
@@ -237,6 +242,22 @@ impl Grant {
             .iter()
             .find(|rule| rule.chat.recipient_type == recipient_type && rule.chat.id == recipient)
     }
+
+    /// Whether the connection may read this chat's messages
+    #[must_use]
+    pub fn reads(&self, recipient_type: RecipientType, recipient: &str) -> bool {
+        self.rule_for(recipient_type, recipient).map_or(
+            self.chats.scope == Scope::All && self.chats.default.read,
+            |rule| rule.read,
+        )
+    }
+
+    /// Whether at least one chat could be read
+    #[must_use]
+    pub fn reads_any(&self) -> bool {
+        (self.chats.scope == Scope::All && self.chats.default.read)
+            || self.chats.rules.iter().any(|rule| rule.read)
+    }
 }
 
 impl Chat {
@@ -337,6 +358,7 @@ impl Preset {
             chats: Chats {
                 scope: Scope::All,
                 default: Rule {
+                    read: false,
                     send,
                     daily_limit,
                     note: None,
@@ -369,6 +391,7 @@ mod tests {
                 id: id.to_owned(),
                 name: None,
             },
+            read: false,
             send: SendLevel::Yes,
             daily_limit: None,
             note: None,
@@ -391,9 +414,10 @@ mod tests {
             "deliveries": "own",
             "chats": {
                 "scope": "all",
-                "default": { "send": "ask", "daily_limit": null, "note": null },
+                "default": { "read": false, "send": "ask", "daily_limit": null, "note": null },
                 "rules": [{
                     "chat": { "type": "contact", "id": "8801700000000", "name": "Ada" },
+                    "read": true,
                     "send": "yes",
                     "daily_limit": 5,
                     "note": "Reply in Bangla"
@@ -405,6 +429,20 @@ mod tests {
         assert_eq!(grant.chats.rules[0].daily_limit, Some(5));
         assert_eq!(grant.chats.rules[0].chat.name.as_deref(), Some("Ada"));
         assert_eq!(serde_json::to_value(&grant).unwrap(), json);
+        assert!(grant.reads(RecipientType::Contact, "8801700000000"));
+        assert!(!grant.reads(RecipientType::Contact, "8801700000001"));
+
+        // A grant saved before reading existed reads nothing
+        let mut older = json;
+        older["chats"]["default"]
+            .as_object_mut()
+            .unwrap()
+            .remove("read");
+        older["chats"]["rules"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("read");
+        assert!(!Grant::parse(&older).unwrap().reads_any());
     }
 
     #[test]

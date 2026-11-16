@@ -5141,6 +5141,9 @@
               "null"
             ]
           },
+          "read": {
+            "type": "boolean"
+          },
           "send": {
             "$ref": "#/components/schemas/SendLevel"
           }
@@ -6218,6 +6221,10 @@
               "null"
             ],
             "description": "Guidance the agent sees; not enforced"
+          },
+          "read": {
+            "type": "boolean",
+            "description": "Whether the connection may read the chat's messages. Off unless the owner turns it on."
           },
           "send": {
             "$ref": "#/components/schemas/SendLevel"

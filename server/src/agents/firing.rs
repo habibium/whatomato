@@ -122,7 +122,8 @@ fn skipped_because(reason: Reason) -> String {
         | Reason::ContactsOff
         | Reason::TemplatesOff
         | Reason::TooManyWaiting
-        | Reason::TooManySchedules => "Not sent: the agent this schedule belongs to is no longer \
+        | Reason::TooManySchedules
+        | Reason::ReadingOff => "Not sent: the agent this schedule belongs to is no longer \
                                      allowed to send to this chat."
             .to_owned(),
     }

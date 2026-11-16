@@ -77,6 +77,7 @@ fn state(pool: PgPool) -> AppState {
         push: Push::outbox(),
         events: Events::default(),
         agent_access: true,
+        agent_reading: true,
         max_linked_accounts: None,
     }
 }
@@ -149,6 +150,7 @@ fn with_rule(mut grant: Grant, recipient: &str, send: SendLevel, limit: Option<u
             id: recipient.to_owned(),
             name: Some("Ruled".to_owned()),
         },
+        read: false,
         send,
         daily_limit: limit,
         note: Some("Reply in Bangla".to_owned()),
@@ -2572,4 +2574,238 @@ async fn the_selected_chats_bound_what_all_shows(pool: PgPool) {
         .await
         .unwrap();
     assert!(schedules.schedules.is_empty());
+}
+
+mod reading {
+    use super::*;
+    use crate::{
+        agents::ops::inbox::{
+            ListChatsInput, ReadMessagesInput, SearchMessagesInput, list_chats, read_messages,
+            search_messages,
+        },
+        db::inbox_messages,
+        whatsapp::inbox::{Body, Kind, seal_body},
+    };
+
+    const BOB: &str = "8801700000002";
+
+    /// Reads Ada's chat and the group; may use Bob's chat without reading it
+    fn reader() -> Grant {
+        let mut grant = Preset::AskBeforeSending.grant();
+        grant.chats.scope = Scope::Selected;
+        for chat in [ADA, GROUP, BOB] {
+            grant = with_rule(grant, chat, SendLevel::Ask, None);
+        }
+        for rule in &mut grant.chats.rules {
+            rule.read = rule.chat.id != BOB;
+            rule.chat.name = None;
+        }
+        grant
+    }
+
+    async fn keep(
+        state: &AppState,
+        owner: Uuid,
+        chat: &str,
+        id: &str,
+        minutes_ago: i64,
+        text: &str,
+    ) {
+        let account = whatsapp_accounts::find_or_create(&state.pool, owner)
+            .await
+            .unwrap();
+        let recipient_type = if chat.ends_with("@g.us") {
+            RecipientType::Group
+        } else {
+            RecipientType::Contact
+        };
+        let from_me = id.starts_with("ME");
+        let body = Body {
+            sender_jid: format!("{ADA}@s.whatsapp.net"),
+            sender_number: (!from_me).then(|| ADA.to_owned()),
+            sender_name: (!from_me).then(|| "ada.l".to_owned()),
+            kind: Kind::Text,
+            text: Some(text.to_owned()),
+            file_name: None,
+            reply_to: None,
+            edited: false,
+        };
+        let sealed =
+            seal_body(&state.cipher, account.id, (recipient_type, chat), id, &body).unwrap();
+        inbox_messages::save(
+            &state.pool,
+            inbox_messages::NewMessage {
+                account_id: account.id,
+                chat_type: recipient_type.as_str(),
+                chat_id: chat,
+                message_id: id,
+                from_me,
+                sent_at: Utc::now() - TimeDelta::minutes(minutes_ago),
+                expires_at: None,
+                body: &sealed,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    fn read(recipient: &str, before: Option<&str>, limit: Option<u32>) -> ReadMessagesInput {
+        ReadMessagesInput {
+            recipient_type: if recipient.ends_with("@g.us") {
+                RecipientType::Group
+            } else {
+                RecipientType::Contact
+            },
+            recipient: recipient.to_owned(),
+            before: before.map(str::to_owned),
+            limit,
+        }
+    }
+
+    fn code<T: std::fmt::Debug>(result: Result<T, OpError>) -> &'static str {
+        match result {
+            Err(OpError::Refused { code, .. }) => code,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[sqlx::test]
+    async fn reads_a_chat_oldest_first_and_pages_back(pool: PgPool) {
+        let state = state(pool);
+        let owner = user(&state.pool).await;
+        save_contact(&state, owner, ADA, "Ada Lovelace").await;
+        let caller = connect(&state, owner, &reader()).await;
+        keep(&state, owner, ADA, "A1", 30, "Hello").await;
+        keep(&state, owner, ADA, "ME2", 20, "Hi Ada").await;
+        keep(&state, owner, ADA, "A3", 10, "Can we meet at 5?").await;
+
+        let page = read_messages(&state, &caller, read(ADA, None, Some(2)))
+            .await
+            .unwrap();
+        let ids: Vec<_> = page
+            .messages
+            .iter()
+            .map(|message| message.id.as_str())
+            .collect();
+        assert_eq!(ids, ["ME2", "A3"]);
+        assert_eq!(page.chat_name.as_deref(), Some("Ada Lovelace"));
+        assert!(page.has_more);
+        assert_eq!(page.next_before.as_deref(), Some("ME2"));
+        assert!(page.messages[0].from_me && page.messages[0].sender.is_none());
+        let sender = page.messages[1].sender.as_ref().unwrap();
+        // The saved name wins over the name the sender gave themselves
+        assert_eq!(sender.name.as_deref(), Some("Ada Lovelace"));
+        assert_eq!(sender.number.as_deref(), Some(ADA));
+        assert_eq!(page.messages[1].text.as_deref(), Some("Can we meet at 5?"));
+
+        let older = read_messages(&state, &caller, read(ADA, Some("ME2"), Some(2)))
+            .await
+            .unwrap();
+        assert_eq!(older.messages.len(), 1);
+        assert_eq!(older.messages[0].id, "A1");
+        assert!(!older.has_more && older.next_before.is_none());
+
+        let gone = read_messages(&state, &caller, read(ADA, Some("NOPE"), None)).await;
+        assert!(matches!(gone, Err(OpError::NotFound(_))), "{gone:?}");
+    }
+
+    #[sqlx::test]
+    async fn reading_stays_inside_the_grant(pool: PgPool) {
+        let state = state(pool);
+        let owner = user(&state.pool).await;
+        let caller = connect(&state, owner, &reader()).await;
+        keep(&state, owner, ADA, "A1", 30, "The invoice is ready").await;
+        keep(&state, owner, GROUP, "G1", 20, "Invoice meeting moved").await;
+        // Kept for another connection that reads Bob's chat
+        keep(&state, owner, BOB, "B1", 10, "Private invoice talk").await;
+
+        assert_eq!(
+            code(read_messages(&state, &caller, read(BOB, None, None)).await),
+            "reading_off"
+        );
+        assert_eq!(
+            code(read_messages(&state, &caller, read(STRANGER, None, None)).await),
+            "out_of_scope"
+        );
+
+        let chats = list_chats(&state, &caller, ListChatsInput::default())
+            .await
+            .unwrap();
+        let listed: Vec<_> = chats
+            .chats
+            .iter()
+            .map(|chat| chat.recipient.as_str())
+            .collect();
+        assert_eq!(listed, [GROUP, ADA]);
+        assert_eq!(chats.chats[0].send, SendLevel::Ask);
+
+        let everywhere = SearchMessagesInput {
+            query: "INVOICE".to_owned(),
+            recipient_type: None,
+            recipient: None,
+        };
+        let found = search_messages(&state, &caller, everywhere).await.unwrap();
+        let ids: Vec<_> = found
+            .matches
+            .iter()
+            .map(|hit| hit.message.id.as_str())
+            .collect();
+        assert_eq!(ids, ["G1", "A1"]);
+        assert!(found.searched_all && !found.more);
+
+        let in_bob = SearchMessagesInput {
+            query: "invoice".to_owned(),
+            recipient_type: Some(RecipientType::Contact),
+            recipient: Some(BOB.to_owned()),
+        };
+        assert_eq!(
+            code(search_messages(&state, &caller, in_bob).await),
+            "reading_off"
+        );
+
+        // Another owner's connection sees none of it
+        let other = user(&state.pool).await;
+        let mut all = Preset::AskBeforeSending.grant();
+        all.chats.default.read = true;
+        let stranger = connect(&state, other, &all).await;
+        let theirs = list_chats(&state, &stranger, ListChatsInput::default())
+            .await
+            .unwrap();
+        assert!(theirs.chats.is_empty());
+        let none = read_messages(&state, &stranger, read(ADA, None, None))
+            .await
+            .unwrap();
+        assert!(none.messages.is_empty());
+    }
+
+    #[sqlx::test]
+    async fn a_connection_that_reads_nothing_and_a_server_with_reading_off_are_refused(
+        pool: PgPool,
+    ) {
+        let mut state = state(pool);
+        let owner = user(&state.pool).await;
+        let sender = connect(&state, owner, &Preset::AskBeforeSending.grant()).await;
+        assert_eq!(
+            code(list_chats(&state, &sender, ListChatsInput::default()).await),
+            "reading_off"
+        );
+        assert_eq!(
+            code(read_messages(&state, &sender, read(ADA, None, None)).await),
+            "reading_off"
+        );
+
+        state.agent_reading = false;
+        let caller = connect(&state, owner, &reader()).await;
+        keep(&state, owner, ADA, "A1", 30, "Hello").await;
+        assert_eq!(
+            code(read_messages(&state, &caller, read(ADA, None, None)).await),
+            "reading_unavailable"
+        );
+        assert_eq!(
+            code(list_chats(&state, &caller, ListChatsInput::default()).await),
+            "reading_unavailable"
+        );
+        let whoami = whoami(&state, &caller, WhoAmIInput {}).await.unwrap();
+        assert!(whoami.summary.last().unwrap().contains("turned off"));
+    }
 }

@@ -170,3 +170,20 @@ pub async fn book(db: &PgPool, user_id: Uuid) -> sqlx::Result<Option<Book>> {
         contacts,
     }))
 }
+
+/// The number the address book has for a contact known by its LID
+pub async fn number_of_lid(
+    db: impl PgExecutor<'_>,
+    account_id: Uuid,
+    lid: &str,
+) -> sqlx::Result<Option<String>> {
+    sqlx::query_scalar!(
+        r#"SELECT phone_number AS "phone_number!" FROM whatsapp_contacts
+           WHERE account_id = $1 AND lid = $2 AND phone_number IS NOT NULL
+           LIMIT 1"#,
+        account_id,
+        lid,
+    )
+    .fetch_optional(db)
+    .await
+}
