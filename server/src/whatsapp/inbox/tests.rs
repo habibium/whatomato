@@ -593,3 +593,64 @@ fn what_this_device_sends_is_handed_over_as_the_owners_message() {
     );
     assert!(incoming.try_recv().is_err());
 }
+
+#[sqlx::test]
+async fn a_sender_without_a_number_gets_one_from_the_chat_or_the_address_book(pool: PgPool) {
+    let cipher = Cipher::new(&[0; 32]);
+    let (user_id, account_id) = account(&pool).await;
+    let readers = readers(account_id, vec![reading(&[ADA, GROUP])]);
+    let unnumbered = |chat: Chat, id: &str| {
+        let Change::Arrived {
+            chat,
+            message_id,
+            from_me,
+            sent_at,
+            expires_at,
+            mut body,
+        } = arrived(chat, id, "Hello")
+        else {
+            unreachable!();
+        };
+        body.sender_jid = "99887766@lid".to_owned();
+        body.sender_number = None;
+        Change::Arrived {
+            chat,
+            message_id,
+            from_me,
+            sent_at,
+            expires_at,
+            body,
+        }
+    };
+    let number_of = async |kind: &str, chat: &str, id: &str| {
+        let kept = inbox_messages::find(&pool, user_id, kind, chat, id)
+            .await
+            .unwrap()
+            .unwrap();
+        open_body(&cipher, &kept).unwrap().sender_number
+    };
+    let run = async |change| {
+        apply(&pool, &cipher, &readers, account_id, change)
+            .await
+            .unwrap();
+    };
+
+    run(unnumbered(Chat::Number(ADA.to_owned()), "A1")).await;
+    assert_eq!(number_of("contact", ADA, "A1").await.as_deref(), Some(ADA));
+
+    // In a group, only the address book can tell whose LID it is
+    run(unnumbered(Chat::Group(GROUP.to_owned()), "G1")).await;
+    assert_eq!(number_of("group", GROUP, "G1").await, None);
+    let jid = "99887766@lid";
+    let names = Names {
+        full_name: Some("Bob".to_owned()),
+        first_name: None,
+        username: None,
+    };
+    let sealed = seal_names(&cipher, account_id, jid, &names).unwrap();
+    whatsapp_contacts::save(&pool, account_id, jid, Some(BOB), Some("99887766"), &sealed)
+        .await
+        .unwrap();
+    run(unnumbered(Chat::Group(GROUP.to_owned()), "G2")).await;
+    assert_eq!(number_of("group", GROUP, "G2").await.as_deref(), Some(BOB));
+}

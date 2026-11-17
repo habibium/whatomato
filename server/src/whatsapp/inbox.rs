@@ -568,12 +568,24 @@ pub(super) async fn apply(
             from_me,
             sent_at,
             expires_at,
-            body,
+            mut body,
         } => {
             let Some((recipient_type, id)) = readable(pool, readers, account_id, chat).await?
             else {
                 return Ok(());
             };
+            if body.sender_number.is_none() && !from_me {
+                body.sender_number = match recipient_type {
+                    // In a chat with one person, whoever isn't the owner is that person
+                    RecipientType::Contact => Some(id.clone()),
+                    RecipientType::Group => match body.sender_jid.strip_suffix("@lid") {
+                        Some(lid) => {
+                            whatsapp_contacts::number_of_lid(pool, account_id, lid).await?
+                        }
+                        None => None,
+                    },
+                };
+            }
             let sealed = seal_body(
                 cipher,
                 account_id,
