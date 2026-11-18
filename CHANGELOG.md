@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1] - 2026-11-18
+
+### Bug Fixes
+
+- A reply refused because the server has reading off says so, instead of sending the owner to a chat setting that can't help (affe635)
+- An agent changing its own schedule isn't told the schedule now belongs to it (48d8207)
+
+### Maintenance
+
+- Concurrency checks read through a pool of their own runtime, not one already shut down (9fbf24a)
 ## [0.4.0] - 2026-11-18
 
 ### Features
