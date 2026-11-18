@@ -84,7 +84,13 @@ async fn quoted(
     let Some(id) = reply_to.map(str::trim).filter(|id| !id.is_empty()) else {
         return Ok(None);
     };
-    if !state.agent_reading || !caller.grant.reads(chat.recipient_type, chat.recipient) {
+    if !state.agent_reading {
+        return Err(OpError::invalid(
+            "`reply_to` answers a message read from the chat, and reading messages is turned off \
+             on this Whatomato server. Send without it.",
+        ));
+    }
+    if !caller.grant.reads(chat.recipient_type, chat.recipient) {
         return Err(OpError::invalid(
             "`reply_to` needs this connection to be allowed to read this chat. Send without it, \
              or ask the owner to turn reading on for this chat.",

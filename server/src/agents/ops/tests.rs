@@ -2820,7 +2820,7 @@ mod reading {
 
     #[sqlx::test]
     async fn a_reply_quotes_a_kept_message_of_a_chat_it_may_read(pool: PgPool) {
-        let state = state(pool);
+        let mut state = state(pool);
         let owner = user(&state.pool).await;
         connected(&state, owner);
         save_contact(&state, owner, ADA, "Ada Lovelace").await;
@@ -2855,8 +2855,11 @@ mod reading {
             matches!(elsewhere, Err(OpError::NotFound(_))),
             "{elsewhere:?}"
         );
-        let unread = send_message(&state, &caller, reply(BOB, "B1")).await;
-        assert!(matches!(unread, Err(OpError::Invalid(_))), "{unread:?}");
+        let unread = send_message(&state, &caller, reply(BOB, "B1"))
+            .await
+            .unwrap_err();
+        assert!(matches!(unread, OpError::Invalid(_)), "{unread:?}");
+        assert!(unread.to_string().contains("read this chat"), "{unread}");
 
         // A reply that waits for approval keeps what it quotes
         let asking = connect(&state, owner, &reader()).await;
@@ -2873,6 +2876,17 @@ mod reading {
                 .await
                 .unwrap();
         assert_eq!(quoted.as_deref(), Some("A1"));
+
+        // No chat's setting can turn it back on
+        state.agent_reading = false;
+        let off = send_message(&state, &caller, reply(ADA, "A1"))
+            .await
+            .unwrap_err();
+        assert!(matches!(off, OpError::Invalid(_)), "{off:?}");
+        assert!(
+            off.to_string().contains("on this Whatomato server"),
+            "{off}"
+        );
     }
 
     #[sqlx::test]
