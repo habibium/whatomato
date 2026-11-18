@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sqlx::{PgExecutor, PgPool};
 use uuid::Uuid;
 
@@ -11,6 +13,8 @@ pub struct Contact {
 
 pub struct Book {
     pub account_id: Uuid,
+    /// The account's own number, once linked
+    pub phone_number: Option<String>,
     pub imported: bool,
     pub contacts: Vec<Contact>,
 }
@@ -142,7 +146,7 @@ pub async fn find_by_number(
 /// The user's address book, if they have an account
 pub async fn book(db: &PgPool, user_id: Uuid) -> sqlx::Result<Option<Book>> {
     let Some(account) = sqlx::query!(
-        r#"SELECT id, contacts_imported_at IS NOT NULL AS "imported!"
+        r#"SELECT id, phone_number, contacts_imported_at IS NOT NULL AS "imported!"
            FROM whatsapp_accounts WHERE user_id = $1"#,
         user_id
     )
@@ -166,24 +170,56 @@ pub async fn book(db: &PgPool, user_id: Uuid) -> sqlx::Result<Option<Book>> {
 
     Ok(Some(Book {
         account_id: account.id,
+        phone_number: account.phone_number,
         imported: account.imported,
         contacts,
     }))
 }
 
-/// The number the address book has for a contact known by its LID
+/// The number of someone WhatsApp names by their LID
 pub async fn number_of_lid(
     db: impl PgExecutor<'_>,
     account_id: Uuid,
     lid: &str,
 ) -> sqlx::Result<Option<String>> {
     sqlx::query_scalar!(
-        r#"SELECT phone_number AS "phone_number!" FROM whatsapp_contacts
-           WHERE account_id = $1 AND lid = $2 AND phone_number IS NOT NULL
-           LIMIT 1"#,
+        r#"SELECT phone_number AS "phone_number!" FROM (
+               SELECT phone_number, 0 AS rank FROM whatsapp_contacts
+               WHERE account_id = $1 AND lid = $2 AND phone_number IS NOT NULL
+               UNION ALL
+               SELECT phone_number, 1 FROM whatsapp_lid_mappings
+               WHERE account_id = $1 AND lid = $2
+           ) known
+           -- The address book wins over what WhatsApp said of people outside it
+           ORDER BY rank LIMIT 1"#,
         account_id,
         lid,
     )
     .fetch_optional(db)
     .await
+}
+
+/// Every LID the account knows a number for, from the address book and from WhatsApp
+pub async fn lid_numbers(
+    db: impl PgExecutor<'_>,
+    account_id: Uuid,
+) -> sqlx::Result<HashMap<String, String>> {
+    let known = sqlx::query!(
+        r#"SELECT lid AS "lid!", phone_number AS "phone_number!" FROM (
+               SELECT lid, phone_number, 1 AS rank FROM whatsapp_lid_mappings
+               WHERE account_id = $1
+               UNION ALL
+               SELECT lid, phone_number, 0 FROM whatsapp_contacts
+               WHERE account_id = $1 AND lid IS NOT NULL AND phone_number IS NOT NULL
+           ) known
+           -- Collected in order, so the address book's number is the one that stays
+           ORDER BY rank DESC"#,
+        account_id,
+    )
+    .fetch_all(db)
+    .await?;
+    Ok(known
+        .into_iter()
+        .map(|row| (row.lid, row.phone_number))
+        .collect())
 }

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT lid AS \"lid!\", phone_number AS \"phone_number!\" FROM (\n               SELECT lid, phone_number, 1 AS rank FROM whatsapp_lid_mappings\n               WHERE account_id = $1\n               UNION ALL\n               SELECT lid, phone_number, 0 FROM whatsapp_contacts\n               WHERE account_id = $1 AND lid IS NOT NULL AND phone_number IS NOT NULL\n           ) known\n           -- Collected in order, so the address book's number is the one that stays\n           ORDER BY rank DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lid!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "phone_number!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "1e18588406d5d7f1b83e0f740b198903597f73c1324e26027e602997e0d3fd01"
+}

@@ -109,6 +109,7 @@ pub async fn send_now(
         &state.pool,
         NewDelivery {
             reply_to: None,
+            mentions: &[],
             user_id,
             scheduled_message_id: None,
             connection_id: None,

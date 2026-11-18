@@ -101,6 +101,7 @@ async fn ask(app: &TestApp, owner: Uuid, connection_id: Uuid, body: &str) -> Uui
         body: body.to_owned(),
         timezone: None,
         reply_to: None,
+        mentions: Vec::new(),
     };
     send_message(&app.state, &caller, input)
         .await

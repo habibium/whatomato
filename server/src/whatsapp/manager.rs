@@ -15,7 +15,7 @@ use whatsapp_rust::version;
 use super::{
     inbox::open_body,
     status::{Status, StopReason},
-    supervisor::{self, Context, Handle, Quote, Recipient, SendFailure},
+    supervisor::{self, Context, Extras, Handle, Quote, Recipient, SendFailure},
 };
 use crate::db::{
     inbox_messages,
@@ -160,7 +160,8 @@ impl WhatsApp {
         let _ = self.may_connect.subscribe().wait_for(|open| *open).await;
     }
 
-    /// Sends `body` from `user_id`'s account, and answers once WhatsApp has acknowledged it
+    /// Sends `body` from `user_id`'s account, quoting `reply_to` and tagging the numbers in
+    /// `mentions`, and answers once WhatsApp has acknowledged it
     ///
     /// # Errors
     /// Why it didn't go out, or may not have.
@@ -170,6 +171,7 @@ impl WhatsApp {
         to: Recipient,
         body: String,
         reply_to: Option<String>,
+        mentions: Vec<String>,
     ) -> Result<(), SendFailure> {
         let handle = self.lock().get(&user_id).cloned();
         let Some(handle) = handle else {
@@ -179,7 +181,7 @@ impl WhatsApp {
             Some(message_id) => self.quote(user_id, &to, message_id).await,
             None => None,
         };
-        handle.send_text(to, body, quote).await
+        handle.send_text(to, body, Extras { quote, mentions }).await
     }
 
     /// The kept message a reply quotes. One no longer kept leaves the reply an ordinary message.

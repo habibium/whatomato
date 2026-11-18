@@ -305,7 +305,9 @@ Reading is off unless the server runs with `AGENT_READING=on`. I keep it off on 
 
 A connection that may read a chat gets three more tools: `list_chats` for the chats with recent messages, `read_messages` for one chat, and `search_messages` to find text. What it can read is the last 7 days, counted from when you allowed it: Whatomato doesn't fetch older history from your phone. Reading sends no read receipt and doesn't mark anything as read on your phone.
 
-An agent that read a message can answer it: `send_message` takes that message's id as `reply_to`, and the reply quotes it on WhatsApp. A reply follows the chat's sending rule like any other message, so with "ask me first" it waits for you.
+An agent that read a message can answer it, yours or anyone else's: `send_message` takes that message's id as `reply_to`, and the reply quotes it on WhatsApp. A reply follows the chat's sending rule like any other message, so with "ask me first" it waits for you.
+
+When a message tags people, the agent sees whom, by name and number, and which tags are you. In a group it can tag people too: it writes `@` and the number where the tag goes and lists the numbers in `mentions`. Their phones show their names and notify them, so a tag reaches someone who muted the group. Whatomato rewrites each tag into the form the group uses, since a group that hides its members' numbers names them by an internal id.
 
 Whatever an agent reads goes to the company that runs its model. And anyone who can message you can put text in front of an agent that reads that chat, so a message can try to steer it. Keep sending on "ask me first" for chats it reads, unless you trust everyone in them.
 

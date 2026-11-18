@@ -6,3 +6,4 @@ pub mod pictures;
 pub mod status;
 pub mod store;
 pub mod supervisor;
+pub mod tags;

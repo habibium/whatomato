@@ -106,7 +106,22 @@ pub struct MessageView {
     pub file_name: Option<String>,
     /// The id of the message this one answers, which may no longer be kept
     pub reply_to: Option<String>,
+    /// Who it tags, each written in `text` as its `tag`
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<MentionView>,
     pub edited: bool,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct MentionView {
+    /// As it appears in `text`: @ and a number, or @ and an id when the group hides numbers
+    pub tag: String,
+    /// As saved in the owner's contacts
+    pub name: Option<String>,
+    /// What `send_message` takes in `mentions` to tag them
+    pub number: Option<String>,
+    /// Whether it tags the owner, whom this connection acts for
+    pub owner: bool,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -151,12 +166,19 @@ pub struct FoundMessage {
 struct Names {
     contacts: HashMap<String, String>,
     groups: HashMap<String, String>,
+    /// Numbers by LID
+    lids: HashMap<String, String>,
+    owner: Option<String>,
 }
 
 impl Names {
     async fn load(state: &AppState, caller: &Caller) -> Result<Self, OpError> {
         let mut contacts = HashMap::new();
+        let mut lids = HashMap::new();
+        let mut owner = None;
         if let Some(book) = whatsapp_contacts::book(&state.pool, caller.user_id()).await? {
+            lids = whatsapp_contacts::lid_numbers(&state.pool, book.account_id).await?;
+            owner = book.phone_number;
             for contact in book.contacts {
                 let Some(number) = contact.phone_number else {
                     continue;
@@ -187,7 +209,12 @@ impl Names {
                 names.insert(rule.chat.id.clone(), name.clone());
             }
         }
-        Ok(Self { contacts, groups })
+        Ok(Self {
+            contacts,
+            groups,
+            lids,
+            owner,
+        })
     }
 
     fn chat(&self, recipient_type: RecipientType, recipient: &str) -> Option<String> {
@@ -199,15 +226,47 @@ impl Names {
         .cloned()
     }
 
-    fn view(&self, message: inbox_messages::Kept, body: Body) -> MessageView {
-        let sender = (!message.from_me).then(|| SenderView {
-            name: body
-                .sender_number
+    /// The number behind an address WhatsApp gave, looking a LID up
+    fn number_of(&self, jid: &str) -> Option<String> {
+        let (user, server) = jid.split_once('@')?;
+        let user = user.split(':').next().unwrap_or(user);
+        match server {
+            "s.whatsapp.net" | "c.us" => Some(user.to_owned()),
+            "lid" => self.lids.get(user).cloned(),
+            _ => None,
+        }
+    }
+
+    fn mention(&self, jid: &str) -> MentionView {
+        let user = jid.split('@').next().unwrap_or(jid);
+        let number = self.number_of(jid);
+        MentionView {
+            tag: format!("@{}", user.split(':').next().unwrap_or(user)),
+            name: number
                 .as_ref()
-                .and_then(|number| self.contacts.get(number).cloned())
-                .or(body.sender_name),
-            number: body.sender_number,
+                .and_then(|number| self.contacts.get(number))
+                .filter(|name| !name.is_empty())
+                .cloned(),
+            owner: number.is_some() && number == self.owner,
+            number,
+        }
+    }
+
+    fn view(&self, message: inbox_messages::Kept, body: Body) -> MessageView {
+        let sender = (!message.from_me).then(|| {
+            // Kept before its LID's number was known, it may be known now
+            let number = body
+                .sender_number
+                .or_else(|| self.number_of(&body.sender_jid));
+            SenderView {
+                name: number
+                    .as_ref()
+                    .and_then(|number| self.contacts.get(number).cloned())
+                    .or(body.sender_name),
+                number,
+            }
         });
+        let mentions = body.mentions.iter().map(|jid| self.mention(jid)).collect();
         MessageView {
             id: message.message_id,
             sent_at: message.sent_at,
@@ -217,6 +276,7 @@ impl Names {
             text: body.text,
             file_name: body.file_name,
             reply_to: body.reply_to,
+            mentions,
             edited: body.edited,
         }
     }

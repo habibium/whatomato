@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, contacts_imported_at IS NOT NULL AS \"imported!\"\n           FROM whatsapp_accounts WHERE user_id = $1",
+  "query": "SELECT id, phone_number, contacts_imported_at IS NOT NULL AS \"imported!\"\n           FROM whatsapp_accounts WHERE user_id = $1",
   "describe": {
     "columns": [
       {
@@ -16,6 +16,17 @@
       },
       {
         "ordinal": 1,
+        "name": "phone_number",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "phone_number"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
         "name": "imported!",
         "type_info": "Bool",
         "origin": "Expression"
@@ -28,8 +39,9 @@
     },
     "nullable": [
       false,
+      true,
       null
     ]
   },
-  "hash": "9f3735634897857382b4b06f99c3e2a3e890261c1e7b949497344db61e190e0a"
+  "hash": "8f31d3cd3e123c5e828214387274c4f26e54763b4b9fffafba06c638f040fdcf"
 }

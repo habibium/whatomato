@@ -887,6 +887,7 @@ async fn a_key_never_reaches_another_accounts_data(pool: PgPool) {
         &app.pool,
         NewDelivery {
             reply_to: None,
+            mentions: &[],
             user_id: grace,
             scheduled_message_id: None,
             connection_id: None,

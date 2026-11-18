@@ -22,7 +22,11 @@ use crate::{
     },
     scheduler::{DeliveryStatus, RecipientType, draft, variables},
     state::AppState,
+    whatsapp::tags,
 };
+
+/// People one message tags at most
+const MENTIONS_MAX: usize = 50;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SendInput {
@@ -40,6 +44,12 @@ pub struct SendInput {
     /// To answer one message and quote it: its `id` from `read_messages`, in this same chat. It
     /// needs permission to read the chat. Leave it out for an ordinary message.
     pub reply_to: Option<String>,
+    /// People to tag in a group, by phone number with its country code. Write @ and each number
+    /// in `body` where its tag goes, such as "@8801711111111 can you check?": their phone shows
+    /// their name there and tells them. `read_messages` gives the numbers of who wrote and who was
+    /// tagged.
+    #[serde(default)]
+    pub mentions: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
@@ -90,6 +100,45 @@ async fn quoted(
     Ok(Some(id.to_owned()))
 }
 
+/// The numbers a send tags, each written as `@number` in its body. Only a group tags people.
+fn tagged(
+    recipient_type: RecipientType,
+    body: &str,
+    mentions: &[String],
+) -> Result<Vec<String>, OpError> {
+    if mentions.is_empty() {
+        return Ok(Vec::new());
+    }
+    if recipient_type != RecipientType::Group {
+        return Err(OpError::invalid(
+            "`mentions` tags people in a group. A message to one person can't tag anyone; send \
+             it without `mentions`.",
+        ));
+    }
+    if mentions.len() > MENTIONS_MAX {
+        return Err(OpError::invalid("A message can tag at most 50 people."));
+    }
+    let mut numbers: Vec<String> = Vec::with_capacity(mentions.len());
+    for mention in mentions {
+        let number = RecipientType::Contact.normalized(mention);
+        if !(7..=15).contains(&number.len()) {
+            return Err(OpError::Invalid(vec![format!(
+                "`{mention}` in `mentions` isn't a phone number. Give each person's number with \
+                 its country code."
+            )]));
+        }
+        if !tags::written(body, &number) {
+            return Err(OpError::Invalid(vec![format!(
+                "`body` doesn't tag {number}. Write @{number} in `body` where the tag goes."
+            )]));
+        }
+        if !numbers.contains(&number) {
+            numbers.push(number);
+        }
+    }
+    Ok(numbers)
+}
+
 /// Queues a text message, or asks the owner to approve it first
 ///
 /// # Errors
@@ -125,6 +174,7 @@ async fn run_send(
         recipient_type: input.recipient_type,
         recipient: &recipient,
     };
+    let mentions = tagged(input.recipient_type, &input.body, &input.mentions)?;
     let reply_to = quoted(state, caller, chat, input.reply_to.as_deref()).await?;
     let known = chat_facts(state, caller, chat).await?;
     trace.chat(input.recipient_type, &recipient, known.name.as_deref());
@@ -162,6 +212,7 @@ async fn run_send(
                     recipient_name: known.name.as_deref(),
                     body: &body,
                     reply_to: reply_to.as_deref(),
+                    mentions: &mentions,
                 },
             )
             .await?;
@@ -183,6 +234,7 @@ async fn run_send(
                 body: input.body.trim().to_owned(),
                 timezone: input.timezone,
                 reply_to,
+                mentions,
             });
             let approval = ask(&mut transaction, state, caller, &request).await?;
             transaction.commit().await?;

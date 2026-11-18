@@ -138,6 +138,7 @@ fn arrived(chat: Chat, id: &str, text: &str) -> Change {
             text: Some(text.to_owned()),
             file_name: None,
             reply_to: None,
+            mentions: Vec::new(),
             edited: false,
         },
     }
@@ -268,6 +269,7 @@ fn reads_what_a_message_holds() {
         text: Some(text.to_owned()),
         file_name: None,
         reply_to: reply_to.map(str::to_owned),
+        mentions: Vec::new(),
     };
     assert_eq!(
         content_of(&wa::Message::text("  Hello  ")),
@@ -281,6 +283,22 @@ fn reads_what_a_message_holds() {
         text("Yes", Some("Q1"))
     );
 
+    let mut context = wa::ContextInfo::default();
+    context.mentioned_jid = vec!["111@lid".to_owned(), format!("{BOB}@s.whatsapp.net")];
+    assert_eq!(
+        content_of(&wa::Message::text_with_context(
+            "@111 and @bob, look",
+            context
+        )),
+        Content::Message {
+            kind: Kind::Text,
+            text: Some("@111 and @bob, look".to_owned()),
+            file_name: None,
+            reply_to: None,
+            mentions: vec!["111@lid".to_owned(), format!("{BOB}@s.whatsapp.net")],
+        }
+    );
+
     let mut image = wa::message::ImageMessage::default();
     image.caption = Some("The receipt".to_owned());
     let mut picture = wa::Message::default();
@@ -292,8 +310,22 @@ fn reads_what_a_message_holds() {
             text: Some("The receipt".to_owned()),
             file_name: None,
             reply_to: None,
+            mentions: Vec::new(),
         }
     );
+
+    // A captioned picture that answers a message and tags someone carries both on the picture
+    let mut answering = image.clone();
+    let mut context = wa::ContextInfo::default();
+    context.stanza_id = Some("Q2".to_owned());
+    context.mentioned_jid = vec!["111@lid".to_owned()];
+    answering.context_info = MessageField::some(context);
+    let mut reply = wa::Message::default();
+    reply.image_message = MessageField::some(answering);
+    assert!(matches!(
+        content_of(&reply),
+        Content::Message { reply_to: Some(id), mentions, .. } if id == "Q2" && mentions == ["111@lid"]
+    ));
 
     let mut document = wa::message::DocumentMessage::default();
     document.file_name = Some("invoice.pdf".to_owned());
@@ -331,6 +363,7 @@ fn reads_what_a_message_holds() {
         Content::Edit {
             message_id: "A1".to_owned(),
             text: Some("Hello there".to_owned()),
+            mentions: Vec::new(),
         }
     );
 }
@@ -376,6 +409,7 @@ async fn keeps_edits_and_removes_what_arrives(pool: PgPool) {
         chat: ada(),
         message_id: "A1".to_owned(),
         text: Some("Hello Habib".to_owned()),
+        mentions: Vec::new(),
     })
     .await;
     let first = inbox_messages::find(&pool, user_id, "contact", ADA, "A1")
@@ -526,7 +560,12 @@ fn a_reply_quotes_the_kept_message() {
         sender_jid: "99887766@lid".to_owned(),
         text: Some("Can we meet at 5?".to_owned()),
     };
-    let reply = text_message(&chat, "Yes, see you then".to_owned(), Some(quote));
+    let reply = text_message(
+        &chat,
+        "Yes, see you then".to_owned(),
+        Some(quote),
+        Vec::new(),
+    );
     let text = reply.extended_text_message.as_option().unwrap();
     assert_eq!(text.text.as_deref(), Some("Yes, see you then"));
     let context = text.context_info.as_option().unwrap();
@@ -536,7 +575,7 @@ fn a_reply_quotes_the_kept_message() {
     let quoted = context.quoted_message.as_option().unwrap();
     assert_eq!(quoted.conversation.as_deref(), Some("Can we meet at 5?"));
 
-    let plain = text_message(&chat, "Hello".to_owned(), None);
+    let plain = text_message(&chat, "Hello".to_owned(), None, Vec::new());
     assert_eq!(plain.conversation.as_deref(), Some("Hello"));
     // A sender that can't be addressed leaves an ordinary message rather than a failed send
     let unaddressed = Quote {
@@ -544,8 +583,47 @@ fn a_reply_quotes_the_kept_message() {
         sender_jid: String::new(),
         text: None,
     };
-    let fallback = text_message(&chat, "Hello".to_owned(), Some(unaddressed));
+    let fallback = text_message(&chat, "Hello".to_owned(), Some(unaddressed), Vec::new());
     assert_eq!(fallback.conversation.as_deref(), Some("Hello"));
+}
+
+#[test]
+fn a_tag_goes_in_the_message_s_mentions() {
+    use crate::whatsapp::supervisor::{Quote, text_message};
+
+    let group: Jid = GROUP.parse().unwrap();
+    let tagging = text_message(
+        &group,
+        "@111 can you check?".to_owned(),
+        None,
+        vec!["111@lid".to_owned()],
+    );
+    let text = tagging.extended_text_message.as_option().unwrap();
+    assert_eq!(text.text.as_deref(), Some("@111 can you check?"));
+    let context = text.context_info.as_option().unwrap();
+    assert_eq!(context.mentioned_jid, ["111@lid"]);
+    assert_eq!(context.stanza_id, None);
+
+    // Answering someone else's message and tagging them
+    let quote = Quote {
+        message_id: "G1".to_owned(),
+        sender_jid: "111@lid".to_owned(),
+        text: Some("Who has the file?".to_owned()),
+    };
+    let answer = text_message(
+        &group,
+        "@111 I do".to_owned(),
+        Some(quote),
+        vec!["111@lid".to_owned()],
+    );
+    let context = answer
+        .extended_text_message
+        .as_option()
+        .and_then(|text| text.context_info.as_option())
+        .unwrap();
+    assert_eq!(context.stanza_id.as_deref(), Some("G1"));
+    assert_eq!(context.participant.as_deref(), Some("111@lid"));
+    assert_eq!(context.mentioned_jid, ["111@lid"]);
 }
 
 #[test]
@@ -560,9 +638,12 @@ fn what_this_device_sends_is_handed_over_as_the_owners_message() {
         account_id,
         &Jid::pn(ADA),
         "S1",
-        "8801700000000@s.whatsapp.net".to_owned(),
-        "Yes, see you then".to_owned(),
-        Some("A1".to_owned()),
+        Body::sent(
+            "8801700000000@s.whatsapp.net".to_owned(),
+            "Yes, see you then".to_owned(),
+            Some("A1".to_owned()),
+            vec!["111@lid".to_owned()],
+        ),
     );
     let (account, change) = incoming.try_recv().unwrap();
     assert_eq!(account, account_id);
@@ -581,15 +662,14 @@ fn what_this_device_sends_is_handed_over_as_the_owners_message() {
     assert!(from_me);
     assert_eq!(body.text.as_deref(), Some("Yes, see you then"));
     assert_eq!(body.reply_to.as_deref(), Some("A1"));
+    assert_eq!(body.mentions, ["111@lid"]);
 
     // A status update isn't a chat
     inbox.sent(
         account_id,
         &"status@broadcast".parse().unwrap(),
         "S2",
-        String::new(),
-        "Hello".to_owned(),
-        None,
+        Body::sent(String::new(), "Hello".to_owned(), None, Vec::new()),
     );
     assert!(incoming.try_recv().is_err());
 }

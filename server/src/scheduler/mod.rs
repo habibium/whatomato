@@ -177,6 +177,7 @@ pub trait Sender: Clone + Send + Sync + 'static {
         to: Recipient,
         body: String,
         reply_to: Option<String>,
+        mentions: Vec<String>,
     ) -> impl Future<Output = Result<(), SendFailure>> + Send;
 }
 
@@ -191,8 +192,9 @@ impl Sender for WhatsApp {
         to: Recipient,
         body: String,
         reply_to: Option<String>,
+        mentions: Vec<String>,
     ) -> Result<(), SendFailure> {
-        self.send_text(user_id, to, body, reply_to).await
+        self.send_text(user_id, to, body, reply_to, mentions).await
     }
 }
 
@@ -330,6 +332,7 @@ pub(crate) async fn enqueue_due(
         .await;
         let delivery = NewDelivery {
             reply_to: None,
+            mentions: &[],
             user_id: message.user_id,
             scheduled_message_id: Some(message.id),
             connection_id,
@@ -367,6 +370,7 @@ async fn deliver(pool: PgPool, sender: impl Sender, delivery: Claimed) {
         recipient,
         body,
         reply_to,
+        mentions,
         attempts,
     } = delivery;
     let to = match (recipient_type, connection_id) {
@@ -375,7 +379,7 @@ async fn deliver(pool: PgPool, sender: impl Sender, delivery: Claimed) {
         (RecipientType::Contact, None) => Recipient::Number(recipient),
         (RecipientType::Group, _) => Recipient::Group(recipient),
     };
-    let outcome = sender.send(user_id, to, body, reply_to).await;
+    let outcome = sender.send(user_id, to, body, reply_to, mentions).await;
     if let Err(failure) = &outcome {
         tracing::warn!(delivery = %id, %user_id, ?failure, attempts, "a send failed");
     }
@@ -455,6 +459,7 @@ mod tests {
             to: Recipient,
             _body: String,
             _reply_to: Option<String>,
+            _mentions: Vec<String>,
         ) -> Result<(), SendFailure> {
             tokio::task::yield_now().await;
             self.exact
@@ -592,6 +597,7 @@ mod tests {
             pool,
             NewDelivery {
                 reply_to: None,
+                mentions: &[],
                 user_id: owner,
                 scheduled_message_id: None,
                 connection_id: None,

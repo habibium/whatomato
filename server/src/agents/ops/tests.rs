@@ -169,6 +169,7 @@ fn send_to(recipient: &str, body: &str) -> SendInput {
         body: body.to_owned(),
         timezone: None,
         reply_to: None,
+        mentions: Vec::new(),
     }
 }
 
@@ -2629,6 +2630,7 @@ mod reading {
             text: Some(text.to_owned()),
             file_name: None,
             reply_to: None,
+            mentions: Vec::new(),
             edited: false,
         };
         let sealed =
@@ -2865,5 +2867,157 @@ mod reading {
                 .await
                 .unwrap();
         assert_eq!(quoted.as_deref(), Some("A1"));
+    }
+
+    #[sqlx::test]
+    async fn a_tag_names_who_it_tags_and_whether_that_is_the_owner(pool: PgPool) {
+        const OWN: &str = "8801700000005";
+        let state = state(pool);
+        let owner = user(&state.pool).await;
+        save_contact(&state, owner, ADA, "Ada Lovelace").await;
+        let caller = connect(&state, owner, &reader()).await;
+        let account = whatsapp_accounts::find_or_create(&state.pool, owner)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE whatsapp_accounts SET phone_number = $1 WHERE id = $2")
+            .bind(OWN)
+            .bind(account.id)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        // What WhatsApp told the library about people outside the address book
+        for (lid, number) in [("111", OWN), ("222", BOB)] {
+            sqlx::query(
+                "INSERT INTO whatsapp_lid_mappings
+                     (account_id, lid, phone_number, learning_source, created_at, updated_at)
+                 VALUES ($1, $2, $3, 'test', 0, 0)",
+            )
+            .bind(account.id)
+            .bind(lid)
+            .bind(number)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        }
+        let body = Body {
+            sender_jid: "222@lid".to_owned(),
+            sender_number: None,
+            sender_name: Some("bob".to_owned()),
+            kind: Kind::Text,
+            text: Some(format!("@111 and @{ADA}, and @333")),
+            file_name: None,
+            reply_to: None,
+            mentions: vec![
+                "111@lid".to_owned(),
+                format!("{ADA}@s.whatsapp.net"),
+                "333@lid".to_owned(),
+            ],
+            edited: false,
+        };
+        let chat = (RecipientType::Group, GROUP);
+        let sealed = seal_body(&state.cipher, account.id, chat, "G1", &body).unwrap();
+        inbox_messages::save(
+            &state.pool,
+            inbox_messages::NewMessage {
+                account_id: account.id,
+                chat_type: "group",
+                chat_id: GROUP,
+                message_id: "G1",
+                from_me: false,
+                sent_at: Utc::now(),
+                expires_at: None,
+                body: &sealed,
+            },
+        )
+        .await
+        .unwrap();
+
+        let page = read_messages(&state, &caller, read(GROUP, None, None))
+            .await
+            .unwrap();
+        let message = &page.messages[0];
+        // Kept without a number, the sender's LID has one now
+        let sender = message.sender.as_ref().unwrap();
+        assert_eq!(sender.number.as_deref(), Some(BOB));
+        let ada = format!("@{ADA}");
+        let tags: Vec<_> = message
+            .mentions
+            .iter()
+            .map(|tag| {
+                (
+                    tag.tag.as_str(),
+                    tag.name.as_deref(),
+                    tag.number.as_deref(),
+                    tag.owner,
+                )
+            })
+            .collect();
+        assert_eq!(
+            tags,
+            [
+                ("@111", None, Some(OWN), true),
+                (ada.as_str(), Some("Ada Lovelace"), Some(ADA), false),
+                ("@333", None, None, false),
+            ]
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_group_message_tags_the_numbers_written_in_it(pool: PgPool) {
+        let state = state(pool);
+        let owner = user(&state.pool).await;
+        connected(&state, owner);
+        let mut grant = reader();
+        for rule in &mut grant.chats.rules {
+            rule.send = SendLevel::Yes;
+        }
+        let caller = connect(&state, owner, &grant).await;
+        let tagging = |recipient: &str, body: &str, mentions: &[&str]| SendInput {
+            mentions: mentions.iter().map(|&number| number.to_owned()).collect(),
+            ..send_to(recipient, body)
+        };
+        let tags_of = async |delivery: Uuid| -> Vec<String> {
+            sqlx::query_scalar("SELECT mentions FROM deliveries WHERE id = $1")
+                .bind(delivery)
+                .fetch_one(&state.pool)
+                .await
+                .unwrap()
+        };
+
+        let body = format!("@{ADA} and @{BOB}, can you check?");
+        let spelled = format!("+{ADA}");
+        let sent = send_message(
+            &state,
+            &caller,
+            tagging(GROUP, &body, &[&spelled, BOB, ADA]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(sent.outcome, SendOutcome::Queued);
+        assert_eq!(tags_of(sent.delivery_id.unwrap()).await, [ADA, BOB]);
+
+        // A tag is written where it goes, and only a group tags anyone
+        let unwritten =
+            send_message(&state, &caller, tagging(GROUP, "Can you check?", &[ADA])).await;
+        assert!(
+            matches!(unwritten, Err(OpError::Invalid(_))),
+            "{unwritten:?}"
+        );
+        let longer = format!("@{ADA}0 can you check?");
+        let other = send_message(&state, &caller, tagging(GROUP, &longer, &[ADA])).await;
+        assert!(matches!(other, Err(OpError::Invalid(_))), "{other:?}");
+        let direct = format!("@{ADA} hi");
+        let direct = send_message(&state, &caller, tagging(ADA, &direct, &[ADA])).await;
+        assert!(matches!(direct, Err(OpError::Invalid(_))), "{direct:?}");
+
+        // One that waits for approval keeps its tags
+        let asking = connect(&state, owner, &reader()).await;
+        let body = format!("@{BOB} please");
+        let waiting = send_message(&state, &asking, tagging(GROUP, &body, &[BOB]))
+            .await
+            .unwrap();
+        assert_eq!(waiting.outcome, SendOutcome::WaitingForApproval);
+        let approved = review::approve(&state, waiting.approval_id.unwrap(), owner, None).await;
+        assert_eq!(tags_of(approved.unwrap().delivery_id.unwrap()).await, [BOB]);
     }
 }

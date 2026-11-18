@@ -19,7 +19,7 @@ use url::Url;
 use uuid::Uuid;
 use whatsapp_rust::{
     CacheConfig, DeregistrationSkipReason, MsgSecretPolicy, PresencePolicy, SendError, SendOptions,
-    SendRequest,
+    SendRequest, Server,
     http::{HttpClient, UreqHttpClient},
     pair_code::PairCodeOptions,
     prelude::{
@@ -28,16 +28,18 @@ use whatsapp_rust::{
     wacore::{
         proto_helpers::{MessageBuilderExt, build_quote_context_with_info},
         store::DevicePropsOverride,
+        types::message::AddressingMode,
     },
 };
 
 use super::{
     alerts,
     contacts::{self, Changes, Feed},
-    inbox::Inbox,
+    inbox::{Body, Inbox},
     pictures::{Image, Pictures},
     status::{self, Alert, Code, Effect, Event, Method, Refused, Status, StopReason},
     store::PgStore,
+    tags,
 };
 use crate::{crypto::Cipher, db::whatsapp_accounts, email::Mailer};
 
@@ -156,6 +158,14 @@ pub struct Quote {
     /// As WhatsApp addressed whoever wrote it
     pub sender_jid: String,
     pub text: Option<String>,
+}
+
+/// What a text carries beside its body
+#[derive(Debug, Default)]
+pub struct Extras {
+    pub quote: Option<Quote>,
+    /// The numbers it tags, each written as `@number` in the body
+    pub mentions: Vec<String>,
 }
 
 /// Where a message goes
@@ -288,7 +298,7 @@ enum Command {
     Send(
         Recipient,
         String,
-        Option<Quote>,
+        Extras,
         oneshot::Sender<Result<(), SendFailure>>,
     ),
     Shutdown(oneshot::Sender<()>),
@@ -363,9 +373,9 @@ impl Handle {
         &self,
         to: Recipient,
         body: String,
-        quote: Option<Quote>,
+        extras: Extras,
     ) -> Result<(), SendFailure> {
-        self.ask(|reply| Command::Send(to, body, quote, reply))
+        self.ask(|reply| Command::Send(to, body, extras, reply))
             .await
             .map_err(|_| SendFailure::Offline)?
     }
@@ -538,8 +548,8 @@ impl Supervisor {
                 Wake::Command(Command::Groups(reply)) => self.groups(reply),
                 Wake::Command(Command::Picture(jid, reply)) => self.picture(jid, reply),
                 Wake::Command(Command::SendTestMessage(reply)) => self.send_test_message(reply),
-                Wake::Command(Command::Send(to, body, quote, reply)) => {
-                    self.send(to, body, quote, reply);
+                Wake::Command(Command::Send(to, body, extras, reply)) => {
+                    self.send(to, body, extras, reply);
                 }
                 Wake::Command(Command::Shutdown(reply)) => {
                     self.stop_client().await;
@@ -1105,7 +1115,7 @@ impl Supervisor {
         &self,
         to: Recipient,
         body: String,
-        quote: Option<Quote>,
+        extras: Extras,
         reply: oneshot::Sender<Result<(), SendFailure>>,
     ) {
         let Ok(client) = self.connected_client() else {
@@ -1122,28 +1132,82 @@ impl Supervisor {
             _ => String::new(),
         };
         tokio::spawn(async move {
-            let text = kept.is_some().then(|| body.clone());
-            let reply_to = quote.as_ref().map(|quote| quote.message_id.clone());
-            let sent = send_and_confirm(client, acks, to, body, quote).await;
-            if let (Ok((chat, id)), Some((inbox, account_id)), Some(text)) = (&sent, kept, text) {
-                inbox.sent(account_id, chat, id, own, text, reply_to);
-            }
-            let _ = reply.send(sent.map(drop));
+            let reply_to = extras.quote.as_ref().map(|quote| quote.message_id.clone());
+            let sent = send_and_confirm(client, acks, to, body, extras)
+                .await
+                .map(|sent| {
+                    if let Some((inbox, account_id)) = kept {
+                        let body = Body::sent(own, sent.text, reply_to, sent.mentions);
+                        inbox.sent(account_id, &sent.chat, &sent.id, body);
+                    }
+                });
+            let _ = reply.send(sent);
         });
     }
 }
 
 /// `body` as a text message, quoting `quote` when it has one that can be addressed
-pub(super) fn text_message(chat: &Jid, body: String, quote: Option<Quote>) -> wa::Message {
-    let Some(quote) = quote else {
-        return wa::Message::text(body);
-    };
-    let Ok(sender) = quote.sender_jid.parse::<Jid>() else {
-        return wa::Message::text(body);
-    };
-    let quoted = wa::Message::text(quote.text.unwrap_or_default());
-    let context = build_quote_context_with_info(quote.message_id, &sender, chat, chat, &quoted);
-    wa::Message::text_with_context(body, context)
+pub(super) fn text_message(
+    chat: &Jid,
+    body: String,
+    quote: Option<Quote>,
+    mentions: Vec<String>,
+) -> wa::Message {
+    let mut context = quote.and_then(|quote| {
+        let sender = quote.sender_jid.parse::<Jid>().ok()?;
+        let quoted = wa::Message::text(quote.text.unwrap_or_default());
+        Some(build_quote_context_with_info(
+            quote.message_id,
+            &sender,
+            chat,
+            chat,
+            &quoted,
+        ))
+    });
+    if !mentions.is_empty() {
+        context
+            .get_or_insert_with(wa::ContextInfo::default)
+            .mentioned_jid = mentions;
+    }
+    match context {
+        Some(context) => wa::Message::text_with_context(body, context),
+        None => wa::Message::text(body),
+    }
+}
+
+/// A text WhatsApp took, as it went out
+struct Sent {
+    chat: Jid,
+    id: String,
+    text: String,
+    mentions: Vec<String>,
+}
+
+/// The body and mentions in the form the chat knows the people tagged by
+async fn tagged(
+    client: &Client,
+    chat: &Jid,
+    body: String,
+    numbers: Vec<String>,
+) -> (String, Vec<String>) {
+    if numbers.is_empty() {
+        return (body, Vec::new());
+    }
+    let mut lids = HashMap::new();
+    if chat.server == Server::Group {
+        let asked = timeout(REQUEST_LIMIT, client.groups().fetch_metadata(chat)).await;
+        // Without the members, a tag by number still reaches the person
+        if let Ok(Ok(mut group)) = asked
+            && group.addressing_mode == AddressingMode::Lid
+        {
+            client
+                .groups()
+                .resolve_participant_addresses(&mut group)
+                .await;
+            lids = tags::lids_of(&group.participants);
+        }
+    }
+    tags::retag(body, numbers, &lids)
 }
 
 async fn send_and_confirm(
@@ -1151,8 +1215,8 @@ async fn send_and_confirm(
     acks: Acks,
     to: Recipient,
     body: String,
-    quote: Option<Quote>,
-) -> Result<(Jid, String), SendFailure> {
+    extras: Extras,
+) -> Result<Sent, SendFailure> {
     let jid = match to {
         Recipient::Number(number) => registered(&client, number, false).await?,
         Recipient::ExactNumber(number) => registered(&client, number, true).await?,
@@ -1163,8 +1227,10 @@ async fn send_and_confirm(
     let id = client.generate_message_id();
     let acknowledged = acks.expect(id.as_str());
     let key = id.as_str().to_owned();
-    let request = SendRequest::new(&jid, text_message(&jid, body, quote))
-        .with_options(SendOptions::default().with_message_id(id));
+    let (text, mentions) = tagged(&client, &jid, body, extras.mentions).await;
+    let message = text_message(&jid, text.clone(), extras.quote, mentions.clone());
+    let request =
+        SendRequest::new(&jid, message).with_options(SendOptions::default().with_message_id(id));
     let outcome = timeout(SEND_LIMIT, async {
         client.send(request).await?;
         Ok::<_, SendFailure>(acknowledged.await)
@@ -1173,7 +1239,12 @@ async fn send_and_confirm(
     acks.forget(&key);
 
     match outcome {
-        Ok(Ok(Ok(None))) => Ok((jid, key)),
+        Ok(Ok(Ok(None))) => Ok(Sent {
+            chat: jid,
+            id: key,
+            text,
+            mentions,
+        }),
         Ok(Ok(Ok(Some(code)))) => Err(SendFailure::Rejected(code)),
         Ok(Err(failure)) => Err(failure),
         Ok(Ok(Err(_))) | Err(_) => Err(SendFailure::Unconfirmed),

@@ -53,6 +53,7 @@ async fn deliver(pool: &PgPool, owner: Uuid, connection: Option<Uuid>, to: &str)
         pool,
         NewDelivery {
             reply_to: None,
+            mentions: &[],
             user_id: owner,
             scheduled_message_id: None,
             connection_id: connection,

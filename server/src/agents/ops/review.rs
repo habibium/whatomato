@@ -66,6 +66,9 @@ pub struct SendRequest {
     /// The id of the message it quotes
     #[serde(default)]
     pub reply_to: Option<String>,
+    /// The numbers it tags, each written as `@number` in `body`
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -503,6 +506,7 @@ async fn carry_out(
                     recipient_name: send.recipient_name.as_deref(),
                     body: filled.unwrap_or(&send.body),
                     reply_to: send.reply_to.as_deref(),
+                    mentions: &send.mentions,
                 },
             )
             .await?;

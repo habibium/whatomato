@@ -64,8 +64,33 @@ pub struct Body {
     pub file_name: Option<String>,
     /// The id of the message this one answers
     pub reply_to: Option<String>,
+    /// Who it tags, as WhatsApp addressed them
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<String>,
     #[serde(default)]
     pub edited: bool,
+}
+
+impl Body {
+    /// A text the owner sent from this device
+    pub(super) const fn sent(
+        sender_jid: String,
+        text: String,
+        reply_to: Option<String>,
+        mentions: Vec<String>,
+    ) -> Self {
+        Self {
+            sender_jid,
+            sender_number: None,
+            sender_name: None,
+            kind: Kind::Text,
+            text: Some(text),
+            file_name: None,
+            reply_to,
+            mentions,
+            edited: false,
+        }
+    }
 }
 
 /// # Errors
@@ -189,6 +214,7 @@ pub(super) enum Change {
         chat: Chat,
         message_id: String,
         text: Option<String>,
+        mentions: Vec<String>,
     },
     Removed {
         chat: Chat,
@@ -225,15 +251,7 @@ impl Inbox {
     }
 
     /// Keeps a text this device sent, if some connection may read its chat
-    pub(super) fn sent(
-        &self,
-        account_id: Uuid,
-        chat: &Jid,
-        message_id: &str,
-        sender_jid: String,
-        text: String,
-        reply_to: Option<String>,
-    ) {
+    pub(super) fn sent(&self, account_id: Uuid, chat: &Jid, message_id: &str, body: Body) {
         let Some(chat) = chat_of_jid(chat) else {
             return;
         };
@@ -243,16 +261,7 @@ impl Inbox {
             from_me: true,
             sent_at: Utc::now(),
             expires_at: None,
-            body: Body {
-                sender_jid,
-                sender_number: None,
-                sender_name: None,
-                kind: Kind::Text,
-                text: Some(text),
-                file_name: None,
-                reply_to,
-                edited: false,
-            },
+            body,
         };
         // Fails only once the writer has gone, at shutdown
         let _ = self.changes.send((account_id, change));
@@ -302,6 +311,7 @@ impl Feed {
                 text,
                 file_name,
                 reply_to,
+                mentions,
             } => {
                 let source = &info.source;
                 let number = |jid: &Jid| jid.server.is_pn_family().then(|| jid.user.to_string());
@@ -327,14 +337,20 @@ impl Feed {
                         text,
                         file_name,
                         reply_to,
+                        mentions,
                         edited: false,
                     },
                 }
             }
-            Content::Edit { message_id, text } => Change::Edited {
+            Content::Edit {
+                message_id,
+                text,
+                mentions,
+            } => Change::Edited {
                 chat,
                 message_id,
                 text,
+                mentions,
             },
             Content::Revoke { message_id } => Change::Removed { chat, message_id },
             Content::Nothing => return None,
@@ -433,10 +449,12 @@ enum Content {
         text: Option<String>,
         file_name: Option<String>,
         reply_to: Option<String>,
+        mentions: Vec<String>,
     },
     Edit {
         message_id: String,
         text: Option<String>,
+        mentions: Vec<String>,
     },
     Revoke {
         message_id: String,
@@ -467,12 +485,16 @@ fn content_of(message: &wa::Message) -> Content {
             Some(message_id) if protocol.r#type == Some(Type::REVOKE) => {
                 Content::Revoke { message_id }
             }
-            Some(message_id) if protocol.r#type == Some(Type::MESSAGE_EDIT) => Content::Edit {
-                message_id,
-                text: protocol.edited_message.as_option().and_then(|edited| {
-                    filled(edited.text_content().or_else(|| edited.get_caption()))
-                }),
-            },
+            Some(message_id) if protocol.r#type == Some(Type::MESSAGE_EDIT) => {
+                let edited = protocol.edited_message.as_option();
+                Content::Edit {
+                    message_id,
+                    text: edited.and_then(|edited| {
+                        filled(edited.text_content().or_else(|| edited.get_caption()))
+                    }),
+                    mentions: mentions_of(edited.and_then(MessageExt::context_info)),
+                }
+            }
             _ => Content::Nothing,
         };
     }
@@ -507,10 +529,9 @@ fn content_of(message: &wa::Message) -> Content {
     } else {
         return Content::Nothing;
     };
-    let reply_to = base
-        .extended_text_message
-        .as_option()
-        .and_then(|text| text.context_info.as_option())
+    // A caption carries its context on the picture or file, not on a text
+    let context = base.context_info();
+    let reply_to = context
         .and_then(|context| context.stanza_id.clone())
         .filter(|id| !id.is_empty());
     Content::Message {
@@ -518,7 +539,19 @@ fn content_of(message: &wa::Message) -> Content {
         text,
         file_name,
         reply_to,
+        mentions: mentions_of(context),
     }
+}
+
+fn mentions_of(context: Option<&wa::ContextInfo>) -> Vec<String> {
+    context.map_or_else(Vec::new, |context| {
+        context
+            .mentioned_jid
+            .iter()
+            .filter(|jid| !jid.is_empty())
+            .cloned()
+            .collect()
+    })
 }
 
 async fn write(
@@ -612,6 +645,7 @@ pub(super) async fn apply(
             chat,
             message_id,
             text,
+            mentions,
         } => {
             let Some((recipient_type, id)) = readable(pool, readers, account_id, chat).await?
             else {
@@ -625,6 +659,7 @@ pub(super) async fn apply(
             };
             let mut body = open_body(cipher, &kept)?;
             body.text = text;
+            body.mentions = mentions;
             body.edited = true;
             let sealed = seal_body(
                 cipher,
