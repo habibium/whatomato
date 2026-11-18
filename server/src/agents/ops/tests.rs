@@ -1588,7 +1588,8 @@ where
     F: Fn(Arc<AppState>, Arc<Caller>) -> Fut + Send + 'static,
     Fut: Future<Output = bool> + Send + 'static,
 {
-    std::thread::spawn(move || {
+    let checks = connect_options.clone();
+    let (passed, owner) = std::thread::spawn(move || {
         tokio::runtime::Builder::new_multi_thread()
             .worker_threads(4)
             .enable_all()
@@ -1615,11 +1616,16 @@ where
                     });
                 }
                 let passed = tasks.join_all().await.into_iter().filter(|ok| *ok).count();
-                (passed, owner, pool)
+                pool.close().await;
+                (passed, owner)
             })
     })
     .join()
-    .unwrap()
+    .unwrap();
+    // A connection opened on the runtime above fails once it has shut down, so the caller's checks
+    // get their own, opened on the caller's runtime
+    let pool = sqlx::postgres::PgPoolOptions::new().connect_lazy_with(checks);
+    (passed, owner, pool)
 }
 
 #[sqlx::test]
