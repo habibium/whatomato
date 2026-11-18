@@ -50,7 +50,7 @@ interface SendControlProps {
   description?: string
   value: SendLevel
   onChange: (value: SendLevel) => void
-  /** Shown attached under the control, at the point the risky choice is made. */
+  /** Shown under the control, at the point the risky choice is made. */
   warning?: string | null
   size?: 'sm' | 'md'
 }
@@ -73,6 +73,7 @@ export function SendControl({
       isLabelHidden={isLabelHidden}
       description={description}
       status={warning ? { type: 'warning', message: warning } : undefined}
+      statusVariant="detached"
     >
       <HStack>
         <SegmentedControl

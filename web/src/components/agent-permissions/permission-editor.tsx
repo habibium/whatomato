@@ -284,6 +284,7 @@ function StrangersSection({ value, onChange }: SectionProps) {
             ? { type: 'warning', message: WARNINGS.strangers }
             : undefined
         }
+        statusVariant="detached"
       >
         <HStack>
           <SegmentedControl
@@ -386,6 +387,7 @@ function Choice<Value extends string>({
       isGroupLabel
       description={description}
       status={warning ? { type: 'warning', message: warning } : undefined}
+      statusVariant="detached"
     >
       <HStack>
         <SegmentedControl
