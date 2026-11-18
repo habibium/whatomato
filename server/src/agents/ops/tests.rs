@@ -987,6 +987,11 @@ async fn schedules_are_own_or_all_as_the_grant_says(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(changed.outcome, ScheduleOutcome::Updated);
+    assert!(
+        !changed.message.contains("now belongs"),
+        "{}",
+        changed.message
+    );
     assert_eq!(changed.schedule.unwrap().body, "Changed");
 
     delete_scheduled_message(
@@ -1931,9 +1936,13 @@ async fn a_schedule_an_agent_changes_becomes_that_agents(pool: PgPool) {
     change.body = Some("Changed by the agent".to_owned());
     let changed = update_scheduled_message(&state, &agent, change)
         .await
-        .unwrap()
-        .schedule
         .unwrap();
+    assert!(
+        changed.message.contains("now belongs"),
+        "{}",
+        changed.message
+    );
+    let changed = changed.schedule.unwrap();
     assert!(changed.belongs_to_this_connection);
     assert_eq!(belongs_to(&state, owners, owner).await, Some(agent_id));
     assert_eq!(

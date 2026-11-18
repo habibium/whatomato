@@ -553,6 +553,18 @@ fn merge_locked(
     Ok(Some(merged))
 }
 
+const fn updated(owner: Owner) -> &'static str {
+    match owner {
+        Owner::ThisConnection => {
+            "The scheduled message is changed. next_run_at says when it next goes out."
+        }
+        Owner::Other => {
+            "The scheduled message is changed, and now belongs to this connection. next_run_at \
+             says when it next goes out."
+        }
+    }
+}
+
 async fn run_update(
     state: &AppState,
     caller: &Caller,
@@ -640,8 +652,7 @@ async fn run_update(
             transaction.commit().await?;
             Ok(ScheduleResult {
                 outcome: ScheduleOutcome::Updated,
-                message: "The scheduled message is changed, and now belongs to this connection. \
-                          next_run_at says when it next goes out.",
+                message: updated(owner),
                 schedule: Some(ScheduleView::new(message, caller)),
                 approval_id: None,
                 approval_url: None,
