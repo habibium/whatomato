@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.4.0] - 2026-11-18
+
+### Features
+
+- Agents can read the chats you allow, from a short window of kept messages (c98c4f3)
+- A read switch in the permission editor, with what is kept said plainly (c1b68d4)
+- An agent can answer a message it read, quoting it (004be82)
+- Messages Whatomato sends to a readable chat are kept with the rest (c0566ff)
+- An agent sees who a message tags and can tag people in a group (e2e6a59)
+
+### Bug Fixes
+
+- A chat rule's controls take their own line when reading is offered (0a8dacb)
+- A grant that reads nothing is stored as before, so an older version still reads it (83b1cf7)
+- A sender WhatsApp names only by LID gets its number from the chat or the address book (54e16cb)
+- A tag the owner took out of the text before approving isn't sent (2a50142)
+- A warning in the permission editor sits under its choice instead of over the next control (93e76b1)
+
+### Documentation
+
+- Reading chats, what it keeps and how to turn it on (9bb0442)
 ## [0.3.0] - 2026-11-16
 
 ### Features
