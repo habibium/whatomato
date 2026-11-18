@@ -36,7 +36,8 @@ pub(super) fn lids_of(members: &[GroupParticipant]) -> HashMap<String, Jid> {
 }
 
 /// The body and mentions as the group addresses the people tagged: by LID where it knows them that
-/// way, since a phone shows a name only for a tag in the form its group uses
+/// way, since a phone shows a name only for a tag in the form its group uses. A number no longer
+/// written in the body, as after the owner edited it on approval, isn't tagged.
 pub(super) fn retag(
     mut body: String,
     numbers: Vec<String>,
@@ -44,6 +45,9 @@ pub(super) fn retag(
 ) -> (String, Vec<String>) {
     let mut mentions = Vec::with_capacity(numbers.len());
     for number in numbers {
+        if !written(&body, &number) {
+            continue;
+        }
         match lids.get(&number) {
             Some(lid) => {
                 body = swap(&body, &number, &lid.user);
@@ -114,6 +118,8 @@ mod tests {
                 "8801711111111".to_owned(),
                 "8801722222222".to_owned(),
                 "8801733333333".to_owned(),
+                // Taken out of the text when the owner edited it
+                "8801744444444".to_owned(),
             ],
             &lids,
         );
