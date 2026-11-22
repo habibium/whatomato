@@ -154,6 +154,7 @@ To run the generation by hand: `just gen-api`.
 | `just gen-api`      | Regenerate `openapi.json` and `schema.d.ts`                            |
 | `just build`        | Production build: `web/dist` and the release binary                    |
 | `just start`        | Run the release binary, serving the SPA and the API on one port        |
+| `just docs`         | Serve the documentation site in `site/` locally                        |
 | `just docker-build` | Build the production image locally                                     |
 | `just changelog`    | Preview the changelog entries since the last release                   |
 | `just release`      | Tag a version and push; CI builds, publishes and deploys it            |
@@ -189,7 +190,7 @@ Keep `ENCRYPTION_KEY` apart from the database and its backups: together they rev
 
 Sign-up takes an email address and a password. The account cannot sign in until the address is verified through the emailed link, which works for 24 hours. Opened in the browser that signed up, the link also signs the user in; anywhere else it only verifies the address, so a link opened in someone else's browser cannot sign them into the wrong account. Password reset links work once, for an hour, and end every session and outstanding link of the account. Sessions last 30 days and extend while in use; the browser holds them in an `HttpOnly` cookie, and the database stores only a SHA-256 hash of each session and link token.
 
-Writes under `/api/auth` are rate-limited per client address: a burst of 20, then one every 6 seconds, with IPv6 addresses counted per /64. Sign-in attempts are also limited per account and password re-checks per user, however many addresses they come from: 10, then one every 90 seconds. Second-factor codes, whether at sign-in or while turning two-step verification on, are limited per account to 5, then one every 30 minutes, however many sign-ins they are spread over. A refused request gets a 429 with `Retry-After`. The limits live in memory, so they are per instance and reset on restart. Behind a proxy, set `CLIENT_IP_HEADER`, or every client shares the proxy's address; the server trusts that header as sent, so it must only be reachable through the proxy.
+Writes under `/api/auth` are rate-limited per client address: a burst of 20, then one every 6 seconds, with IPv6 addresses counted per /64. Sign-in attempts are also limited per account and password re-checks per user, however many addresses they come from: 10, then one every 90 seconds. A sign-in, or a setup of two-step verification, allows 5 wrong codes before it starts over from the password or a new key. An account also takes at most 30 wrong sign-in codes a day, however many sign-ins they are spread over; past that every code is refused until the day is up or the password is reset. A refused request gets a 429 with `Retry-After`. The limits live in memory, so they are per instance and reset on restart. Behind a proxy, set `CLIENT_IP_HEADER`, or every client shares the proxy's address; the server trusts that header as sent, so it must only be reachable through the proxy.
 
 Sign-up and password reset refuse passwords listed in Have I Been Pwned's [Pwned Passwords](https://haveibeenpwned.com/API/v3#PwnedPasswords). Only the first 5 characters of the password's SHA-1 hash leave the server. When the service does not answer within 3 seconds, the password is accepted and a warning logged.
 
@@ -269,7 +270,7 @@ Never start a server on a copy of the database while the original runs, such as 
 
 ## Agent access
 
-You can let an AI agent, such as Claude Code, Codex, OpenCode, Antigravity or Cursor, use your account. Depending on what you allow, it can find chats by name, send a message, schedule messages, and check whether they went out. It can't read your chats, since Whatomato doesn't store the messages you receive. This is optional: if you never create a connection, nothing changes.
+You can let an AI agent, such as Claude Code, Codex, OpenCode, Antigravity or Cursor, use your account. Depending on what you allow, it can find chats by name, send a message, schedule messages, and check whether they went out. It reads your chats only if the server allows reading and you let it read a given chat; see [Reading chats](#reading-chats). This is optional: if you never create a connection, nothing changes.
 
 ### Connecting an agent
 
@@ -303,7 +304,11 @@ Any change to a connection's permissions asks for your password again and emails
 
 Reading is off unless the server runs with `AGENT_READING=on`. I keep it off on the hosted instance for now. With it on, each chat rule gets one more choice, "Read", and so does the default rule for all chats. No preset turns it on.
 
-A connection that may read a chat gets three more tools: `list_chats` for the chats with recent messages, `read_messages` for one chat, and `search_messages` to find text. What it can read is the last 7 days, counted from when you allowed it: Whatomato doesn't fetch older history from your phone. Reading sends no read receipt and doesn't mark anything as read on your phone.
+A connection that may read a chat gets three more tools: `list_chats` for the chats with recent messages, `read_messages` for one chat, and `search_messages` to find text. How far back it reads is set per connection, from the last 7 days (the default) to everything Whatomato keeps. Reading sends no read receipt and doesn't mark anything as read on your phone.
+
+What Whatomato keeps is chosen on the WhatsApp page under Message history. By default it keeps the last 7 days of the chats an agent may read, from when it was allowed. It can instead keep every chat for 30 days, 3 months, a year or everything, including the history your phone sends while linking. Message text is sealed with the encryption key, and search works on keyed hashes of it, so the text is never stored in the clear.
+
+With "It may open pictures and files" on, an agent can open the picture or file of a message it may read with `get_attachment`; Whatomato fetches it from WhatsApp when asked and doesn't store it. With "It may send pictures and files" on, it can send one, up to 16 MB, under the same rules as its messages.
 
 An agent that read a message can answer it, yours or anyone else's: `send_message` takes that message's id as `reply_to`, and the reply quotes it on WhatsApp. A reply follows the chat's sending rule like any other message, so with "ask me first" it waits for you.
 
@@ -313,7 +318,7 @@ Whatever an agent reads goes to the company that runs its model. And anyone who 
 
 ### Approvals
 
-When a send or a schedule needs your approval, it appears at the top of the Agents page with the recipient and the whole text, and you get an email, at most one an hour. A page you have open shows it at once, without a reload. You can approve it, edit the text and then approve it, or reject it. Your approval is final, even if you've since changed the connection's permissions or paused it, so the request shows whether the connection is still active. A request nobody answers expires after 24 hours.
+When a send or a schedule needs your approval, it appears at the top of the Agents page with the recipient and the whole text, and you get an email, unless another request arrived in the hour before. A page you have open shows it at once, without a reload. You can approve it, edit the text and then approve it, or reject it. Your approval is final, even if you've since changed the connection's permissions or paused it, so the request shows whether the connection is still active. A request nobody answers expires after 24 hours.
 
 ### Notifications
 
@@ -336,7 +341,7 @@ An agent's schedule is checked again each time it's due. If the connection is pa
 
 A schedule belongs to whoever last decided what it sends. One an agent changes becomes that agent's, under its limits. One you edit becomes yours.
 
-An agent can never link or unlink WhatsApp, change your account or security settings, create or change connections, approve its own requests, or read your chats.
+An agent can never link or unlink WhatsApp, change your account or security settings, create or change connections, approve its own requests, or read a chat you haven't let it read.
 
 ### Pausing and revoking
 
