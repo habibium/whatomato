@@ -196,7 +196,7 @@ export function MessageBodyField({
             popover.triggerRef(element)
           }}
           label={label}
-          description="Type {{ to add their name, the time, sunset and more, filled in as it goes out. Move a time with + or −, as in {{sunset + 10m}}."
+          description="Type {{ to add their name, the time, sunset and more, filled in as it goes out. Move a time with + or -, as in {{sunset + 10m}}."
           size="lg"
           rows={rows}
           maxLength={maxLength}
