@@ -1015,6 +1015,18 @@ async fn a_body_over_the_limit_is_refused_before_the_key_is_looked_at(pool: PgPo
         .body(Body::from(body))
         .unwrap();
     assert_eq!(app.send(request).await.status, StatusCode::OK);
+
+    // So does the largest file an agent may send, in base64
+    let file = "A".repeat(crate::whatsapp::media::FILE_MAX.div_ceil(3) * 4);
+    let body = format!(
+        r#"{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"whoami","arguments":{{}},"pad":"{file}"}}}}"#
+    );
+    let request = post(Some(&key))
+        .header("mcp-protocol-version", LEGACY)
+        .header(header::CONTENT_LENGTH, body.len())
+        .body(Body::from(body))
+        .unwrap();
+    assert_eq!(app.send(request).await.status, StatusCode::OK);
 }
 
 #[sqlx::test]

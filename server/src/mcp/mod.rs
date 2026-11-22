@@ -40,10 +40,12 @@ use crate::{
     oauth,
     rate_limit::ClientIp,
     state::AppState,
+    whatsapp::media::FILE_MAX,
 };
 
-/// Far over a tool call's needs: a message is at most 4,096 characters, 24 kB even escaped
-const BODY_LIMIT: usize = 64 * 1024;
+/// A tool call carrying the largest file an agent may send, in base64, with room for the rest of
+/// the call. Only a caller with a working key gets its body read.
+const BODY_LIMIT: usize = FILE_MAX.div_ceil(3) * 4 + 64 * 1024;
 
 const NO_KEY: &str = "This needs a working Whatomato access key, sent as `Authorization: Bearer \
                       <key>`, or an app that has signed in. The account's owner connects agents \
@@ -184,7 +186,9 @@ async fn declared_length(request: Request, next: Next) -> Response {
     if declared.is_some_and(|length| length > BODY_LIMIT as u64) {
         return (
             StatusCode::PAYLOAD_TOO_LARGE,
-            Json(json!({ "error": "This request is too large. A tool call needs far less." })),
+            Json(json!({
+                "error": "This request is too large. A file an agent sends can be at most 16 MB."
+            })),
         )
             .into_response();
     }
