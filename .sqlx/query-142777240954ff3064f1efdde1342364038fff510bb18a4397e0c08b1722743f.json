@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE outgoing_files f SET data = NULL\n         WHERE data IS NOT NULL AND created_at < now() - interval '25 hours'\n           AND NOT EXISTS (\n               SELECT 1 FROM deliveries d\n               WHERE d.file_id = f.id AND d.status IN ('pending', 'sending')\n           )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "142777240954ff3064f1efdde1342364038fff510bb18a4397e0c08b1722743f"
+}

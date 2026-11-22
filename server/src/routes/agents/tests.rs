@@ -102,6 +102,7 @@ async fn ask(app: &TestApp, owner: Uuid, connection_id: Uuid, body: &str) -> Uui
         timezone: None,
         reply_to: None,
         mentions: Vec::new(),
+        attachment: None,
     };
     send_message(&app.state, &caller, input)
         .await
@@ -1215,4 +1216,86 @@ async fn a_waiting_request_reaches_the_owners_pages_and_browsers_without_its_tex
             .await
             .is_err()
     );
+}
+
+async fn hold_file(app: &TestApp, owner: Uuid, mime_type: &str, name: &str) -> Uuid {
+    use crate::{
+        db::outgoing_files::{self, NewFile},
+        whatsapp::media::{FileKind, seal_file},
+    };
+
+    let id = Uuid::new_v4();
+    let sealed = seal_file(&app.state.cipher, id, b"file bytes").unwrap();
+    outgoing_files::save(
+        &app.pool,
+        NewFile {
+            id,
+            user_id: owner,
+            kind: FileKind::of(mime_type),
+            mime_type,
+            file_name: Some(name),
+            size: 10,
+            sealed: &sealed,
+        },
+    )
+    .await
+    .unwrap();
+    id
+}
+
+#[sqlx::test]
+async fn a_file_waiting_to_go_out_shows_only_to_its_owner_and_never_as_a_page(pool: PgPool) {
+    use axum::http::header;
+
+    let app = TestApp::new(pool);
+    let (owner, session) = app.signed_in("ada@example.com").await;
+    let picture = hold_file(&app, owner, "image/png", "receipt.png").await;
+    let page = hold_file(&app, owner, "text/html", "trap.html").await;
+
+    let shown = call(
+        &app,
+        Method::GET,
+        &format!("/files/{picture}"),
+        None,
+        &session,
+    )
+    .await;
+    assert_eq!(shown.status, StatusCode::OK);
+    assert_eq!(shown.headers[header::CONTENT_TYPE], "image/png");
+    assert_eq!(shown.headers[header::CONTENT_DISPOSITION], "inline");
+    assert_eq!(shown.headers[header::X_CONTENT_TYPE_OPTIONS], "nosniff");
+
+    let downloaded = call(&app, Method::GET, &format!("/files/{page}"), None, &session).await;
+    assert_eq!(
+        downloaded.headers[header::CONTENT_TYPE],
+        "application/octet-stream"
+    );
+    assert_eq!(
+        downloaded.headers[header::CONTENT_DISPOSITION],
+        "attachment; filename=\"trap.html\""
+    );
+
+    let (_, other) = app.signed_in("grace@example.com").await;
+    let hidden = call(
+        &app,
+        Method::GET,
+        &format!("/files/{picture}"),
+        None,
+        &other,
+    )
+    .await;
+    assert_eq!(hidden.status, StatusCode::NOT_FOUND);
+
+    crate::db::outgoing_files::release(&app.pool, picture)
+        .await
+        .unwrap();
+    let sent = call(
+        &app,
+        Method::GET,
+        &format!("/files/{picture}"),
+        None,
+        &session,
+    )
+    .await;
+    assert_eq!(sent.status, StatusCode::NOT_FOUND);
 }

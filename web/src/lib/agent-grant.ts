@@ -9,10 +9,21 @@ export type Chat = components['schemas']['Chat']
 export type SendLevel = components['schemas']['SendLevel']
 export type Strangers = components['schemas']['Strangers']
 export type Scope = components['schemas']['Scope']
+export type Reach = components['schemas']['Reach']
+export type Attachments = components['schemas']['Attachments']
 
 /** The server's caps; it refuses a grant past them. */
 export const MAX_CHAT_RULES = 500
 export const NOTE_MAX = 500
+/** What the server reads a grant without `reach` as. */
+export const DEFAULT_REACH: Reach = { days: 7 }
+
+function isDefaultReach(reach: Reach | undefined) {
+  return (
+    reach === undefined ||
+    (typeof reach === 'object' && 'days' in reach && reach.days === 7)
+  )
+}
 
 export function chatKey(chat: Pick<Chat, 'type' | 'id'>) {
   return `${chat.type}:${chat.id}`
@@ -32,6 +43,15 @@ export function cleanGrant(grant: Grant): Grant {
     schedules: grant.schedules,
     templates: grant.templates,
     deliveries: grant.deliveries,
+    // Left out while both are off, as the server stores it
+    ...(grant.attachments?.open || grant.attachments?.send
+      ? {
+          attachments: {
+            open: grant.attachments.open ?? false,
+            send: grant.attachments.send ?? false,
+          },
+        }
+      : {}),
     chats: {
       scope: grant.chats.scope,
       default: rule(grant.chats.default),
@@ -44,6 +64,10 @@ export function cleanGrant(grant: Grant): Grant {
         ...rule(item),
       })),
       strangers: grant.chats.strangers,
+      // Left out at its default, as the server stores it
+      ...(isDefaultReach(grant.chats.reach)
+        ? {}
+        : { reach: grant.chats.reach }),
     },
   }
 }
@@ -64,12 +88,14 @@ export function sameGrant(a: Grant, b: Grant) {
   return canonical(a) === canonical(b)
 }
 
-/** Reading is chosen on its own, so it doesn't turn a preset into custom permissions. */
+/** Reading and files are chosen on their own, so they don't turn a preset into custom permissions. */
 function withoutReading(grant: Grant): Grant {
   return {
     ...grant,
+    attachments: undefined,
     chats: {
       ...grant.chats,
+      reach: undefined,
       default: { ...grant.chats.default, read: false },
       rules: grant.chats.rules.map((item) => ({ ...item, read: false })),
     },
@@ -159,9 +185,30 @@ export function updateDefaultRule(grant: Grant, change: Partial<Rule>): Grant {
 
 export function updateChats(
   grant: Grant,
-  change: Partial<Pick<Grant['chats'], 'scope' | 'strangers'>>,
+  change: Partial<Pick<Grant['chats'], 'scope' | 'strangers' | 'reach'>>,
 ): Grant {
   return { ...grant, chats: { ...grant.chats, ...change } }
+}
+
+export function updateAttachments(
+  grant: Grant,
+  change: Partial<Attachments>,
+): Grant {
+  const current = grant.attachments ?? { open: false, send: false }
+  return { ...grant, attachments: { ...current, ...change } }
+}
+
+/** "the last 7 days", "the last 3 months", "everything Whatomato keeps". */
+export function describeReach(reach: Reach | undefined) {
+  const value = reach ?? DEFAULT_REACH
+  if (value === 'all') return 'everything Whatomato keeps'
+  if ('days' in value) {
+    return value.days === 1 ? 'the last day' : `the last ${value.days} days`
+  }
+  if (value.months === 12) return 'the last year'
+  return value.months === 1
+    ? 'the last month'
+    : `the last ${value.months} months`
 }
 
 export const SEND_LABELS: Record<SendLevel, string> = {

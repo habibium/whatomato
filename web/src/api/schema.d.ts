@@ -119,6 +119,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agents/files/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A picture or file an agent asked to send, while it waits to go out
+         * @description A picture comes as itself; anything else as a download, so nothing it holds runs as a page.
+         */
+        get: operations["get_agent_file"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agents/pause-all": {
         parameters: {
             query?: never;
@@ -1000,6 +1020,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/whatsapp/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the owner keeps of their chats, and how the phone's history is coming in */
+        get: operations["get_history"];
+        /**
+         * Choose what to keep of the chats
+         * @description Keeping every chat also keeps the history the phone sends when WhatsApp links, so turning it on
+         *     while linked brings in older messages only after linking again. Turning it off, or shortening
+         *     it, deletes what falls outside within a few minutes.
+         */
+        put: operations["save_history"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/whatsapp/link": {
         parameters: {
             query?: never;
@@ -1315,10 +1358,10 @@ export interface components {
             /** @description Whether a connection may be allowed to read chats; set by `AGENT_READING` */
             available: boolean;
             /**
-             * Format: int32
-             * @description How many days a readable chat's messages are kept
+             * @description What the owner keeps: `off` keeps a readable chat's last 7 days, otherwise every chat is kept
+             *     for that many `days` or `all` of it. A connection reads no further back than this.
              */
-            kept_days: number;
+            history: components["schemas"]["History"];
         };
         /** @description What revoking did with the scheduled messages the connection created or changed */
         AgentRevoked: {
@@ -1376,6 +1419,13 @@ export interface components {
             password: string;
             request: components["schemas"]["AuthorizationRequest"];
         };
+        /** @description What a connection may do with pictures and files, apart from text */
+        Attachments: {
+            /** @description Open the pictures and files of the chats it may read */
+            open?: boolean;
+            /** @description Send pictures and files where it may send */
+            send?: boolean;
+        };
         AuthenticatorCode: {
             /** @description The 6-digit code the authenticator app shows */
             code: string;
@@ -1414,6 +1464,11 @@ export interface components {
         Chats: {
             /** @description Every chat's rule under scope `all`; under `selected`, only what a newly added chat starts with */
             default: components["schemas"]["Rule"];
+            /**
+             * @description How old a message in a chat it may read can be. Left out of the stored grant at its
+             *     default of 7 days, so grants that don't change it stay readable by older servers.
+             */
+            reach?: components["schemas"]["Reach"];
             /** @description A chat's own rule, replacing `default`. Under scope `selected`, the chats in scope. */
             rules: components["schemas"]["ChatRule"][];
             scope: components["schemas"]["Scope"];
@@ -1472,6 +1527,10 @@ export interface components {
         };
         /** @enum {string} */
         Deliveries: "own" | "all";
+        DeliveryAttachment: {
+            file_name: string | null;
+            kind: components["schemas"]["FileKind"];
+        };
         DeliveryPage: {
             items: components["schemas"]["DeliveryResponse"][];
             /** Format: int64 */
@@ -1482,6 +1541,7 @@ export interface components {
             total: number;
         };
         DeliveryResponse: {
+            attachment: null | components["schemas"]["DeliveryAttachment"];
             body: string;
             /**
              * Format: uuid
@@ -1528,7 +1588,24 @@ export interface components {
             } | null;
             error: string;
         };
+        /**
+         * @description What a file an agent sends goes out as
+         * @enum {string}
+         */
+        FileKind: "image" | "video" | "audio" | "document";
+        /** @description What a send's picture or file is, for the owner's pages and the approval it waits in */
+        FileNote: {
+            file_name: string | null;
+            /** Format: uuid */
+            id: string;
+            kind: components["schemas"]["FileKind"];
+            mime_type: string;
+            /** Format: int64 */
+            size: number;
+        };
         Grant: {
+            /** @description Pictures and files. Left out of the stored grant while both are off. */
+            attachments?: components["schemas"]["Attachments"];
             chats: components["schemas"]["Chats"];
             contacts: components["schemas"]["Contacts"];
             deliveries: components["schemas"]["Deliveries"];
@@ -1549,6 +1626,35 @@ export interface components {
             /** @description Lets a deploy tell when the new release is the one answering */
             version: string;
         };
+        /**
+         * @description What an owner keeps: `off` keeps only the chats some connection may read, for 7 days; the
+         *     others keep every chat, the phone's history included.
+         */
+        History: "off" | {
+            /** Format: int32 */
+            days: number;
+        } | "all";
+        HistoryImport: {
+            /**
+             * Format: int64
+             * @description Messages brought in from the phone's history so far
+             */
+            imported: number;
+            /**
+             * Format: int32
+             * @description How much of its history the phone has sent, from 0 to 100. Empty until the first part
+             *     arrives, which only happens after linking while history is kept.
+             */
+            progress: number | null;
+            /**
+             * Format: int64
+             * @description Parts of the history received and still being brought in
+             */
+            waiting: number;
+        };
+        HistoryRequest: {
+            keep: components["schemas"]["History"];
+        };
         LinkRequest: {
             password: string;
             /**
@@ -1556,6 +1662,17 @@ export interface components {
              *     the country code; a leading +, spaces and dashes are ignored.
              */
             phone_number?: string | null;
+        };
+        /** @description What the owner keeps of their chats for agents to read, and how the phone's history is coming in */
+        MessageHistory: {
+            /** @description Whether this server lets connections read chats; while it doesn't, nothing is kept */
+            available: boolean;
+            import: null | components["schemas"]["HistoryImport"];
+            /**
+             * @description `off` keeps only the chats a connection may read, for 7 days. Otherwise every chat is kept,
+             *     the phone's history included: for that many `days`, or `all` of it.
+             */
+            keep: components["schemas"]["History"];
         };
         MessageInput: {
             /** @description Up to 4096 characters */
@@ -1711,6 +1828,17 @@ export interface components {
             /** @description How many browsers the notification was handed over for */
             sent: number;
         };
+        /** @description How far back a connection may read */
+        Reach: {
+            /** Format: int32 */
+            days: number;
+        } | {
+            /**
+             * Format: int32
+             * @description Calendar months
+             */
+            months: number;
+        } | "all";
         /** @enum {string} */
         RecipientType: "contact" | "group";
         RecoveryCode: {
@@ -1738,6 +1866,7 @@ export interface components {
          *     when it runs
          */
         Requested: {
+            attachment: null | components["schemas"]["FileNote"];
             /** @description The whole text, as the agent wrote it; variables are filled in when it goes out */
             body: string;
             kind: components["schemas"]["ApprovalKind"];
@@ -2492,6 +2621,53 @@ export interface operations {
             };
         };
     };
+    get_agent_file: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The file */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Agent access is off, there's no such file, or it already went out */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     pause_all_agents: {
         parameters: {
             query?: never;
@@ -2607,6 +2783,14 @@ export interface operations {
             };
             /** @description Agent access is off on this server */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -5202,6 +5386,97 @@ export interface operations {
             };
             /** @description WhatsApp isn't connected */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    get_history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageHistory"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    save_history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HistoryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessageHistory"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Reading chats is turned off on this server */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

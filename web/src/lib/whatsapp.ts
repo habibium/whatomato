@@ -10,6 +10,8 @@ export type Pairing = Extract<WhatsAppStatus, { status: 'pairing' }>
 export type NotLinked = Extract<WhatsAppStatus, { status: 'not_linked' }>
 export type Linked = Extract<WhatsAppStatus, { phone_number: string }>
 export type Group = components['schemas']['GroupResponse']
+export type History = components['schemas']['History']
+export type MessageHistory = components['schemas']['MessageHistory']
 
 export const CONNECTION_DOTS = {
   not_linked: { label: 'Not linked', variant: 'neutral', isPulsing: false },
@@ -74,6 +76,28 @@ export const groupsQuery = queryOptions({
   },
   staleTime: 60_000,
   // 409 means the link dropped, which a status refresh shows better than a retry
+  retry: (failures, error) =>
+    !(error instanceof ApiError && error.status < 500) && failures < 2,
+})
+
+/** Whether the phone's history is still coming in, so its progress is worth polling for. */
+export function isImporting(history: MessageHistory | undefined) {
+  const imported = history?.import
+  if (!history || history.keep === 'off' || !imported) return false
+  return (
+    imported.waiting > 0 ||
+    (imported.progress !== null && imported.progress < 100)
+  )
+}
+
+export const historyQuery = queryOptions({
+  queryKey: ['whatsapp', 'history'],
+  queryFn: async (): Promise<MessageHistory> => {
+    const { data, response } = await api.GET('/api/whatsapp/history')
+    if (!data) throw new ApiError(response.status)
+    return data
+  },
+  refetchInterval: (query) => (isImporting(query.state.data) ? 5_000 : false),
   retry: (failures, error) =>
     !(error instanceof ApiError && error.status < 500) && failures < 2,
 })

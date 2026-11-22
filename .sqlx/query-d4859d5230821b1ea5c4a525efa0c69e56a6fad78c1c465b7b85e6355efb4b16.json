@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT d.id, d.scheduled_message_id, d.connection_id, c.name AS \"connection_name?\",\n               d.recipient_type AS \"recipient_type: RecipientType\", d.recipient,\n               d.recipient_name, d.body, d.status AS \"status: DeliveryStatus\", d.error,\n               d.created_at, d.sent_at\n           FROM deliveries d LEFT JOIN agent_connections c ON c.id = d.connection_id\n           WHERE d.user_id = $1 AND ($2::text IS NULL OR d.recipient = $2)\n               AND ($3::uuid IS NULL OR d.connection_id = $3\n                   OR (d.recipient_type, d.recipient)\n                       IN (SELECT * FROM unnest($6::text[], $7::text[])))\n           ORDER BY d.created_at DESC, d.id LIMIT $4 OFFSET $5",
+  "query": "SELECT d.id, d.scheduled_message_id, d.connection_id, c.name AS \"connection_name?\",\n               d.recipient_type AS \"recipient_type: RecipientType\", d.recipient,\n               d.recipient_name, d.body, d.status AS \"status: DeliveryStatus\", d.error,\n               d.created_at, d.sent_at, f.kind AS \"file_kind?: FileKind\",\n               f.file_name AS \"file_name?\"\n           FROM deliveries d LEFT JOIN agent_connections c ON c.id = d.connection_id\n               LEFT JOIN outgoing_files f ON f.id = d.file_id\n           WHERE d.user_id = $1 AND ($2::text IS NULL OR d.recipient = $2)\n               AND ($3::uuid IS NULL OR d.connection_id = $3\n                   OR (d.recipient_type, d.recipient)\n                       IN (SELECT * FROM unnest($6::text[], $7::text[])))\n           ORDER BY d.created_at DESC, d.id LIMIT $4 OFFSET $5",
   "describe": {
     "columns": [
       {
@@ -134,6 +134,28 @@
             "name": "sent_at"
           }
         }
+      },
+      {
+        "ordinal": 12,
+        "name": "file_kind?: FileKind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outgoing_files",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "file_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outgoing_files",
+            "name": "file_name"
+          }
+        }
       }
     ],
     "parameters": {
@@ -159,8 +181,10 @@
       false,
       true,
       false,
+      true,
+      false,
       true
     ]
   },
-  "hash": "a00117963c26cab02eb7ccb7f531ed974f80f17855266a46270cd4f17ab2d66c"
+  "hash": "d4859d5230821b1ea5c4a525efa0c69e56a6fad78c1c465b7b85e6355efb4b16"
 }

@@ -19,4 +19,5 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::contacts))
         .routes(routes!(handlers::picture))
         .routes(routes!(handlers::send_test_message))
+        .routes(routes!(handlers::get_history, handlers::save_history))
 }

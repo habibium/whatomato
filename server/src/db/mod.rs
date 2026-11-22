@@ -4,9 +4,12 @@ pub mod agent_connections;
 pub mod agent_sign_ins;
 pub mod agent_tokens;
 pub mod deliveries;
+pub mod history_chunks;
 pub mod inbox_messages;
 pub mod instance_keys;
+pub mod message_history;
 pub mod message_templates;
+pub mod outgoing_files;
 pub mod passkey_ceremonies;
 pub mod passkeys;
 pub mod push_subscriptions;
@@ -52,7 +55,8 @@ pub fn spawn_cleanup(pool: PgPool) {
                 agent_approvals::expire_overdue(&pool),
                 agent_activity::delete_old(&pool),
                 agent_sign_ins::delete_expired(&pool),
-                agent_tokens::delete_expired(&pool)
+                agent_tokens::delete_expired(&pool),
+                outgoing_files::release_stale(&pool)
             ) {
                 Ok((
                     sessions,
@@ -64,6 +68,7 @@ pub fn spawn_cleanup(pool: PgPool) {
                     activity,
                     agent_sign_ins,
                     agent_tokens,
+                    files,
                 )) => {
                     tracing::debug!(
                         sessions,
@@ -75,9 +80,10 @@ pub fn spawn_cleanup(pool: PgPool) {
                         activity,
                         agent_sign_ins,
                         agent_tokens,
+                        files,
                         "deleted expired sessions, tokens, passkey ceremonies, challenges and \
-                         setups, expired agent approvals, sign-ins and tokens, and dropped old \
-                         agent activity"
+                         setups, expired agent approvals, sign-ins and tokens, dropped old \
+                         agent activity, and released files no send waits for"
                     );
                 }
                 Err(error) => {

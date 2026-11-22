@@ -150,3 +150,72 @@ pub async fn delete(db: impl PgExecutor<'_>, account_id: Uuid) -> sqlx::Result<(
 
     Ok(())
 }
+
+/// How far the import of the phone's history has got
+pub struct HistoryImport {
+    pub account_id: Uuid,
+    /// Whether a phone has linked the device
+    pub linked: bool,
+    /// The furthest progress, from 0 to 100, a chunk claimed
+    pub progress: Option<i32>,
+    pub imported: i64,
+}
+
+pub async fn history_import(
+    db: impl PgExecutor<'_>,
+    user_id: Uuid,
+) -> sqlx::Result<Option<HistoryImport>> {
+    sqlx::query_as!(
+        HistoryImport,
+        r#"SELECT id AS account_id, phone_number IS NOT NULL AS "linked!",
+                  history_progress AS progress, history_imported AS imported
+           FROM whatsapp_accounts WHERE user_id = $1"#,
+        user_id
+    )
+    .fetch_optional(db)
+    .await
+}
+
+/// Counts what a history chunk brought in. Chunks don't arrive in order, so the progress only
+/// grows.
+pub async fn add_history_import(
+    db: impl PgExecutor<'_>,
+    account_id: Uuid,
+    progress: Option<i32>,
+    imported: i64,
+) -> sqlx::Result<()> {
+    sqlx::query!(
+        "UPDATE whatsapp_accounts
+         SET history_progress = GREATEST(history_progress, $2),
+             history_imported = history_imported + $3
+         WHERE id = $1",
+        account_id,
+        progress,
+        imported,
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
+pub async fn phone_number(
+    db: impl PgExecutor<'_>,
+    account_id: Uuid,
+) -> sqlx::Result<Option<String>> {
+    Ok(sqlx::query_scalar!(
+        "SELECT phone_number FROM whatsapp_accounts WHERE id = $1",
+        account_id
+    )
+    .fetch_optional(db)
+    .await?
+    .flatten())
+}
+
+pub async fn id_of_user(db: impl PgExecutor<'_>, user_id: Uuid) -> sqlx::Result<Option<Uuid>> {
+    sqlx::query_scalar!(
+        "SELECT id FROM whatsapp_accounts WHERE user_id = $1",
+        user_id
+    )
+    .fetch_optional(db)
+    .await
+}

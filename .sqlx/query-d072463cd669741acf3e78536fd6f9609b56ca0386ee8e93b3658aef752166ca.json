@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE whatsapp_accounts\n         SET history_progress = GREATEST(history_progress, $2),\n             history_imported = history_imported + $3\n         WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d072463cd669741acf3e78536fd6f9609b56ca0386ee8e93b3658aef752166ca"
+}

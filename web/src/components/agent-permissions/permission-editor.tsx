@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useId, useMemo, useState } from 'react'
 import { Banner } from '@astryxdesign/core/Banner'
+import { CheckboxInput } from '@astryxdesign/core/CheckboxInput'
 import { Divider } from '@astryxdesign/core/Divider'
 import { Field } from '@astryxdesign/core/Field'
 import { HStack } from '@astryxdesign/core/HStack'
@@ -17,6 +18,7 @@ import { ChatRuleList } from './chat-rule-list'
 import {
   DailyLimitField,
   NoteField,
+  ReachField,
   ReadControl,
   SendControl,
 } from './rule-fields'
@@ -31,7 +33,9 @@ import {
   cleanGrant,
   grantWarning,
   matchingPreset,
+  readsAny,
   removeChatRule,
+  updateAttachments,
   updateChatRule,
   updateChats,
   updateDefaultRule,
@@ -39,6 +43,7 @@ import {
 import type { Grant, Scope, Strangers } from '@/lib/agent-grant'
 import { readingQuery } from '@/lib/agents'
 import type { AgentPreset } from '@/lib/agents'
+import type { History } from '@/lib/whatsapp'
 
 const CUSTOM = 'custom'
 
@@ -194,13 +199,33 @@ function ChatsSection({ value, onChange }: SectionProps) {
 
       {reading.data?.available ? (
         <Text color="secondary">
-          For a chat it may read, Whatomato keeps the last{' '}
-          {reading.data.kept_days} days of messages, encrypted, so the agent can
-          read and search them. No other chat is stored, reading shows nothing
-          to the people in the chat, and what it kept is deleted within minutes
-          of you turning reading off.
+          {keptCopy(reading.data.history)} Reading shows nothing to the people
+          in the chat.
         </Text>
       ) : null}
+      {reading.data?.available && readsAny(value) ? (
+        <ReachField
+          value={value.chats.reach}
+          isKeptForAWeek={reading.data.history === 'off'}
+          onChange={(reach) => onChange(updateChats(value, { reach }))}
+        />
+      ) : null}
+      <VStack gap={3}>
+        {reading.data?.available && readsAny(value) ? (
+          <CheckboxInput
+            label="It may open pictures and files"
+            description="In the chats it may read: pictures, videos, voice notes, stickers and documents, fetched from WhatsApp when it asks."
+            value={value.attachments?.open === true}
+            onChange={(open) => onChange(updateAttachments(value, { open }))}
+          />
+        ) : null}
+        <CheckboxInput
+          label="It may send pictures and files"
+          description="Up to 16 MB each, wherever it may send, under the same rules as its messages."
+          value={value.attachments?.send === true}
+          onChange={(send) => onChange(updateAttachments(value, { send }))}
+        />
+      </VStack>
 
       {isAll ? (
         <>
@@ -263,6 +288,18 @@ function ChatsSection({ value, onChange }: SectionProps) {
       )}
     </SettingsSection>
   )
+}
+
+/** What Whatomato keeps of the chats, as the owner chose on the WhatsApp page. */
+function keptCopy(history: History) {
+  if (history === 'off') {
+    return 'For a chat it may read, Whatomato keeps the last 7 days of messages, encrypted, so the agent can read and search them. No other chat is stored, and what it kept is deleted within minutes of you turning reading off.'
+  }
+  const kept =
+    history === 'all'
+      ? 'all of every chat’s messages'
+      : `every chat’s messages from the last ${history.days} days`
+  return `You chose to keep ${kept}, encrypted, on the WhatsApp page. The agent reads only the chats you allow here, and no further back than you choose.`
 }
 
 function StrangersSection({ value, onChange }: SectionProps) {

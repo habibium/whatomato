@@ -14,18 +14,22 @@ use crate::{
         decide::{Action, ChatRef, Facts, decide},
         grant::SendLevel,
     },
-    db::{inbox_messages, whatsapp_contacts},
+    db::{inbox_messages, message_history, whatsapp_accounts, whatsapp_contacts},
     scheduler::{RecipientType, draft},
     state::AppState,
     whatsapp::{
         contacts::open_names,
-        inbox::{Body, Kind, WINDOW_DAYS, open_body},
+        inbox::{Body, History, Kind, open_body, terms},
         status::Status,
     },
 };
 
-/// The kept messages one search opens at most, the latest first
+/// The kept messages a search too short for terms opens at most, the latest first
 const SCAN_MAX: usize = 3000;
+/// The messages holding a query's terms that one search opens at most, the latest first
+const CANDIDATES_MAX: usize = 5000;
+/// Messages fetched at a time while searching
+const SEARCH_PAGE: usize = 250;
 /// Matches `search_messages` returns at most
 pub const MATCHES_MAX: usize = 20;
 const QUERY_MIN: usize = 2;
@@ -43,8 +47,9 @@ pub struct ReadableChats {
     pub chats: Vec<ReadableChat>,
     #[serde(flatten)]
     pub more: More,
-    /// How many days a message is kept; older ones can't be read
-    pub kept_days: i32,
+    /// The oldest a message this connection can read may be: older ones are beyond how far back it
+    /// may read, or no longer kept. Empty when it can read everything Whatomato keeps.
+    pub readable_since: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -85,8 +90,9 @@ pub struct MessagesPage {
     pub has_more: bool,
     /// The `before` to ask for the older page with; empty when there's none
     pub next_before: Option<String>,
-    /// How many days a message is kept; older ones can't be read
-    pub kept_days: i32,
+    /// The oldest a message this connection can read may be: older ones are beyond how far back it
+    /// may read, or no longer kept. Empty when it can read everything Whatomato keeps.
+    pub readable_since: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -104,6 +110,9 @@ pub struct MessageView {
     pub text: Option<String>,
     /// A document's file name
     pub file_name: Option<String>,
+    /// Whether it carries a picture, video, voice note, sticker or file that `get_attachment` can
+    /// open
+    pub has_attachment: bool,
     /// The id of the message this one answers, which may no longer be kept
     pub reply_to: Option<String>,
     /// Who it tags, each written in `text` as its `tag`
@@ -146,11 +155,12 @@ pub struct FoundMessages {
     pub matches: Vec<FoundMessage>,
     /// Whether more messages match than are shown; a longer query narrows it
     pub more: bool,
-    /// False when there were more kept messages than one search opens, so only the latest were
-    /// searched
+    /// False when there were more candidate messages than one search opens, so only the latest
+    /// were searched; a longer query searches further back
     pub searched_all: bool,
-    /// How many days a message is kept; older ones aren't searched
-    pub kept_days: i32,
+    /// The oldest a message this connection can read may be: older ones are beyond how far back it
+    /// may read, or no longer kept. Empty when it can read everything Whatomato keeps.
+    pub readable_since: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, JsonSchema)]
@@ -273,6 +283,7 @@ impl Names {
             from_me: message.from_me,
             sender,
             kind: body.kind,
+            has_attachment: body.media.is_some(),
             text: body.text,
             file_name: body.file_name,
             reply_to: body.reply_to,
@@ -283,7 +294,7 @@ impl Names {
 }
 
 /// Refuses while the server has reading turned off
-fn reading_on(state: &AppState, caller: &Caller) -> Result<(), OpError> {
+pub(super) fn reading_on(state: &AppState, caller: &Caller) -> Result<(), OpError> {
     if state.agent_reading {
         return Ok(());
     }
@@ -296,7 +307,18 @@ fn reading_on(state: &AppState, caller: &Caller) -> Result<(), OpError> {
     })
 }
 
-fn opened(state: &AppState, message: &inbox_messages::Kept) -> Option<Body> {
+/// How far back this connection reads: its own reach, within what the owner keeps
+pub(super) async fn readable_since(
+    state: &AppState,
+    caller: &Caller,
+) -> Result<Option<DateTime<Utc>>, OpError> {
+    let now = Utc::now();
+    let history = History::from_stored(message_history::find(&state.pool, caller.user_id()).await?);
+    // `None` sorts first, so the later of two cutoffs wins and no cutoff only when neither has one
+    Ok(history.since(now).max(caller.grant.chats.reach.since(now)))
+}
+
+pub(super) fn opened(state: &AppState, message: &inbox_messages::Kept) -> Option<Body> {
     open_body(&state.cipher, message)
         .inspect_err(|error| tracing::error!("a kept WhatsApp message didn't open: {error:#}"))
         .ok()
@@ -337,7 +359,8 @@ async fn run_list_chats(
     let (limit, offset) = input.page.bounds()?;
     let grant = &caller.grant;
     let names = Names::load(state, caller).await?;
-    let chats = inbox_messages::chats(&state.pool, caller.user_id())
+    let since = readable_since(state, caller).await?;
+    let chats = inbox_messages::chats(&state.pool, caller.user_id(), since)
         .await?
         .into_iter()
         .filter_map(|chat| {
@@ -362,7 +385,7 @@ async fn run_list_chats(
     Ok(ReadableChats {
         chats,
         more,
-        kept_days: WINDOW_DAYS,
+        readable_since: since,
     })
 }
 
@@ -410,23 +433,24 @@ async fn run_read_messages(
         return Err(caller.refused(reason));
     }
 
-    let (user_id, kind) = (caller.user_id(), recipient_type.as_str());
+    let since = readable_since(state, caller).await?;
+    let scope = inbox_messages::Scope {
+        user_id: caller.user_id(),
+        chat: Some((recipient_type.as_str(), &recipient)),
+        since,
+    };
     let before = match input.before.as_deref().map(str::trim) {
         None | Some("") => None,
-        Some(id) => Some(
-            inbox_messages::find(&state.pool, user_id, kind, &recipient, id)
-                .await?
-                .ok_or(OpError::NotFound(
-                    "The message `before` names is no longer kept. Read the chat again without \
-                     `before`.",
-                ))?,
-        ),
+        Some(id) => Some(inbox_messages::find(&state.pool, scope, id).await?.ok_or(
+            OpError::NotFound(
+                "The message `before` names is no longer kept, or is older than this connection \
+                 may read. Read the chat again without `before`.",
+            ),
+        )?),
     };
     let mut kept = inbox_messages::page(
         &state.pool,
-        user_id,
-        kind,
-        &recipient,
+        scope,
         before
             .as_ref()
             .map(|message| (message.sent_at, message.message_id.as_str())),
@@ -459,7 +483,7 @@ async fn run_read_messages(
             .map(|message: &MessageView| message.id.clone()),
         messages,
         has_more,
-        kept_days: WINDOW_DAYS,
+        readable_since: since,
     })
 }
 
@@ -479,26 +503,16 @@ pub async fn search_messages(
     result
 }
 
-async fn run_search_messages(
-    state: &AppState,
+/// The one chat a search looks in, or `None` for every chat it may read; refused unless the grant
+/// lets it read there
+fn searched_chat(
     caller: &Caller,
-    input: SearchMessagesInput,
+    input: &SearchMessagesInput,
+    names: &Names,
     trace: &mut Trace,
-) -> Result<FoundMessages, OpError> {
-    reading_on(state, caller)?;
-    let query = input.query.trim().to_lowercase();
-    let length = query.chars().count();
-    if !(QUERY_MIN..=QUERY_MAX).contains(&length) {
-        return Err(OpError::invalid(
-            "`query` must be between 2 and 100 characters of a message's text.",
-        ));
-    }
+) -> Result<Option<(RecipientType, String)>, OpError> {
     let grant = &caller.grant;
-    let user_id = caller.user_id();
-    let scan = i64::try_from(SCAN_MAX + 1).unwrap_or(i64::MAX);
-    let names = Names::load(state, caller).await?;
-
-    let kept = match (input.recipient_type, input.recipient.as_deref()) {
+    match (input.recipient_type, input.recipient.as_deref()) {
         (Some(recipient_type), Some(recipient)) => {
             let mut errors = ValidationErrors::new();
             draft::check_recipient(recipient_type, recipient, None, &mut errors);
@@ -517,58 +531,115 @@ async fn run_search_messages(
             {
                 return Err(caller.refused(reason));
             }
-            let kind = recipient_type.as_str();
-            inbox_messages::page(&state.pool, user_id, kind, &recipient, None, scan).await?
+            Ok(Some((recipient_type, recipient)))
         }
         (None, None) => {
             if let Decision::Deny(reason) = decide(grant, Action::ReadChats, &Facts::default()) {
                 return Err(caller.refused(reason));
             }
-            inbox_messages::latest(&state.pool, user_id, scan).await?
+            Ok(None)
         }
-        _ => {
-            return Err(OpError::invalid(
-                "`recipient_type` and `recipient` go together: give both to search one chat, or \
-                 neither to search every chat this connection may read.",
-            ));
-        }
+        _ => Err(OpError::invalid(
+            "`recipient_type` and `recipient` go together: give both to search one chat, or \
+             neither to search every chat this connection may read.",
+        )),
+    }
+}
+
+async fn run_search_messages(
+    state: &AppState,
+    caller: &Caller,
+    input: SearchMessagesInput,
+    trace: &mut Trace,
+) -> Result<FoundMessages, OpError> {
+    reading_on(state, caller)?;
+    let query = input.query.trim().to_lowercase();
+    let length = query.chars().count();
+    if !(QUERY_MIN..=QUERY_MAX).contains(&length) {
+        return Err(OpError::invalid(
+            "`query` must be between 2 and 100 characters of a message's text.",
+        ));
+    }
+    let grant = &caller.grant;
+    let user_id = caller.user_id();
+    let names = Names::load(state, caller).await?;
+
+    let chat = searched_chat(caller, &input, &names, trace)?;
+    let since = readable_since(state, caller).await?;
+    let scope = inbox_messages::Scope {
+        user_id,
+        chat: chat
+            .as_ref()
+            .map(|(recipient_type, recipient)| (recipient_type.as_str(), recipient.as_str())),
+        since,
+    };
+    let account_id = whatsapp_accounts::id_of_user(&state.pool, user_id).await?;
+    // A query too short for terms opens the latest messages instead
+    let query_terms =
+        account_id.and_then(|account_id| terms::of_query(&state.cipher, account_id, &query));
+    let opens_max = if query_terms.is_some() {
+        CANDIDATES_MAX
+    } else {
+        SCAN_MAX
     };
 
-    let searched_all = kept.len() <= SCAN_MAX;
     let mut matches = Vec::new();
     let mut more = false;
-    for message in kept.into_iter().take(SCAN_MAX) {
-        let Some(recipient_type) = chat_type(&message.chat_type) else {
-            continue;
+    let mut searched_all = true;
+    let mut opened_count = 0;
+    let mut before: Option<(DateTime<Utc>, String)> = None;
+    let page_size = i64::try_from(SEARCH_PAGE).unwrap_or(i64::MAX);
+    'pages: loop {
+        let cursor = before.as_ref().map(|(at, id)| (*at, id.as_str()));
+        let kept = match &query_terms {
+            Some(query_terms) => {
+                inbox_messages::matching(&state.pool, scope, query_terms, cursor, page_size).await?
+            }
+            None => inbox_messages::page(&state.pool, scope, cursor, page_size).await?,
         };
-        if !grant.reads(recipient_type, &message.chat_id) {
-            continue;
+        let last_page = kept.len() < SEARCH_PAGE;
+        for message in kept {
+            if opened_count == opens_max {
+                searched_all = false;
+                break 'pages;
+            }
+            opened_count += 1;
+            before = Some((message.sent_at, message.message_id.clone()));
+            let Some(recipient_type) = chat_type(&message.chat_type) else {
+                continue;
+            };
+            if !grant.reads(recipient_type, &message.chat_id) {
+                continue;
+            }
+            let Some(body) = opened(state, &message) else {
+                continue;
+            };
+            let hit = [&body.text, &body.file_name]
+                .into_iter()
+                .flatten()
+                .any(|text| text.to_lowercase().contains(&query));
+            if !hit {
+                continue;
+            }
+            if matches.len() == MATCHES_MAX {
+                more = true;
+                break 'pages;
+            }
+            matches.push(FoundMessage {
+                recipient_type,
+                chat_name: names.chat(recipient_type, &message.chat_id),
+                recipient: message.chat_id.clone(),
+                message: names.view(message, body),
+            });
         }
-        let Some(body) = opened(state, &message) else {
-            continue;
-        };
-        let hit = [&body.text, &body.file_name]
-            .into_iter()
-            .flatten()
-            .any(|text| text.to_lowercase().contains(&query));
-        if !hit {
-            continue;
-        }
-        if matches.len() == MATCHES_MAX {
-            more = true;
+        if last_page {
             break;
         }
-        matches.push(FoundMessage {
-            recipient_type,
-            chat_name: names.chat(recipient_type, &message.chat_id),
-            recipient: message.chat_id.clone(),
-            message: names.view(message, body),
-        });
     }
     Ok(FoundMessages {
         matches,
         more,
         searched_all,
-        kept_days: WINDOW_DAYS,
+        readable_since: since,
     })
 }

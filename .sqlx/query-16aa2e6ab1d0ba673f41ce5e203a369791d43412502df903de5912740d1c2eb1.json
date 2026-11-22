@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO inbox_messages\n             (account_id, chat_type, chat_id, message_id, from_me, sent_at, expires_at, body,\n              terms)\n         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Timestamptz",
+        "Timestamptz",
+        "Bytea",
+        "Int4Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "16aa2e6ab1d0ba673f41ce5e203a369791d43412502df903de5912740d1c2eb1"
+}

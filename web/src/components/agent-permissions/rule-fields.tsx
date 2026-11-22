@@ -7,10 +7,16 @@ import {
   SegmentedControl,
   SegmentedControlItem,
 } from '@astryxdesign/core/SegmentedControl'
+import { Selector } from '@astryxdesign/core/Selector'
 import { TextArea } from '@astryxdesign/core/TextArea'
 
-import { NOTE_MAX, SEND_LABELS } from '@/lib/agent-grant'
-import type { SendLevel } from '@/lib/agent-grant'
+import {
+  DEFAULT_REACH,
+  NOTE_MAX,
+  SEND_LABELS,
+  describeReach,
+} from '@/lib/agent-grant'
+import type { Reach, SendLevel } from '@/lib/agent-grant'
 
 export const NOTE_HINT =
   'Guidance the agent reads, such as “reply in Bangla”. It isn’t enforced.'
@@ -172,6 +178,75 @@ export function NoteField({
       hasAutoFocus={hasAutoFocus}
       value={value ?? ''}
       onChange={(next) => onChange(next === '' ? null : next)}
+    />
+  )
+}
+
+const REACH_CHOICES: readonly Reach[] = [
+  { days: 7 },
+  { days: 30 },
+  { months: 3 },
+  { months: 12 },
+  'all',
+]
+
+function reachKey(reach: Reach) {
+  if (reach === 'all') return 'all'
+  return 'days' in reach ? `days:${reach.days}` : `months:${reach.months}`
+}
+
+function capitalized(text: string) {
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+interface ReachFieldProps {
+  value: Reach | undefined
+  onChange: (value: Reach) => void
+  /** Whether Whatomato keeps only a week, so a longer reach reads no further yet. */
+  isKeptForAWeek: boolean
+}
+
+export function ReachField({
+  value,
+  onChange,
+  isKeptForAWeek,
+}: ReachFieldProps) {
+  const current = value ?? DEFAULT_REACH
+  // A length set some other way stays choosable
+  const choices = REACH_CHOICES.some(
+    (reach) => reachKey(reach) === reachKey(current),
+  )
+    ? REACH_CHOICES
+    : [...REACH_CHOICES, current]
+  const reachesPastAWeek = !(
+    typeof current === 'object' &&
+    'days' in current &&
+    current.days <= 7
+  )
+  return (
+    <Selector
+      label="How far back it may read"
+      description="In the chats it may read. Older messages stay out of its reach."
+      width={320}
+      value={reachKey(current)}
+      options={choices.map((reach) => ({
+        value: reachKey(reach),
+        label: capitalized(describeReach(reach)),
+      }))}
+      onChange={(key) => {
+        const chosen = choices.find((reach) => reachKey(reach) === key)
+        if (chosen) onChange(chosen)
+      }}
+      status={
+        isKeptForAWeek && reachesPastAWeek
+          ? {
+              type: 'warning',
+              message:
+                'Whatomato keeps only the last 7 days until you choose to keep message history on the WhatsApp page.',
+            }
+          : undefined
+      }
+      statusVariant="detached"
     />
   )
 }

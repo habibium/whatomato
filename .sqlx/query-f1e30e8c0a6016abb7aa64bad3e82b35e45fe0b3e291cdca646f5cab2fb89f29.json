@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT m.account_id, m.chat_type, m.chat_id, m.message_id, m.from_me, m.sent_at, m.body\n         FROM inbox_messages m\n         JOIN whatsapp_accounts a ON a.id = m.account_id\n         WHERE a.user_id = $1 AND m.chat_type = $2 AND m.chat_id = $3\n           AND ($4::timestamptz IS NULL OR (m.sent_at, m.message_id) < ($4, $5))\n           AND (m.expires_at IS NULL OR m.expires_at > now())\n         ORDER BY m.sent_at DESC, m.message_id DESC\n         LIMIT $6",
+  "query": "SELECT m.account_id, m.chat_type, m.chat_id, m.message_id, m.from_me, m.sent_at, m.body\n         FROM inbox_messages m\n         JOIN whatsapp_accounts a ON a.id = m.account_id\n         WHERE a.user_id = $1 AND m.terms @> $2\n           AND ($3::text IS NULL OR (m.chat_type = $3 AND m.chat_id = $4))\n           AND ($5::timestamptz IS NULL OR m.sent_at >= $5)\n           AND ($6::timestamptz IS NULL OR (m.sent_at, m.message_id) < ($6, $7))\n           AND (m.expires_at IS NULL OR m.expires_at > now())\n         ORDER BY m.sent_at DESC, m.message_id DESC\n         LIMIT $8",
   "describe": {
     "columns": [
       {
@@ -84,8 +84,10 @@
     "parameters": {
       "Left": [
         "Uuid",
+        "Int4Array",
         "Text",
         "Text",
+        "Timestamptz",
         "Timestamptz",
         "Text",
         "Int8"
@@ -101,5 +103,5 @@
       false
     ]
   },
-  "hash": "69a87d0c3b6e6b20e5f9993a1649f00b28af928861e0250b2230bf75880c51eb"
+  "hash": "f1e30e8c0a6016abb7aa64bad3e82b35e45fe0b3e291cdca646f5cab2fb89f29"
 }

@@ -170,6 +170,7 @@ fn send_to(recipient: &str, body: &str) -> SendInput {
         timezone: None,
         reply_to: None,
         mentions: Vec::new(),
+        attachment: None,
     }
 }
 
@@ -2596,15 +2597,19 @@ async fn the_selected_chats_bound_what_all_shows(pool: PgPool) {
 mod reading {
     use super::*;
     use crate::{
-        agents::ops::inbox::{
-            ListChatsInput, ReadMessagesInput, SearchMessagesInput, list_chats, read_messages,
-            search_messages,
+        agents::{
+            grant::Reach,
+            ops::inbox::{
+                ListChatsInput, ReadMessagesInput, SearchMessagesInput, list_chats, read_messages,
+                search_messages,
+            },
         },
-        db::inbox_messages,
-        whatsapp::inbox::{Body, Kind, seal_body},
+        db::{inbox_messages, message_history},
+        whatsapp::inbox::{Body, Kind, seal_body, terms},
     };
 
     const BOB: &str = "8801700000002";
+    const DAY: i64 = 24 * 60;
 
     /// Reads Ada's chat and the group; may use Bob's chat without reading it
     fn reader() -> Grant {
@@ -2647,6 +2652,7 @@ mod reading {
             reply_to: None,
             mentions: Vec::new(),
             edited: false,
+            media: None,
         };
         let sealed =
             seal_body(&state.cipher, account.id, (recipient_type, chat), id, &body).unwrap();
@@ -2661,6 +2667,7 @@ mod reading {
                 sent_at: Utc::now() - TimeDelta::minutes(minutes_ago),
                 expires_at: None,
                 body: &sealed,
+                terms: &terms::of_body(&state.cipher, account.id, &body),
             },
         )
         .await
@@ -2794,6 +2801,142 @@ mod reading {
             .await
             .unwrap();
         assert!(none.messages.is_empty());
+    }
+
+    #[sqlx::test]
+    async fn a_connection_reads_no_further_back_than_its_reach_and_the_owner_keeps(pool: PgPool) {
+        let state = state(pool);
+        let owner = user(&state.pool).await;
+        message_history::save(&state.pool, owner, None)
+            .await
+            .unwrap();
+        keep(&state, owner, ADA, "A1", 100 * DAY, "Invoice for March").await;
+        keep(&state, owner, ADA, "A2", 20 * DAY, "Invoice for May").await;
+        keep(&state, owner, ADA, "A3", DAY, "Invoice for June").await;
+        let reaching = async |reach: Reach| {
+            let mut grant = reader();
+            grant.chats.reach = reach;
+            connect(&state, owner, &grant).await
+        };
+        let ids = async |caller: &Caller| {
+            let page = read_messages(&state, caller, read(ADA, None, None))
+                .await
+                .unwrap();
+            let opened: Vec<String> = page
+                .messages
+                .into_iter()
+                .map(|message| message.id)
+                .collect();
+            let found = search_messages(
+                &state,
+                caller,
+                SearchMessagesInput {
+                    query: "invoice".to_owned(),
+                    recipient_type: None,
+                    recipient: None,
+                },
+            )
+            .await
+            .unwrap();
+            let searched: Vec<String> = found
+                .matches
+                .into_iter()
+                .rev()
+                .map(|hit| hit.message.id)
+                .collect();
+            assert_eq!(opened, searched);
+            (opened, page.readable_since)
+        };
+
+        let week = reaching(Reach::default()).await;
+        let (opened, since) = ids(&week).await;
+        assert_eq!(opened, ["A3"]);
+        let since = since.unwrap();
+        assert!(
+            (Utc::now() - TimeDelta::days(7) - since)
+                .num_seconds()
+                .abs()
+                < 60
+        );
+        let chats = list_chats(&state, &week, ListChatsInput::default())
+            .await
+            .unwrap();
+        assert_eq!(chats.chats[0].messages, 1);
+        // An id it read further back with a longer reach is out of reach now
+        let old = read_messages(&state, &week, read(ADA, Some("A2"), None)).await;
+        assert!(matches!(old, Err(OpError::NotFound(_))), "{old:?}");
+
+        let quarter = reaching(Reach::Months(3)).await;
+        assert_eq!(ids(&quarter).await.0, ["A2", "A3"]);
+
+        let all = reaching(Reach::All).await;
+        let (opened, since) = ids(&all).await;
+        assert_eq!(opened, ["A1", "A2", "A3"]);
+        assert_eq!(since, None);
+
+        // What the owner keeps bounds every reach
+        message_history::save(&state.pool, owner, Some(30))
+            .await
+            .unwrap();
+        assert_eq!(ids(&all).await.0, ["A2", "A3"]);
+        message_history::delete(&state.pool, owner).await.unwrap();
+        assert_eq!(ids(&all).await.0, ["A3"]);
+        let whoami = whoami(&state, &all, WhoAmIInput {}).await.unwrap();
+        assert_eq!(whoami.permissions.read_back, Reach::All);
+        let line = whoami.summary.last().unwrap();
+        assert!(line.contains("however old"), "{line}");
+        assert!(line.contains("only the last 7 days"), "{line}");
+    }
+
+    #[sqlx::test]
+    async fn search_finds_an_old_message_past_many_newer_ones(pool: PgPool) {
+        let state = state(pool);
+        let owner = user(&state.pool).await;
+        message_history::save(&state.pool, owner, None)
+            .await
+            .unwrap();
+        let mut grant = reader();
+        grant.chats.reach = Reach::All;
+        let caller = connect(&state, owner, &grant).await;
+        keep(
+            &state,
+            owner,
+            ADA,
+            "OLD",
+            300 * DAY,
+            "The gold price crashed",
+        )
+        .await;
+        for minute in 0..400 {
+            keep(
+                &state,
+                owner,
+                ADA,
+                &format!("N{minute}"),
+                minute,
+                "Nothing to see",
+            )
+            .await;
+        }
+        let search = |query: &str| SearchMessagesInput {
+            query: query.to_owned(),
+            recipient_type: Some(RecipientType::Contact),
+            recipient: Some(ADA.to_owned()),
+        };
+
+        let found = search_messages(&state, &caller, search("Gold Price"))
+            .await
+            .unwrap();
+        assert_eq!(found.matches.len(), 1);
+        assert_eq!(found.matches[0].message.id, "OLD");
+        assert!(found.searched_all);
+
+        // Two letters are too few for terms, so the latest messages are opened instead
+        let short = search_messages(&state, &caller, search("ld"))
+            .await
+            .unwrap();
+        assert_eq!(short.matches.len(), 1);
+        assert!(short.searched_all);
     }
 
     #[sqlx::test]
@@ -2942,6 +3085,7 @@ mod reading {
                 "333@lid".to_owned(),
             ],
             edited: false,
+            media: None,
         };
         let chat = (RecipientType::Group, GROUP);
         let sealed = seal_body(&state.cipher, account.id, chat, "G1", &body).unwrap();
@@ -2956,6 +3100,7 @@ mod reading {
                 sent_at: Utc::now(),
                 expires_at: None,
                 body: &sealed,
+                terms: &[],
             },
         )
         .await
@@ -3048,5 +3193,261 @@ mod reading {
         assert_eq!(waiting.outcome, SendOutcome::WaitingForApproval);
         let approved = review::approve(&state, waiting.approval_id.unwrap(), owner, None).await;
         assert_eq!(tags_of(approved.unwrap().delivery_id.unwrap()).await, [BOB]);
+    }
+}
+
+mod files {
+    use base64::prelude::{BASE64_STANDARD, Engine as _};
+
+    use super::*;
+    use crate::{
+        agents::ops::attachments::{AttachmentInput, GetAttachmentInput, get_attachment},
+        db::{inbox_messages, outgoing_files},
+        whatsapp::{
+            inbox::{Body, Kind, seal_body, terms},
+            media::{FileKind, MediaRef, open_file},
+        },
+    };
+
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\nnot really a picture";
+
+    fn file(data: &[u8], name: &str) -> AttachmentInput {
+        AttachmentInput {
+            data: Some(BASE64_STANDARD.encode(data)),
+            url: None,
+            file_name: Some(name.to_owned()),
+            mime_type: None,
+        }
+    }
+
+    fn with_file(body: &str, attachment: AttachmentInput) -> SendInput {
+        SendInput {
+            attachment: Some(attachment),
+            ..send_to(ADA, body)
+        }
+    }
+
+    fn sending(send: SendLevel, files: bool) -> Grant {
+        let mut grant = with_rule(Preset::AskBeforeSending.grant(), ADA, send, None);
+        grant.attachments.send = files;
+        grant
+    }
+
+    async fn file_of(state: &AppState, delivery: Uuid) -> Uuid {
+        sqlx::query_scalar!("SELECT file_id FROM deliveries WHERE id = $1", delivery)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    fn refused_code<T: std::fmt::Debug>(result: Result<T, OpError>) -> &'static str {
+        match result {
+            Err(OpError::Refused { code, .. }) => code,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[sqlx::test]
+    async fn sending_a_file_needs_its_own_permission_and_holds_it_sealed(pool: PgPool) {
+        let state = state(pool);
+        let owner = user(&state.pool).await;
+        connected(&state, owner);
+        let texts_only = connect(&state, owner, &sending(SendLevel::Yes, false)).await;
+        let refused =
+            send_message(&state, &texts_only, with_file("", file(PNG, "receipt.png"))).await;
+        assert_eq!(refused_code(refused), "attachments_off");
+
+        let caller = connect(&state, owner, &sending(SendLevel::Yes, true)).await;
+        let sent = send_message(
+            &state,
+            &caller,
+            with_file("The receipt", file(PNG, "receipt.png")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(sent.outcome, SendOutcome::Queued);
+        let file_id = file_of(&state, sent.delivery_id.unwrap()).await;
+        let stored = outgoing_files::find(&state.pool, file_id, owner)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.kind, FileKind::Image);
+        assert_eq!(stored.mime_type, "image/png");
+        assert_eq!(stored.file_name.as_deref(), Some("receipt.png"));
+        let sealed = stored.data.unwrap();
+        assert!(!sealed.windows(PNG.len()).any(|window| window == PNG));
+        assert_eq!(open_file(&state.cipher, file_id, &sealed).unwrap(), PNG);
+        // Another owner can't see it
+        let other = user(&state.pool).await;
+        assert!(
+            outgoing_files::find(&state.pool, file_id, other)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_file_waiting_for_approval_goes_with_the_send_once_approved(pool: PgPool) {
+        let state = state(pool);
+        let owner = user(&state.pool).await;
+        connected(&state, owner);
+        let caller = connect(&state, owner, &sending(SendLevel::Ask, true)).await;
+        let waiting = send_message(
+            &state,
+            &caller,
+            with_file("", file(b"%PDF-1.7", "March.pdf")),
+        )
+        .await
+        .unwrap();
+        assert_eq!(waiting.outcome, SendOutcome::WaitingForApproval);
+        let approval_id = waiting.approval_id.unwrap();
+
+        let approval = agent_approvals::find(&state.pool, approval_id, owner)
+            .await
+            .unwrap()
+            .unwrap();
+        let Request::Send(request) = review::open(&state.cipher, &approval).unwrap() else {
+            panic!("not a send");
+        };
+        let note = request.file.unwrap();
+        assert_eq!(note.kind, FileKind::Document);
+        assert_eq!(note.mime_type, "application/pdf");
+        assert_eq!(note.size, 8);
+
+        let approved = review::approve(&state, approval_id, owner, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            file_of(&state, approved.delivery_id.unwrap()).await,
+            note.id
+        );
+    }
+
+    #[sqlx::test]
+    async fn a_file_is_given_one_way_and_audio_goes_without_a_caption(pool: PgPool) {
+        let state = state(pool);
+        let owner = user(&state.pool).await;
+        connected(&state, owner);
+        let caller = connect(&state, owner, &sending(SendLevel::Yes, true)).await;
+        let invalid = async |input: SendInput| {
+            let result = send_message(&state, &caller, input).await;
+            assert!(matches!(result, Err(OpError::Invalid(_))), "{result:?}");
+        };
+
+        let mut both = file(PNG, "a.png");
+        both.url = Some("https://example.com/a.png".to_owned());
+        invalid(with_file("", both)).await;
+        let mut neither = file(PNG, "a.png");
+        neither.data = None;
+        invalid(with_file("", neither)).await;
+        invalid(with_file("", file(b"", "empty.png"))).await;
+        invalid(with_file("Listen", file(b"OggS", "note.ogg"))).await;
+        let mut not_base64 = file(PNG, "a.png");
+        not_base64.data = Some("not base64!".to_owned());
+        invalid(with_file("", not_base64)).await;
+        let mut inward = file(PNG, "a.png");
+        inward.data = None;
+        inward.url = Some("https://localhost/a.png".to_owned());
+        invalid(with_file("", inward)).await;
+        let mut plain = file(PNG, "a.png");
+        plain.data = None;
+        plain.url = Some("http://example.com/a.png".to_owned());
+        invalid(with_file("", plain)).await;
+        // Without a file, a message still needs text
+        invalid(send_to(ADA, "  ")).await;
+
+        let audio = send_message(&state, &caller, with_file("", file(b"OggS", "note.ogg"))).await;
+        assert_eq!(audio.unwrap().outcome, SendOutcome::Queued);
+    }
+
+    async fn keep_picture(state: &AppState, owner: Uuid, id: &str, media: Option<MediaRef>) {
+        let account = whatsapp_accounts::find_or_create(&state.pool, owner)
+            .await
+            .unwrap();
+        let body = Body {
+            sender_jid: format!("{ADA}@s.whatsapp.net"),
+            sender_number: Some(ADA.to_owned()),
+            sender_name: None,
+            kind: if media.is_some() {
+                Kind::Image
+            } else {
+                Kind::Text
+            },
+            text: Some("The receipt".to_owned()),
+            file_name: None,
+            reply_to: None,
+            mentions: Vec::new(),
+            edited: false,
+            media: media.map(Box::new),
+        };
+        let chat = (RecipientType::Contact, ADA);
+        let sealed = seal_body(&state.cipher, account.id, chat, id, &body).unwrap();
+        inbox_messages::save(
+            &state.pool,
+            inbox_messages::NewMessage {
+                account_id: account.id,
+                chat_type: "contact",
+                chat_id: ADA,
+                message_id: id,
+                from_me: false,
+                sent_at: Utc::now(),
+                expires_at: None,
+                body: &sealed,
+                terms: &terms::of_body(&state.cipher, account.id, &body),
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    #[sqlx::test]
+    async fn opening_a_file_needs_its_permission_a_readable_chat_and_whatsapp(pool: PgPool) {
+        let state = state(pool);
+        let owner = user(&state.pool).await;
+        let media = MediaRef {
+            direct_path: "/v/t62/abc".to_owned(),
+            media_key: BASE64_STANDARD.encode([7; 32]),
+            file_sha256: None,
+            file_enc_sha256: None,
+            file_length: Some(1234),
+            mime_type: Some("image/jpeg".to_owned()),
+        };
+        keep_picture(&state, owner, "P1", Some(media)).await;
+        keep_picture(&state, owner, "T1", None).await;
+        let mut grant = with_rule(Preset::AskBeforeSending.grant(), ADA, SendLevel::Ask, None);
+        grant.chats.rules[0].read = true;
+        let open = |id: &str| GetAttachmentInput {
+            recipient_type: RecipientType::Contact,
+            recipient: ADA.to_owned(),
+            message_id: id.to_owned(),
+        };
+
+        let reader = connect(&state, owner, &grant).await;
+        assert_eq!(
+            refused_code(get_attachment(&state, &reader, open("P1")).await),
+            "attachments_off"
+        );
+
+        grant.attachments.open = true;
+        let opener = connect(&state, owner, &grant).await;
+        let offline = get_attachment(&state, &opener, open("P1")).await;
+        assert!(
+            matches!(offline, Err(OpError::WhatsAppNotReady(_))),
+            "{offline:?}"
+        );
+        let text = get_attachment(&state, &opener, open("T1")).await;
+        assert!(matches!(text, Err(OpError::Invalid(_))), "{text:?}");
+        let gone = get_attachment(&state, &opener, open("NOPE")).await;
+        assert!(matches!(gone, Err(OpError::NotFound(_))), "{gone:?}");
+
+        // A chat it may not read stays closed, file permission or not
+        grant.chats.rules[0].read = false;
+        let unread = connect(&state, owner, &grant).await;
+        assert_eq!(
+            refused_code(get_attachment(&state, &unread, open("P1")).await),
+            "reading_off"
+        );
     }
 }

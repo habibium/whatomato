@@ -14,8 +14,8 @@ use whatsapp_rust::{
 };
 
 use super::{
-    Body, Change, Chat, Content, Feed, Kind, Readers, WINDOW_DAYS, apply, content_of, open_body,
-    sweep,
+    Body, Change, Chat, Content, Feed, History, Kind, Readers, WINDOW_DAYS, apply, content_of,
+    open_body, sweep, terms,
 };
 use crate::{
     agents::{
@@ -26,7 +26,7 @@ use crate::{
     crypto::Cipher,
     db::{
         agent_connections::{self, Credential, NewConnection},
-        inbox_messages, whatsapp_accounts, whatsapp_contacts,
+        inbox_messages, message_history, whatsapp_accounts, whatsapp_contacts,
     },
     scheduler::RecipientType,
     whatsapp::contacts::{Names, seal_names},
@@ -62,7 +62,7 @@ fn reading(chats: &[&str]) -> Grant {
 
 fn readers(account_id: Uuid, grants: Vec<Grant>) -> Readers {
     let readers = Readers::default();
-    readers.0.write().unwrap().insert(account_id, grants);
+    readers.0.write().unwrap().grants.insert(account_id, grants);
     readers
 }
 
@@ -140,12 +140,21 @@ fn arrived(chat: Chat, id: &str, text: &str) -> Change {
             reply_to: None,
             mentions: Vec::new(),
             edited: false,
+            media: None,
         },
     }
 }
 
+fn scope<'a>(user_id: Uuid, kind: &'a str, chat: &'a str) -> inbox_messages::Scope<'a> {
+    inbox_messages::Scope {
+        user_id,
+        chat: Some((kind, chat)),
+        since: None,
+    }
+}
+
 async fn kept(pool: &PgPool, user_id: Uuid, number: &str) -> Vec<inbox_messages::Kept> {
-    inbox_messages::page(pool, user_id, "contact", number, None, 50)
+    inbox_messages::page(pool, scope(user_id, "contact", number), None, 50)
         .await
         .unwrap()
 }
@@ -270,6 +279,7 @@ fn reads_what_a_message_holds() {
         file_name: None,
         reply_to: reply_to.map(str::to_owned),
         mentions: Vec::new(),
+        media: None,
     };
     assert_eq!(
         content_of(&wa::Message::text("  Hello  ")),
@@ -296,6 +306,7 @@ fn reads_what_a_message_holds() {
             file_name: None,
             reply_to: None,
             mentions: vec!["111@lid".to_owned(), format!("{BOB}@s.whatsapp.net")],
+            media: None,
         }
     );
 
@@ -311,6 +322,7 @@ fn reads_what_a_message_holds() {
             file_name: None,
             reply_to: None,
             mentions: Vec::new(),
+            media: None,
         }
     );
 
@@ -412,7 +424,7 @@ async fn keeps_edits_and_removes_what_arrives(pool: PgPool) {
         mentions: Vec::new(),
     })
     .await;
-    let first = inbox_messages::find(&pool, user_id, "contact", ADA, "A1")
+    let first = inbox_messages::find(&pool, scope(user_id, "contact", ADA), "A1")
         .await
         .unwrap()
         .unwrap();
@@ -517,6 +529,113 @@ async fn the_sweep_drops_old_messages_and_chats_nobody_reads(pool: PgPool) {
 }
 
 #[sqlx::test]
+async fn an_owner_keeping_history_keeps_every_chat_for_as_long_as_chosen(pool: PgPool) {
+    let cipher = Cipher::new(&[0; 32]);
+    let (user_id, account_id) = account(&pool).await;
+    // No connection reads anything
+    let readers = Readers::default();
+    readers.set_history(account_id, History::Days(30));
+    assert!(readers.keeps(account_id, RecipientType::Contact, BOB));
+    assert!(readers.keeps(account_id, RecipientType::Group, GROUP));
+    assert!(!readers.keeps(Uuid::new_v4(), RecipientType::Contact, BOB));
+
+    for id in ["B1", "B2", "B3"] {
+        apply(
+            &pool,
+            &cipher,
+            &readers,
+            account_id,
+            arrived(Chat::Number(BOB.to_owned()), id, "Hello"),
+        )
+        .await
+        .unwrap();
+    }
+    for (id, days) in [("B1", 10), ("B2", 40)] {
+        sqlx::query!(
+            "UPDATE inbox_messages SET sent_at = now() - make_interval(days => $1)
+             WHERE message_id = $2",
+            days,
+            id,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    message_history::save(&pool, user_id, Some(30))
+        .await
+        .unwrap();
+    sweep(&pool, &readers).await.unwrap();
+    let left: Vec<_> = kept(&pool, user_id, BOB)
+        .await
+        .into_iter()
+        .map(|message| message.message_id)
+        .collect();
+    assert_eq!(left, ["B3", "B1"]);
+
+    // Keeping everything keeps what 30 days would drop
+    message_history::save(&pool, user_id, None).await.unwrap();
+    sqlx::query!("UPDATE inbox_messages SET sent_at = now() - interval '400 days'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sweep(&pool, &readers).await.unwrap();
+    assert_eq!(kept(&pool, user_id, BOB).await.len(), 2);
+
+    // Turned off, the chat nobody reads goes
+    message_history::delete(&pool, user_id).await.unwrap();
+    readers.set_history(account_id, History::Off);
+    sweep(&pool, &readers).await.unwrap();
+    assert!(kept(&pool, user_id, BOB).await.is_empty());
+}
+
+#[sqlx::test]
+async fn readers_learn_who_keeps_history(pool: PgPool) {
+    let (user_id, account_id) = account(&pool).await;
+    message_history::save(&pool, user_id, Some(90))
+        .await
+        .unwrap();
+    let readers = Readers::default();
+    readers.reload(&pool).await.unwrap();
+    assert_eq!(readers.history(account_id), History::Days(90));
+    assert!(readers.keeps(account_id, RecipientType::Contact, ADA));
+
+    message_history::delete(&pool, user_id).await.unwrap();
+    readers.reload(&pool).await.unwrap();
+    assert_eq!(readers.history(account_id), History::Off);
+    assert!(!readers.keeps(account_id, RecipientType::Contact, ADA));
+}
+
+#[sqlx::test]
+async fn an_edit_gives_the_message_new_terms(pool: PgPool) {
+    let cipher = Cipher::new(&[0; 32]);
+    let (user_id, account_id) = account(&pool).await;
+    let readers = readers(account_id, vec![reading(&[ADA])]);
+    let run = async |change| {
+        apply(&pool, &cipher, &readers, account_id, change)
+            .await
+            .unwrap();
+    };
+    let ada = || Chat::Number(ADA.to_owned());
+    run(arrived(ada(), "A1", "Meet at noon")).await;
+    run(Change::Edited {
+        chat: ada(),
+        message_id: "A1".to_owned(),
+        text: Some("Meet at five".to_owned()),
+        mentions: Vec::new(),
+    })
+    .await;
+    let matching = async |query: &str| {
+        let query = terms::of_query(&cipher, account_id, query).unwrap();
+        inbox_messages::matching(&pool, scope(user_id, "contact", ADA), &query, None, 10)
+            .await
+            .unwrap()
+            .len()
+    };
+    assert_eq!(matching("five").await, 1);
+    assert_eq!(matching("noon").await, 0);
+}
+
+#[sqlx::test]
 async fn readers_come_from_the_connections_that_read(pool: PgPool) {
     let (user_id, account_id) = account(&pool).await;
     let create = async |name: &str, grant: &Grant, expired: bool| {
@@ -544,10 +663,10 @@ async fn readers_come_from_the_connections_that_read(pool: PgPool) {
 
     let readers = Readers::default();
     readers.reload(&pool).await.unwrap();
-    assert!(readers.reads(account_id, RecipientType::Contact, ADA));
-    assert!(!readers.reads(account_id, RecipientType::Contact, BOB));
-    assert!(!readers.reads(account_id, RecipientType::Group, GROUP));
-    assert!(!readers.reads(Uuid::new_v4(), RecipientType::Contact, ADA));
+    assert!(readers.keeps(account_id, RecipientType::Contact, ADA));
+    assert!(!readers.keeps(account_id, RecipientType::Contact, BOB));
+    assert!(!readers.keeps(account_id, RecipientType::Group, GROUP));
+    assert!(!readers.keeps(Uuid::new_v4(), RecipientType::Contact, ADA));
 }
 
 #[test]
@@ -626,12 +745,15 @@ fn a_tag_goes_in_the_message_s_mentions() {
     assert_eq!(context.mentioned_jid, ["111@lid"]);
 }
 
-#[test]
-fn what_this_device_sends_is_handed_over_as_the_owners_message() {
+#[sqlx::test]
+async fn what_this_device_sends_is_handed_over_as_the_owners_message(pool: PgPool) {
     let (changes, mut incoming) = mpsc::unbounded_channel();
     let inbox = super::Inbox {
+        pool,
+        cipher: Cipher::new(&[0; 32]),
         readers: Readers::default(),
         changes,
+        imports: Arc::default(),
     };
     let account_id = Uuid::new_v4();
     inbox.sent(
@@ -703,7 +825,7 @@ async fn a_sender_without_a_number_gets_one_from_the_chat_or_the_address_book(po
         }
     };
     let number_of = async |kind: &str, chat: &str, id: &str| {
-        let kept = inbox_messages::find(&pool, user_id, kind, chat, id)
+        let kept = inbox_messages::find(&pool, scope(user_id, kind, chat), id)
             .await
             .unwrap()
             .unwrap();

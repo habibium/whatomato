@@ -350,3 +350,76 @@ async fn an_abandoned_pairing_holds_no_place(pool: PgPool) {
     let (_, session) = app.signed_in("ada@example.com").await;
     assert_eq!(can_link(&app, &session).await, json!(true));
 }
+
+#[sqlx::test]
+async fn history_starts_off_and_keeps_what_the_owner_chooses(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (user_id, session) = app.signed_in("ada@example.com").await;
+    let history = call(&app, Method::GET, "/history", None, Some(&session)).await;
+    assert_eq!(history.status, StatusCode::OK);
+    assert_eq!(
+        history.body,
+        json!({ "keep": "off", "available": true, "import": null })
+    );
+
+    let month = json!({ "keep": { "days": 30 } });
+    let saved = call(&app, Method::PUT, "/history", Some(month), Some(&session)).await;
+    assert_eq!(saved.status, StatusCode::OK);
+    assert_eq!(saved.body["keep"], json!({ "days": 30 }));
+
+    let everything = json!({ "keep": "all" });
+    let saved = call(
+        &app,
+        Method::PUT,
+        "/history",
+        Some(everything),
+        Some(&session),
+    )
+    .await;
+    assert_eq!(saved.body["keep"], "all");
+
+    // A linked account shows how the phone's history is coming in
+    link_account(&app.pool, user_id, Some("8801700000009")).await;
+    sqlx::query(
+        "UPDATE whatsapp_accounts SET history_progress = 40, history_imported = 12
+         WHERE user_id = $1",
+    )
+    .bind(user_id)
+    .execute(&app.pool)
+    .await
+    .unwrap();
+    let history = call(&app, Method::GET, "/history", None, Some(&session)).await;
+    assert_eq!(
+        history.body["import"],
+        json!({ "progress": 40, "imported": 12, "waiting": 0 })
+    );
+
+    let off = json!({ "keep": "off" });
+    let saved = call(&app, Method::PUT, "/history", Some(off), Some(&session)).await;
+    assert_eq!(saved.body["keep"], "off");
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM message_history")
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(rows, 0);
+}
+
+#[sqlx::test]
+async fn history_refuses_a_length_out_of_bounds_and_a_server_that_doesnt_read(pool: PgPool) {
+    let app = TestApp::new(pool.clone());
+    let (_, session) = app.signed_in("ada@example.com").await;
+    for days in [0, 3651] {
+        let body = json!({ "keep": { "days": days } });
+        let refused = call(&app, Method::PUT, "/history", Some(body), Some(&session)).await;
+        assert_eq!(refused.status, StatusCode::UNPROCESSABLE_ENTITY, "{days}");
+    }
+
+    let app = TestApp::without_agent_access(pool);
+    let (_, session) = app.signed_in("grace@example.com").await;
+    let body = json!({ "keep": "all" });
+    let refused = call(&app, Method::PUT, "/history", Some(body), Some(&session)).await;
+    assert_eq!(refused.status, StatusCode::CONFLICT);
+    let history = call(&app, Method::GET, "/history", None, Some(&session)).await;
+    assert_eq!(history.body["available"], false);
+    assert_eq!(history.body["keep"], "off");
+}

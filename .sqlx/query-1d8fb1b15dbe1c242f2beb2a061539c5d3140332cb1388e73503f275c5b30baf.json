@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT kind AS \"kind: FileKind\", mime_type, file_name, data\n           FROM outgoing_files WHERE id = $1 AND user_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "kind: FileKind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outgoing_files",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "mime_type",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outgoing_files",
+            "name": "mime_type"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "file_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "outgoing_files",
+            "name": "file_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "data",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "outgoing_files",
+            "name": "data"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "1d8fb1b15dbe1c242f2beb2a061539c5d3140332cb1388e73503f275c5b30baf"
+}

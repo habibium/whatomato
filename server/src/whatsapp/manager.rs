@@ -13,7 +13,8 @@ use uuid::Uuid;
 use whatsapp_rust::version;
 
 use super::{
-    inbox::open_body,
+    inbox::{History, open_body},
+    media::OutgoingFile,
     status::{Status, StopReason},
     supervisor::{self, Context, Extras, Handle, Quote, Recipient, SendFailure},
 };
@@ -161,7 +162,8 @@ impl WhatsApp {
     }
 
     /// Sends `body` from `user_id`'s account, quoting `reply_to` and tagging the numbers in
-    /// `mentions`, and answers once WhatsApp has acknowledged it
+    /// `mentions`, as the caption of `file` when there is one, and answers once WhatsApp has
+    /// acknowledged it
     ///
     /// # Errors
     /// Why it didn't go out, or may not have.
@@ -172,6 +174,7 @@ impl WhatsApp {
         body: String,
         reply_to: Option<String>,
         mentions: Vec<String>,
+        file: Option<OutgoingFile>,
     ) -> Result<(), SendFailure> {
         let handle = self.lock().get(&user_id).cloned();
         let Some(handle) = handle else {
@@ -181,7 +184,17 @@ impl WhatsApp {
             Some(message_id) => self.quote(user_id, &to, message_id).await,
             None => None,
         };
-        handle.send_text(to, body, Extras { quote, mentions }).await
+        handle
+            .send_text(
+                to,
+                body,
+                Extras {
+                    quote,
+                    mentions,
+                    file,
+                },
+            )
+            .await
     }
 
     /// The kept message a reply quotes. One no longer kept leaves the reply an ordinary message.
@@ -190,7 +203,12 @@ impl WhatsApp {
             Recipient::Number(number) | Recipient::ExactNumber(number) => ("contact", number),
             Recipient::Group(id) => ("group", id),
         };
-        let kept = inbox_messages::find(&self.context.pool, user_id, kind, chat, &message_id)
+        let scope = inbox_messages::Scope {
+            user_id,
+            chat: Some((kind, chat)),
+            since: None,
+        };
+        let kept = inbox_messages::find(&self.context.pool, scope, &message_id)
             .await
             .inspect_err(
                 |error| tracing::warn!(%user_id, ?error, "couldn't look up a quoted message"),
@@ -222,6 +240,21 @@ impl WhatsApp {
             self.may_connect.subscribe(),
         );
         self.lock().insert(user_id, handle);
+    }
+
+    /// Applies an owner's new choice of what to keep to capture at once
+    ///
+    /// # Errors
+    /// The account couldn't be looked up.
+    pub async fn set_history(&self, user_id: Uuid, history: History) -> sqlx::Result<()> {
+        let Some(inbox) = &self.context.inbox else {
+            return Ok(());
+        };
+        if let Some(account_id) = whatsapp_accounts::id_of_user(&self.context.pool, user_id).await?
+        {
+            inbox.readers().set_history(account_id, history);
+        }
+        Ok(())
     }
 
     /// `user_id`'s supervisor, started on first use

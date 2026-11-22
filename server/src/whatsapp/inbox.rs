@@ -11,7 +11,8 @@ use chrono::{DateTime, TimeDelta, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use tokio::sync::mpsc;
+use tokio::sync::{Notify, mpsc};
+use utoipa::ToSchema;
 use uuid::Uuid;
 use whatsapp_rust::{
     Server,
@@ -22,19 +23,74 @@ use whatsapp_rust::{
     },
 };
 
+use super::media::MediaRef;
 use crate::{
     agents::Grant,
     crypto::Cipher,
-    db::{agent_connections, inbox_messages, whatsapp_contacts},
+    db::{agent_connections, inbox_messages, message_history, whatsapp_contacts},
     scheduler::RecipientType,
 };
 
-/// How long a message is kept
+pub mod history;
+pub mod terms;
+
+/// How long a message is kept for an owner who doesn't keep every chat
 pub const WINDOW_DAYS: i32 = 7;
 /// How soon a changed permission reaches capture
 const RELOAD_EVERY: Duration = Duration::from_secs(15);
 /// The sweep runs once in this many reloads
 const SWEEP_EVERY: u32 = 20;
+
+/// What an owner keeps: `off` keeps only the chats some connection may read, for 7 days; the
+/// others keep every chat, the phone's history included.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum History {
+    #[default]
+    Off,
+    Days(u32),
+    All,
+}
+
+impl History {
+    pub const DAYS_MAX: u32 = 3650;
+
+    /// As [`message_history::find`] answers
+    #[must_use]
+    pub fn from_stored(stored: Option<Option<i32>>) -> Self {
+        match stored {
+            None => Self::Off,
+            Some(None) => Self::All,
+            Some(Some(days)) => u32::try_from(days).map_or(Self::Off, Self::Days),
+        }
+    }
+
+    /// As [`message_history::save`] takes it; `None` for `Off`, which has no row
+    #[must_use]
+    pub fn to_stored(self) -> Option<Option<i32>> {
+        match self {
+            Self::Off => None,
+            Self::Days(days) => Some(Some(i32::try_from(days).unwrap_or(i32::MAX))),
+            Self::All => Some(None),
+        }
+    }
+
+    #[must_use]
+    pub const fn every_chat(self) -> bool {
+        !matches!(self, Self::Off)
+    }
+
+    /// The oldest a kept message may be; `None` keeps everything
+    #[must_use]
+    pub fn since(self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        let days = match self {
+            Self::Off => WINDOW_DAYS.into(),
+            Self::Days(days) => i64::from(days),
+            Self::All => return None,
+        };
+        now.checked_sub_signed(TimeDelta::days(days))
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -69,6 +125,9 @@ pub struct Body {
     pub mentions: Vec<String>,
     #[serde(default)]
     pub edited: bool,
+    /// Where to fetch its picture or file from
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media: Option<Box<MediaRef>>,
 }
 
 impl Body {
@@ -89,6 +148,7 @@ impl Body {
             reply_to,
             mentions,
             edited: false,
+            media: None,
         }
     }
 }
@@ -146,47 +206,78 @@ fn chat_type(stored: &str) -> Option<RecipientType> {
     }
 }
 
-/// The grants that read at least one chat, by WhatsApp account. Held in memory so the receive
-/// path decides without a query.
+/// Which chats each WhatsApp account keeps: those its grants read, or every one while its owner
+/// keeps history. Held in memory so the receive path decides without a query.
 #[derive(Clone, Default)]
-pub struct Readers(Arc<RwLock<HashMap<Uuid, Vec<Grant>>>>);
+pub struct Readers(Arc<RwLock<Policies>>);
+
+#[derive(Default)]
+struct Policies {
+    /// The grants that read at least one chat
+    grants: HashMap<Uuid, Vec<Grant>>,
+    /// Only accounts that keep history
+    histories: HashMap<Uuid, History>,
+}
 
 impl Readers {
     #[must_use]
-    pub fn reads(&self, account_id: Uuid, recipient_type: RecipientType, recipient: &str) -> bool {
-        self.0
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(&account_id)
-            .is_some_and(|grants| {
+    pub fn keeps(&self, account_id: Uuid, recipient_type: RecipientType, recipient: &str) -> bool {
+        let policies = self.0.read().unwrap_or_else(PoisonError::into_inner);
+        policies.histories.contains_key(&account_id)
+            || policies.grants.get(&account_id).is_some_and(|grants| {
                 grants
                     .iter()
                     .any(|grant| grant.reads(recipient_type, recipient))
             })
     }
 
-    fn reads_anything(&self, account_id: Uuid) -> bool {
+    fn keeps_anything(&self, account_id: Uuid) -> bool {
+        let policies = self.0.read().unwrap_or_else(PoisonError::into_inner);
+        policies.histories.contains_key(&account_id) || policies.grants.contains_key(&account_id)
+    }
+
+    #[must_use]
+    pub fn history(&self, account_id: Uuid) -> History {
         self.0
             .read()
             .unwrap_or_else(PoisonError::into_inner)
-            .contains_key(&account_id)
+            .histories
+            .get(&account_id)
+            .copied()
+            .unwrap_or_default()
     }
 
-    /// Reads every connection's permissions again
+    /// Takes an owner's new choice at once, ahead of the next reload
+    pub fn set_history(&self, account_id: Uuid, history: History) {
+        let mut policies = self.0.write().unwrap_or_else(PoisonError::into_inner);
+        if history.every_chat() {
+            policies.histories.insert(account_id, history);
+        } else {
+            policies.histories.remove(&account_id);
+        }
+    }
+
+    /// Reads every connection's permissions and every owner's history choice again
     ///
     /// # Errors
-    /// The connections couldn't be read; the list stays as it was.
+    /// They couldn't be read; the list stays as it was.
     pub async fn reload(&self, pool: &PgPool) -> sqlx::Result<()> {
-        let mut readers: HashMap<Uuid, Vec<Grant>> = HashMap::new();
+        let mut grants: HashMap<Uuid, Vec<Grant>> = HashMap::new();
         for (account_id, grant) in agent_connections::grants_by_account(pool).await? {
             // A grant that doesn't parse gives no access, so it reads nothing
             if let Ok(grant) = Grant::parse(&grant)
                 && grant.reads_any()
             {
-                readers.entry(account_id).or_default().push(grant);
+                grants.entry(account_id).or_default().push(grant);
             }
         }
-        *self.0.write().unwrap_or_else(PoisonError::into_inner) = readers;
+        let histories = message_history::by_account(pool)
+            .await?
+            .into_iter()
+            .map(|(account_id, days)| (account_id, History::from_stored(Some(days))))
+            .filter(|(_, history)| history.every_chat())
+            .collect();
+        *self.0.write().unwrap_or_else(PoisonError::into_inner) = Policies { grants, histories };
         Ok(())
     }
 }
@@ -230,24 +321,67 @@ pub(super) type Changes = mpsc::UnboundedSender<(Uuid, Change)>;
 /// What capture shares across accounts
 #[derive(Clone)]
 pub struct Inbox {
+    pool: PgPool,
+    cipher: Cipher,
     readers: Readers,
     changes: Changes,
+    /// Wakes the history import when a chunk arrives
+    imports: Arc<Notify>,
 }
 
 impl Inbox {
-    /// Starts the writer and the task that keeps the permissions current and the window short
+    /// Starts the writer, the history import, and the task that keeps the permissions current and
+    /// the window short
     #[must_use]
     pub fn start(pool: PgPool, cipher: Cipher) -> Self {
         let readers = Readers::default();
         let (changes, incoming) = mpsc::unbounded_channel();
-        tokio::spawn(write(pool.clone(), cipher, readers.clone(), incoming));
-        tokio::spawn(keep(pool, readers.clone()));
-        Self { readers, changes }
+        let imports = Arc::new(Notify::new());
+        tokio::spawn(write(
+            pool.clone(),
+            cipher.clone(),
+            readers.clone(),
+            incoming,
+        ));
+        tokio::spawn(keep(pool.clone(), readers.clone()));
+        tokio::spawn(history::import(
+            pool.clone(),
+            cipher.clone(),
+            readers.clone(),
+            Arc::clone(&imports),
+        ));
+        tokio::spawn(history::index(pool.clone(), cipher.clone()));
+        Self {
+            pool,
+            cipher,
+            readers,
+            changes,
+            imports,
+        }
     }
 
     #[must_use]
     pub const fn readers(&self) -> &Readers {
         &self.readers
+    }
+
+    /// Holds an account's history chunks for the import
+    pub(super) fn capture(&self, account_id: Uuid) -> history::Capture {
+        history::Capture {
+            account_id,
+            pool: self.pool.clone(),
+            cipher: self.cipher.clone(),
+            readers: self.readers.clone(),
+            imports: Arc::clone(&self.imports),
+        }
+    }
+
+    /// Acknowledges an account's history without looking at it, unless its owner keeps history
+    pub(super) fn admission(&self, account_id: Uuid) -> history::Admission {
+        history::Admission {
+            account_id,
+            readers: self.readers.clone(),
+        }
     }
 
     /// Keeps a text this device sent, if some connection may read its chat
@@ -285,24 +419,24 @@ pub(super) struct Feed {
 }
 
 impl Feed {
-    fn readable(&self, chat: &Chat) -> bool {
+    fn kept(&self, chat: &Chat) -> bool {
         match chat {
             Chat::Group(id) => self
                 .readers
-                .reads(self.account_id, RecipientType::Group, id),
+                .keeps(self.account_id, RecipientType::Group, id),
             Chat::Number(number) => {
                 self.readers
-                    .reads(self.account_id, RecipientType::Contact, number)
+                    .keeps(self.account_id, RecipientType::Contact, number)
             }
             // The writer looks the number up, then asks again
-            Chat::Lid(_) => self.readers.reads_anything(self.account_id),
+            Chat::Lid(_) => self.readers.keeps_anything(self.account_id),
         }
     }
 
     fn captured(&self, message: &InboundMessage) -> Option<Change> {
         let info = &message.info;
         let chat = chat_of(&info.source)?;
-        if !self.readable(&chat) {
+        if !self.kept(&chat) {
             return None;
         }
         Some(match content_of(&message.message) {
@@ -312,6 +446,7 @@ impl Feed {
                 file_name,
                 reply_to,
                 mentions,
+                media,
             } => {
                 let source = &info.source;
                 let number = |jid: &Jid| jid.server.is_pn_family().then(|| jid.user.to_string());
@@ -339,6 +474,7 @@ impl Feed {
                         reply_to,
                         mentions,
                         edited: false,
+                        media,
                     },
                 }
             }
@@ -359,7 +495,7 @@ impl Feed {
 
     fn removed(&self, jid: &Jid, message_id: Option<&str>) -> Option<Change> {
         let chat = chat_of_jid(jid)?;
-        if !self.readers.reads_anything(self.account_id) {
+        if !self.readers.keeps_anything(self.account_id) {
             return None;
         }
         Some(match message_id {
@@ -410,7 +546,7 @@ impl EventHandler for Feed {
     }
 }
 
-fn chat_of_jid(jid: &Jid) -> Option<Chat> {
+pub(super) fn chat_of_jid(jid: &Jid) -> Option<Chat> {
     if jid.server == Server::Group {
         Some(Chat::Group(jid.to_non_ad().to_string()))
     } else if jid.server.is_pn_family() {
@@ -443,13 +579,14 @@ fn chat_of(source: &MessageSource) -> Option<Chat> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-enum Content {
+pub(super) enum Content {
     Message {
         kind: Kind,
         text: Option<String>,
         file_name: Option<String>,
         reply_to: Option<String>,
         mentions: Vec<String>,
+        media: Option<Box<MediaRef>>,
     },
     Edit {
         message_id: String,
@@ -463,7 +600,7 @@ enum Content {
     Nothing,
 }
 
-fn content_of(message: &wa::Message) -> Content {
+pub(super) fn content_of(message: &wa::Message) -> Content {
     use wa::message::protocol_message::Type;
 
     if message.is_view_once() {
@@ -540,6 +677,7 @@ fn content_of(message: &wa::Message) -> Content {
         file_name,
         reply_to,
         mentions: mentions_of(context),
+        media: MediaRef::of(base).map(Box::new),
     }
 }
 
@@ -567,24 +705,16 @@ async fn write(
     }
 }
 
-/// The chat as a grant names it, if some connection may read it
-async fn readable(
+/// The chat as a grant names it, if its account keeps it
+async fn kept(
     pool: &PgPool,
     readers: &Readers,
     account_id: Uuid,
     chat: Chat,
 ) -> sqlx::Result<Option<(RecipientType, String)>> {
-    let (recipient_type, id) = match chat {
-        Chat::Group(id) => (RecipientType::Group, id),
-        Chat::Number(number) => (RecipientType::Contact, number),
-        Chat::Lid(lid) => match whatsapp_contacts::number_of_lid(pool, account_id, &lid).await? {
-            Some(number) => (RecipientType::Contact, number),
-            None => return Ok(None),
-        },
-    };
-    Ok(readers
-        .reads(account_id, recipient_type, &id)
-        .then_some((recipient_type, id)))
+    Ok(named(pool, account_id, chat)
+        .await?
+        .filter(|(recipient_type, id)| readers.keeps(account_id, *recipient_type, id)))
 }
 
 pub(super) async fn apply(
@@ -603,21 +733,13 @@ pub(super) async fn apply(
             expires_at,
             mut body,
         } => {
-            let Some((recipient_type, id)) = readable(pool, readers, account_id, chat).await?
-            else {
+            let Some((recipient_type, id)) = kept(pool, readers, account_id, chat).await? else {
                 return Ok(());
             };
             if body.sender_number.is_none() && !from_me {
-                body.sender_number = match recipient_type {
-                    // In a chat with one person, whoever isn't the owner is that person
-                    RecipientType::Contact => Some(id.clone()),
-                    RecipientType::Group => match body.sender_jid.strip_suffix("@lid") {
-                        Some(lid) => {
-                            whatsapp_contacts::number_of_lid(pool, account_id, lid).await?
-                        }
-                        None => None,
-                    },
-                };
+                body.sender_number =
+                    sender_number(pool, account_id, (recipient_type, &id), &body.sender_jid)
+                        .await?;
             }
             let sealed = seal_body(
                 cipher,
@@ -626,6 +748,7 @@ pub(super) async fn apply(
                 &message_id,
                 &body,
             )?;
+            let terms = terms::of_body(cipher, account_id, &body);
             inbox_messages::save(
                 pool,
                 inbox_messages::NewMessage {
@@ -637,6 +760,7 @@ pub(super) async fn apply(
                     sent_at,
                     expires_at,
                     body: &sealed,
+                    terms: &terms,
                 },
             )
             .await?;
@@ -647,8 +771,7 @@ pub(super) async fn apply(
             text,
             mentions,
         } => {
-            let Some((recipient_type, id)) = readable(pool, readers, account_id, chat).await?
-            else {
+            let Some((recipient_type, id)) = kept(pool, readers, account_id, chat).await? else {
                 return Ok(());
             };
             let kind = recipient_type.as_str();
@@ -668,7 +791,8 @@ pub(super) async fn apply(
                 &message_id,
                 &body,
             )?;
-            inbox_messages::replace_body(pool, account_id, kind, &id, &message_id, &sealed).await?;
+            let terms = terms::of_body(cipher, account_id, &body);
+            inbox_messages::replace_body(pool, &kept, &sealed, &terms).await?;
         }
         // Removals don't ask who may read: what was kept goes either way
         Change::Removed { chat, message_id } => {
@@ -684,6 +808,23 @@ pub(super) async fn apply(
         }
     }
     Ok(())
+}
+
+/// Who wrote a message someone else sent, when the message didn't say
+async fn sender_number(
+    pool: &PgPool,
+    account_id: Uuid,
+    (recipient_type, id): (RecipientType, &str),
+    sender_jid: &str,
+) -> sqlx::Result<Option<String>> {
+    Ok(match recipient_type {
+        // In a chat with one person, whoever isn't the owner is that person
+        RecipientType::Contact => Some(id.to_owned()),
+        RecipientType::Group => match sender_jid.strip_suffix("@lid") {
+            Some(lid) => whatsapp_contacts::number_of_lid(pool, account_id, lid).await?,
+            None => None,
+        },
+    })
 }
 
 async fn named(
@@ -719,12 +860,12 @@ async fn keep(pool: PgPool, readers: Readers) {
     }
 }
 
-/// Drops what has left the window, and every chat no connection may read any more
+/// Drops what is older than its account keeps, and every chat its account no longer keeps
 pub(super) async fn sweep(pool: &PgPool, readers: &Readers) -> sqlx::Result<()> {
     inbox_messages::sweep(pool, WINDOW_DAYS).await?;
     for (account_id, kind, id) in inbox_messages::kept_chats(pool).await? {
         let unread = chat_type(&kind)
-            .is_none_or(|recipient_type| !readers.reads(account_id, recipient_type, &id));
+            .is_none_or(|recipient_type| !readers.keeps(account_id, recipient_type, &id));
         if unread {
             inbox_messages::remove_chat(pool, account_id, &kind, &id).await?;
         }

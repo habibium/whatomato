@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::anyhow;
+use anyhow::{Context as _, anyhow};
 use chrono::{DateTime, TimeDelta, Utc};
 use sqlx::PgPool;
 use tokio::{
@@ -18,8 +18,10 @@ use tokio::{
 use url::Url;
 use uuid::Uuid;
 use whatsapp_rust::{
-    CacheConfig, DeregistrationSkipReason, MsgSecretPolicy, PresencePolicy, SendError, SendOptions,
-    SendRequest, Server,
+    CacheConfig, DeregistrationSkipReason, MediaRetryResult, MediaReuploadRequest, MessageId,
+    MessageRef, MsgSecretPolicy, PresencePolicy, SendError, SendOptions, SendRequest, Server,
+    UploadOptions,
+    download::DownloadLimits,
     http::{HttpClient, UreqHttpClient},
     pair_code::PairCodeOptions,
     prelude::{
@@ -27,7 +29,7 @@ use whatsapp_rust::{
     },
     wacore::{
         proto_helpers::{MessageBuilderExt, build_quote_context_with_info},
-        store::DevicePropsOverride,
+        store::{DevicePropsOverride, device::default_history_sync_config},
         types::message::AddressingMode,
     },
 };
@@ -35,16 +37,24 @@ use whatsapp_rust::{
 use super::{
     alerts,
     contacts::{self, Changes, Feed},
-    inbox::{Body, Inbox},
+    inbox::{Body, History, Inbox, Kind},
+    media::{FILE_MAX, MediaRef, OutgoingFile, file_message},
     pictures::{Image, Pictures},
     status::{self, Alert, Code, Effect, Event, Method, Refused, Status, StopReason},
     store::PgStore,
     tags,
 };
-use crate::{crypto::Cipher, db::whatsapp_accounts, email::Mailer};
+use crate::{
+    crypto::Cipher,
+    db::{message_history, whatsapp_accounts},
+    email::Mailer,
+};
 
 /// Shown on the phone as "Google Chrome (Whatomato)" after QR linking
 const DEVICE_NAME: &str = "Whatomato";
+/// How far back a full sync asks for when the owner keeps everything; phones seem to stop near 3
+/// years, and asking for more does no harm
+const FULL_SYNC_DAYS_MAX: u32 = 3650;
 /// How long linking may take either way; QR codes alone run out after about 160 seconds
 const PAIRING_LIMIT: Duration = Duration::from_mins(5);
 /// A graceful stop flushes the device and pending writes; past this the client is aborted
@@ -66,6 +76,8 @@ const MAX_RESTART_DELAY: Duration = Duration::from_mins(10);
 const REQUEST_LIMIT: Duration = Duration::from_secs(30);
 /// From handing a message to the library to WhatsApp acknowledging it
 const SEND_LIMIT: Duration = Duration::from_secs(20);
+/// Taking a file of up to 16 MB to WhatsApp's servers
+const UPLOAD_LIMIT: Duration = Duration::from_secs(120);
 const TEST_MESSAGE: &str = "Whatomato test: your WhatsApp is linked. You can delete this.";
 /// Upstream's `manual_presence` example found a daily window this long clears the stale activity and
 /// expiry warning a never-online device shows on the phone; it's empirical, not a WhatsApp rule
@@ -166,6 +178,8 @@ pub struct Extras {
     pub quote: Option<Quote>,
     /// The numbers it tags, each written as `@number` in the body
     pub mentions: Vec<String>,
+    /// A picture or file the body is the caption of
+    pub file: Option<OutgoingFile>,
 }
 
 /// Where a message goes
@@ -205,6 +219,8 @@ pub enum SendFailure {
     Rejected(String),
     #[error("WhatsApp didn't confirm this message, so it may or may not have gone out")]
     Unconfirmed,
+    #[error("Its picture or file was no longer kept, so it wasn't sent")]
+    FileGone,
     #[error("This message couldn't be sent")]
     Failed,
 }
@@ -295,6 +311,10 @@ enum Command {
     Groups(oneshot::Sender<Result<Vec<Group>, CommandError>>),
     Picture(Jid, oneshot::Sender<Option<Image>>),
     SendTestMessage(oneshot::Sender<Result<(), CommandError>>),
+    Download(
+        Box<Download>,
+        oneshot::Sender<Result<Vec<u8>, CommandError>>,
+    ),
     Send(
         Recipient,
         String,
@@ -347,6 +367,17 @@ impl Handle {
     /// [`CommandError::NotConnected`] unless connected; `Failed` if WhatsApp doesn't answer.
     pub async fn groups(&self) -> Result<Vec<Group>, CommandError> {
         self.ask(Command::Groups).await?
+    }
+
+    /// A received picture or file, fetched from WhatsApp. One WhatsApp no longer has is asked of
+    /// the phone again.
+    ///
+    /// # Errors
+    /// [`CommandError::NotConnected`] unless connected; `Failed` when neither has it any more or it
+    /// passes [`FILE_MAX`].
+    pub async fn download(&self, download: Download) -> Result<Vec<u8>, CommandError> {
+        self.ask(|reply| Command::Download(Box::new(download), reply))
+            .await?
     }
 
     /// A contact's or group's picture: from memory, else from WhatsApp while connected
@@ -548,6 +579,9 @@ impl Supervisor {
                 Wake::Command(Command::Groups(reply)) => self.groups(reply),
                 Wake::Command(Command::Picture(jid, reply)) => self.picture(jid, reply),
                 Wake::Command(Command::SendTestMessage(reply)) => self.send_test_message(reply),
+                Wake::Command(Command::Download(download, reply)) => {
+                    self.download(*download, reply);
+                }
                 Wake::Command(Command::Send(to, body, extras, reply)) => {
                     self.send(to, body, extras, reply);
                 }
@@ -789,6 +823,17 @@ impl Supervisor {
         let generation = self.generation;
         let events = self.events_tx.clone();
         let acks = self.acks.clone();
+        let history = match &self.context.inbox {
+            Some(inbox) => {
+                let history = History::from_stored(
+                    message_history::find(&self.context.pool, self.user_id).await?,
+                );
+                // Ahead of the reload, since the phone sends its history right after linking
+                inbox.readers().set_history(account_id, history);
+                history
+            }
+            None => History::Off,
+        };
 
         let mut cache = CacheConfig::default();
         cache.msg_secret_policy = MsgSecretPolicy::Disabled;
@@ -798,13 +843,8 @@ impl Supervisor {
                 self.context.cipher.clone(),
                 account_id,
             ))
-            .with_device_props(
-                DevicePropsOverride::new()
-                    .with_os(DEVICE_NAME)
-                    .with_platform_type(wa::device_props::PlatformType::CHROME),
-            )
+            .with_device_props(device_props(history))
             .with_presence_policy(PresencePolicy::Manual)
-            .skip_history_sync()
             .with_cache_config(cache)
             .with_http_client_arc(Arc::clone(&self.context.http))
             .with_event_handler(Feed::new(account_id, self.contacts.clone()))
@@ -823,9 +863,13 @@ impl Supervisor {
                     }
                 }
             });
-        if let Some(inbox) = &self.context.inbox {
-            builder = builder.with_event_handler(inbox.feed(account_id));
-        }
+        builder = match &self.context.inbox {
+            Some(inbox) => builder
+                .with_event_handler(inbox.feed(account_id))
+                .with_history_sync_admission(inbox.admission(account_id))
+                .with_history_sync_capture_hook(inbox.capture(account_id)),
+            None => builder.skip_history_sync(),
+        };
         if let Some(number) = self.pairing_number() {
             builder = builder.with_pair_code(pair_code_options(&number));
         }
@@ -1085,6 +1129,22 @@ impl Supervisor {
         });
     }
 
+    fn download(&self, download: Download, reply: oneshot::Sender<Result<Vec<u8>, CommandError>>) {
+        let client = match self.connected_client() {
+            Ok(client) => client,
+            Err(error) => {
+                let _ = reply.send(Err(error));
+                return;
+            }
+        };
+        tokio::spawn(async move {
+            let fetched = timeout(REQUEST_LIMIT * 2, fetch_media(&client, download))
+                .await
+                .unwrap_or_else(|_| Err(anyhow!("WhatsApp didn't hand the file over in time")));
+            let _ = reply.send(fetched.map_err(CommandError::Failed));
+        });
+    }
+
     fn send_test_message(&self, reply: oneshot::Sender<Result<(), CommandError>>) {
         let client = match self.connected_client() {
             Ok(client) => client,
@@ -1137,7 +1197,9 @@ impl Supervisor {
                 .await
                 .map(|sent| {
                     if let Some((inbox, account_id)) = kept {
-                        let body = Body::sent(own, sent.text, reply_to, sent.mentions);
+                        let mut body = Body::sent(own, sent.text, reply_to, sent.mentions);
+                        body.kind = sent.kind;
+                        body.text = body.text.filter(|text| !text.is_empty());
                         inbox.sent(account_id, &sent.chat, &sent.id, body);
                     }
                 });
@@ -1153,6 +1215,18 @@ pub(super) fn text_message(
     quote: Option<Quote>,
     mentions: Vec<String>,
 ) -> wa::Message {
+    match reply_context(chat, quote, mentions) {
+        Some(context) => wa::Message::text_with_context(body, context),
+        None => wa::Message::text(body),
+    }
+}
+
+/// What a message quotes and whom it tags, as WhatsApp carries them; `None` for neither
+fn reply_context(
+    chat: &Jid,
+    quote: Option<Quote>,
+    mentions: Vec<String>,
+) -> Option<wa::ContextInfo> {
     let mut context = quote.and_then(|quote| {
         let sender = quote.sender_jid.parse::<Jid>().ok()?;
         let quoted = wa::Message::text(quote.text.unwrap_or_default());
@@ -1169,9 +1243,65 @@ pub(super) fn text_message(
             .get_or_insert_with(wa::ContextInfo::default)
             .mentioned_jid = mentions;
     }
-    match context {
-        Some(context) => wa::Message::text_with_context(body, context),
-        None => wa::Message::text(body),
+    context
+}
+
+/// A received picture or file to fetch, and the message it came in, which asking the phone for it
+/// again names
+pub struct Download {
+    pub kind: Kind,
+    pub media: MediaRef,
+    pub chat: Jid,
+    pub message_id: String,
+    /// Who wrote it, in a group
+    pub sender: Option<Jid>,
+    pub from_me: bool,
+}
+
+async fn fetch_media(client: &Client, download: Download) -> anyhow::Result<Vec<u8>> {
+    if download
+        .media
+        .file_length
+        .is_some_and(|length| length > FILE_MAX as u64)
+    {
+        anyhow::bail!("the file is larger than 16 MB");
+    }
+    let limits = DownloadLimits::new(FILE_MAX as u64 + 1024, FILE_MAX as u64);
+    let first = download
+        .media
+        .downloadable(download.kind)
+        .map_err(|problem| anyhow!(problem))?;
+    let failure = match client.download(&*first, limits).await {
+        Ok(bytes) => return Ok(bytes),
+        Err(failure) => failure,
+    };
+    // WhatsApp drops files after a while; the phone still has them and can upload them again
+    let key = download.media.key().context("the file's key is damaged")?;
+    let target = MessageRef::new(
+        &download.chat,
+        MessageId::new(&download.message_id)?,
+        download.sender.as_ref(),
+        download.from_me,
+    )?;
+    let request = MediaReuploadRequest {
+        target,
+        media_key: &key,
+    };
+    match client.media_reupload().request(&request).await {
+        Ok(MediaRetryResult::Success { direct_path }) => {
+            let mut media = download.media;
+            media.direct_path = direct_path;
+            let again = media
+                .downloadable(download.kind)
+                .map_err(|problem| anyhow!(problem))?;
+            Ok(client.download(&*again, limits).await?)
+        }
+        Ok(_) => Err(anyhow!(
+            "neither WhatsApp nor the phone has the file any more ({failure})"
+        )),
+        Err(error) => Err(anyhow!(
+            "WhatsApp no longer has the file, and the phone couldn't send it again: {error}"
+        )),
     }
 }
 
@@ -1181,6 +1311,8 @@ struct Sent {
     id: String,
     text: String,
     mentions: Vec<String>,
+    /// Text, or what its picture or file went as
+    kind: Kind,
 }
 
 /// The body and mentions in the form the chat knows the people tagged by
@@ -1223,12 +1355,40 @@ async fn send_and_confirm(
         Recipient::Group(id) => id.parse::<Jid>().map_err(|_| SendFailure::Failed)?,
     };
 
+    // Before the acknowledgement is awaited, so a failed upload leaves nothing waiting for one
+    let uploaded = match extras.file {
+        Some(file) => {
+            let upload = timeout(
+                UPLOAD_LIMIT,
+                client.upload(
+                    file.data.clone(),
+                    file.kind.media_type(),
+                    UploadOptions::new(),
+                ),
+            )
+            .await
+            .map_err(|_| SendFailure::Unreachable)?
+            .map_err(|_| SendFailure::Unreachable)?;
+            Some((file, upload))
+        }
+        None => None,
+    };
+
     // Set up before sending, since the acknowledgement can beat `send`'s return
     let id = client.generate_message_id();
     let acknowledged = acks.expect(id.as_str());
     let key = id.as_str().to_owned();
     let (text, mentions) = tagged(&client, &jid, body, extras.mentions).await;
-    let message = text_message(&jid, text.clone(), extras.quote, mentions.clone());
+    let kind = uploaded
+        .as_ref()
+        .map_or(Kind::Text, |(file, _)| file.kind.into());
+    let message = match uploaded {
+        Some((file, upload)) => {
+            let context = reply_context(&jid, extras.quote, mentions.clone());
+            file_message(&file, upload, Some(text.clone()), context)
+        }
+        None => text_message(&jid, text.clone(), extras.quote, mentions.clone()),
+    };
     let request =
         SendRequest::new(&jid, message).with_options(SendOptions::default().with_message_id(id));
     let outcome = timeout(SEND_LIMIT, async {
@@ -1244,6 +1404,7 @@ async fn send_and_confirm(
             id: key,
             text,
             mentions,
+            kind,
         }),
         Ok(Ok(Ok(Some(code)))) => Err(SendFailure::Rejected(code)),
         Ok(Err(failure)) => Err(failure),
@@ -1312,6 +1473,26 @@ async fn at(deadline: Option<Instant>) {
         Some(deadline) => sleep_until(deadline).await,
         None => std::future::pending().await,
     }
+}
+
+/// What the device tells the phone when it links. Only an owner keeping history has it ask for the
+/// phone's full history, as WhatsApp's Windows app does; it takes that app's whole row of
+/// settings, since a browser asking for full history is a shape no real client has.
+fn device_props(history: History) -> DevicePropsOverride {
+    let props = DevicePropsOverride::new().with_os(DEVICE_NAME);
+    let days = match history {
+        History::Off => return props.with_platform_type(wa::device_props::PlatformType::CHROME),
+        History::Days(days) => days.min(FULL_SYNC_DAYS_MAX),
+        History::All => FULL_SYNC_DAYS_MAX,
+    };
+    let mut config = default_history_sync_config();
+    config.full_sync_days_limit = Some(days);
+    config.on_demand_ready = Some(true);
+    config.complete_on_demand_ready = Some(true);
+    props
+        .with_platform_type(wa::device_props::PlatformType::UWP)
+        .with_require_full_sync(true)
+        .with_history_sync_config(config)
 }
 
 fn pair_code_options(number: &str) -> PairCodeOptions {

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM history_chunks WHERE account_id = $1 AND message_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1d85bd7cec0c27a7433e66de4f0a79bea8ae32925bf86bdd122a1e1c5f56ad06"
+}

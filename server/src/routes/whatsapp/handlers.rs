@@ -9,16 +9,16 @@ use uuid::Uuid;
 use whatsapp_rust::prelude::{Jid, Server};
 
 use super::dto::{
-    ContactBook, ContactResponse, GroupResponse, LinkRequest, PasswordConfirmation, Unlinked,
-    WhatsAppLink, WhatsAppStatus, digits,
+    ContactBook, ContactResponse, GroupResponse, HistoryImport, HistoryRequest, LinkRequest,
+    MessageHistory, PasswordConfirmation, Unlinked, WhatsAppLink, WhatsAppStatus, digits,
 };
 use crate::{
     auth::{reauth, session::Session},
-    db::{whatsapp_accounts, whatsapp_contacts},
+    db::{history_chunks, message_history, whatsapp_accounts, whatsapp_contacts},
     error::{AppError, ErrorBody},
     extract::ValidatedJson,
     state::AppState,
-    whatsapp::{contacts, status::Method, supervisor::CommandError},
+    whatsapp::{contacts, inbox::History, status::Method, supervisor::CommandError},
 };
 
 /// The account's WhatsApp status
@@ -181,6 +181,83 @@ pub async fn unlink(
         .map_err(refused_with("WhatsApp isn't linked"))?;
 
     Ok(Json(Unlinked { removed_from_phone }))
+}
+
+/// What the owner keeps of their chats, and how the phone's history is coming in
+#[utoipa::path(get, path = "/history", responses(
+    (status = OK, body = MessageHistory),
+    (status = UNAUTHORIZED, body = ErrorBody),
+    (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
+))]
+pub async fn get_history(
+    State(state): State<AppState>,
+    session: Session,
+) -> Result<Json<MessageHistory>, AppError> {
+    message_history_of(&state, session.user.id).await.map(Json)
+}
+
+/// Choose what to keep of the chats
+///
+/// Keeping every chat also keeps the history the phone sends when WhatsApp links, so turning it on
+/// while linked brings in older messages only after linking again. Turning it off, or shortening
+/// it, deletes what falls outside within a few minutes.
+#[utoipa::path(put, path = "/history", request_body = HistoryRequest, responses(
+    (status = OK, body = MessageHistory),
+    (status = UNAUTHORIZED, body = ErrorBody),
+    (status = CONFLICT, description = "Reading chats is turned off on this server", body = ErrorBody),
+    (status = UNPROCESSABLE_ENTITY, body = ErrorBody),
+    (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
+))]
+pub async fn save_history(
+    State(state): State<AppState>,
+    session: Session,
+    Json(payload): Json<HistoryRequest>,
+) -> Result<Json<MessageHistory>, AppError> {
+    let user_id = session.user.id;
+    if !state.agent_reading {
+        return Err(AppError::Conflict(
+            "Reading chats is turned off on this server, so it keeps no messages.",
+        ));
+    }
+    let keep = payload.keep;
+    if let History::Days(days) = keep
+        && !(1..=History::DAYS_MAX).contains(&days)
+    {
+        return Err(AppError::Unprocessable {
+            field: "keep",
+            problems: vec![format!(
+                "Messages can be kept for between 1 and {} days.",
+                History::DAYS_MAX
+            )],
+        });
+    }
+    match keep.to_stored() {
+        Some(days) => message_history::save(&state.pool, user_id, days).await?,
+        None => message_history::delete(&state.pool, user_id).await?,
+    }
+    state.whatsapp.set_history(user_id, keep).await?;
+    message_history_of(&state, user_id).await.map(Json)
+}
+
+async fn message_history_of(state: &AppState, user_id: Uuid) -> Result<MessageHistory, AppError> {
+    let keep = History::from_stored(message_history::find(&state.pool, user_id).await?);
+    let import = match whatsapp_accounts::history_import(&state.pool, user_id).await? {
+        Some(import) if import.linked => Some(HistoryImport {
+            progress: import.progress,
+            imported: import.imported,
+            waiting: history_chunks::waiting(&state.pool, import.account_id).await?,
+        }),
+        _ => None,
+    };
+    Ok(MessageHistory {
+        keep: if state.agent_reading {
+            keep
+        } else {
+            History::Off
+        },
+        available: state.agent_reading,
+        import,
+    })
 }
 
 /// The groups the account is in, to choose where messages go

@@ -9,6 +9,8 @@
 
 pub mod account;
 pub mod approvals;
+pub mod attachments;
+mod fetch;
 pub mod inbox;
 pub mod review;
 pub mod schedules;
@@ -252,6 +254,9 @@ pub enum OpError {
     /// A schedule that would send more often than an agent may schedule
     #[error("{0}")]
     TooFrequent(&'static str),
+    /// WhatsApp couldn't hand over or take a file; says why
+    #[error("{0}")]
+    Unavailable(String),
     /// Logged; the agent hears only that something went wrong
     #[error("Something went wrong on the server, so nothing was done. Try again in a few minutes.")]
     Internal(anyhow::Error),
@@ -268,6 +273,7 @@ impl OpError {
             Self::WhatsAppNotReady(_) => "whatsapp_not_ready",
             Self::TooOften(_) => "too_often",
             Self::TooFrequent(_) => "too_frequent",
+            Self::Unavailable(_) => "unavailable",
             Self::Internal(_) => "internal",
         }
     }

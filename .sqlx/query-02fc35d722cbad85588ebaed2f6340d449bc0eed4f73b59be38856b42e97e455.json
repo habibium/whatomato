@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM inbox_messages m\n         USING whatsapp_accounts a\n         LEFT JOIN message_history h ON h.user_id = a.user_id\n         WHERE m.account_id = a.id\n           AND (m.expires_at <= now()\n                OR m.sent_at < now() - make_interval(\n                    days => CASE WHEN h.user_id IS NULL THEN $1 ELSE h.keep_days END))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "02fc35d722cbad85588ebaed2f6340d449bc0eed4f73b59be38856b42e97e455"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO history_chunks (account_id, message_id, chunk)\n         VALUES ($1, $2, $3)\n         ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f63aa3ce7f1b88d00970ce485ffb17cdbd81c6a4f2515163c1bd6249dd872804"
+}

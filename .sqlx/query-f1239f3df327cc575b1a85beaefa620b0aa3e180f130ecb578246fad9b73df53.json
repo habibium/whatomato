@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT keep_days FROM message_history WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "keep_days",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "message_history",
+            "name": "keep_days"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "f1239f3df327cc575b1a85beaefa620b0aa3e180f130ecb578246fad9b73df53"
+}

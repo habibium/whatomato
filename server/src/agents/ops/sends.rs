@@ -3,11 +3,14 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use sqlx::PgConnection;
 use uuid::Uuid;
 use validator::ValidationErrors;
 
 use super::{
-    Caller, More, OpError, Page, Seen, Trace, approval_url, ask, chat_facts, facts, lock,
+    Caller, More, OpError, Page, Seen, Trace, approval_url, ask,
+    attachments::{self, AttachmentInput, hold},
+    chat_facts, facts, lock,
     review::{Request, SendRequest},
     tell_owner, whatsapp_ready,
 };
@@ -22,7 +25,10 @@ use crate::{
     },
     scheduler::{DeliveryStatus, RecipientType, draft, variables},
     state::AppState,
-    whatsapp::tags,
+    whatsapp::{
+        media::{FileKind, FileNote, OutgoingFile},
+        tags,
+    },
 };
 
 /// People one message tags at most
@@ -35,8 +41,10 @@ pub struct SendInput {
     /// For a contact, the phone number with its country code (a leading +, spaces and dashes are
     /// ignored). For a group, its id as `find_chats` gives it.
     pub recipient: String,
-    /// The message text, up to 4096 characters. It may use variables such as `{{first_name}}`,
-    /// `{{name}}`, `{{date}}` and `{{time}}`, filled in when it goes out.
+    /// The message text, up to 4096 characters, or the caption of `attachment`, which may go
+    /// without one. It may use variables such as `{{first_name}}`, `{{name}}`, `{{date}}` and
+    /// `{{time}}`, filled in when it goes out.
+    #[serde(default)]
     pub body: String,
     /// The IANA time zone that `{{date}}`, `{{time}}` and similar variables read in, such as
     /// Asia/Dhaka. UTC when left out.
@@ -50,6 +58,9 @@ pub struct SendInput {
     /// tagged.
     #[serde(default)]
     pub mentions: Vec<String>,
+    /// A picture or file to send, up to 16 MB, with `body` as its caption. Needs the owner's
+    /// permission to send files.
+    pub attachment: Option<AttachmentInput>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
@@ -96,12 +107,17 @@ async fn quoted(
              or ask the owner to turn reading on for this chat.",
         ));
     }
-    let kind = chat.recipient_type.as_str();
-    inbox_messages::find(&state.pool, caller.user_id(), kind, chat.recipient, id)
+    let scope = inbox_messages::Scope {
+        user_id: caller.user_id(),
+        chat: Some((chat.recipient_type.as_str(), chat.recipient)),
+        since: caller.grant.chats.reach.since(Utc::now()),
+    };
+    inbox_messages::find(&state.pool, scope, id)
         .await?
         .ok_or(OpError::NotFound(
-            "The message `reply_to` names isn't kept in this chat. Use an id that read_messages \
-             gave for the same chat, or send without `reply_to`.",
+            "The message `reply_to` names isn't kept in this chat, or is older than this \
+             connection may read. Use an id that read_messages gave for the same chat, or send \
+             without `reply_to`.",
         ))?;
     Ok(Some(id.to_owned()))
 }
@@ -145,6 +161,41 @@ fn tagged(
     Ok(numbers)
 }
 
+/// The file a send carries, read and checked; a voice note or audio can't carry a caption
+async fn attached(
+    state: &AppState,
+    caller: &Caller,
+    attachment: Option<AttachmentInput>,
+    body: &str,
+) -> Result<Option<OutgoingFile>, OpError> {
+    let Some(attachment) = attachment else {
+        return Ok(None);
+    };
+    let file = attachments::outgoing(state, caller, attachment).await?;
+    if file.kind == FileKind::Audio && !body.trim().is_empty() {
+        return Err(OpError::invalid(
+            "Audio goes without a caption. Send it with an empty `body`, and the text as a \
+             message of its own.",
+        ));
+    }
+    Ok(Some(file))
+}
+
+/// Holds a send's file, if it has one, in the transaction the send is recorded in
+async fn held(
+    transaction: &mut PgConnection,
+    state: &AppState,
+    caller: &Caller,
+    file: Option<&OutgoingFile>,
+) -> Result<Option<FileNote>, OpError> {
+    match file {
+        Some(file) => Ok(Some(
+            hold(transaction, state, caller.user_id(), file).await?,
+        )),
+        None => Ok(None),
+    }
+}
+
 /// Queues a text message, or asks the owner to approve it first
 ///
 /// # Errors
@@ -169,11 +220,15 @@ async fn run_send(
 ) -> Result<SendResult, OpError> {
     let mut errors = ValidationErrors::new();
     draft::check_recipient(input.recipient_type, &input.recipient, None, &mut errors);
-    draft::check_body(&input.body, &mut errors);
+    // A picture or file may go without a caption
+    if input.attachment.is_none() || !input.body.trim().is_empty() {
+        draft::check_body(&input.body, &mut errors);
+    }
     if let Some(timezone) = &input.timezone {
         draft::check_timezone(timezone, &mut errors);
     }
     draft::finish(errors)?;
+    let file = attached(state, caller, input.attachment, &input.body).await?;
 
     let recipient = input.recipient_type.normalized(&input.recipient);
     let chat = ChatRef {
@@ -207,6 +262,7 @@ async fn run_send(
         Decision::Deny(reason) => Err(caller.refused(reason)),
         Decision::Allow | Decision::AllowOwn => {
             whatsapp_ready(state, caller.user_id())?;
+            let held = held(&mut transaction, state, caller, file.as_ref()).await?;
             let delivery_id = deliveries::create(
                 &mut *transaction,
                 NewDelivery {
@@ -222,6 +278,9 @@ async fn run_send(
                 },
             )
             .await?;
+            if let Some(held) = &held {
+                deliveries::attach_file(&mut *transaction, delivery_id, held.id).await?;
+            }
             transaction.commit().await?;
             Ok(SendResult {
                 outcome: SendOutcome::Queued,
@@ -233,6 +292,7 @@ async fn run_send(
             })
         }
         Decision::Ask => {
+            let held = held(&mut transaction, state, caller, file.as_ref()).await?;
             let request = Request::Send(SendRequest {
                 recipient_type: input.recipient_type,
                 recipient,
@@ -241,6 +301,7 @@ async fn run_send(
                 timezone: input.timezone,
                 reply_to,
                 mentions,
+                file: held,
             });
             let approval = ask(&mut transaction, state, caller, &request).await?;
             transaction.commit().await?;

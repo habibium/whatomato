@@ -61,6 +61,8 @@ zeroize = "1"
 sunrise = "3"
 
 [dev-dependencies]
+# Already built for the WhatsApp library; here it compresses history fixtures
+flate2 = "1"
 # Paused clocks for tests of time-based caches
 tokio = { version = "1", features = ["test-util"] }
 tower = { version = "0.5", features = ["util"] }

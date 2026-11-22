@@ -7,6 +7,7 @@ use crate::{
     auth::two_factor::qr_code,
     whatsapp::{
         contacts::Names,
+        inbox::History,
         status::{LinkEnded, Method, Status, StopReason},
         supervisor::Group,
     },
@@ -181,6 +182,36 @@ pub(super) struct Unlinked {
     /// False when WhatsApp couldn't be told, so the device still shows under Linked devices on the
     /// phone until it's removed there
     pub removed_from_phone: bool,
+}
+
+/// What the owner keeps of their chats for agents to read, and how the phone's history is coming in
+#[derive(Serialize, ToSchema)]
+pub(super) struct MessageHistory {
+    /// `off` keeps only the chats a connection may read, for 7 days. Otherwise every chat is kept,
+    /// the phone's history included: for that many `days`, or `all` of it.
+    pub keep: History,
+    /// Whether this server lets connections read chats; while it doesn't, nothing is kept
+    pub available: bool,
+    /// The import of the phone's history into the linked account; empty while nothing is linked
+    #[schema(required = true)]
+    pub import: Option<HistoryImport>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub(super) struct HistoryImport {
+    /// How much of its history the phone has sent, from 0 to 100. Empty until the first part
+    /// arrives, which only happens after linking while history is kept.
+    #[schema(required = true)]
+    pub progress: Option<i32>,
+    /// Messages brought in from the phone's history so far
+    pub imported: i64,
+    /// Parts of the history received and still being brought in
+    pub waiting: i64,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub(super) struct HistoryRequest {
+    pub keep: History,
 }
 
 #[derive(Serialize, ToSchema)]

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE inbox_messages SET sent_at = now() - interval '400 days'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "6a352c03fbb687ff95179ab435588dfd1ffed21cbb9b8ab1d33a4a8fad214868"
+}

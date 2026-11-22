@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT DISTINCT account_id, chat_type, chat_id FROM inbox_messages",
+  "query": "SELECT account_id, message_id, chunk AS sealed FROM history_chunks\n         ORDER BY received_at, message_id\n         LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -9,30 +9,30 @@
         "type_info": "Uuid",
         "origin": {
           "Table": {
-            "table": "inbox_messages",
+            "table": "history_chunks",
             "name": "account_id"
           }
         }
       },
       {
         "ordinal": 1,
-        "name": "chat_type",
+        "name": "message_id",
         "type_info": "Text",
         "origin": {
           "Table": {
-            "table": "inbox_messages",
-            "name": "chat_type"
+            "table": "history_chunks",
+            "name": "message_id"
           }
         }
       },
       {
         "ordinal": 2,
-        "name": "chat_id",
-        "type_info": "Text",
+        "name": "sealed",
+        "type_info": "Bytea",
         "origin": {
           "Table": {
-            "table": "inbox_messages",
-            "name": "chat_id"
+            "table": "history_chunks",
+            "name": "chunk"
           }
         }
       }
@@ -46,5 +46,5 @@
       false
     ]
   },
-  "hash": "5819db312a574ca1754d43e2bbadd8add9ee08a911ccfd45ba0a5bb7170f0df1"
+  "hash": "45207dedba61ae87dd1aac22264b26217fb336f8c067023f73d879554fb896fb"
 }

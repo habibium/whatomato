@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT m.chat_type, m.chat_id, max(m.sent_at) AS \"last_message_at!\",\n                  count(*) AS \"messages!\"\n           FROM inbox_messages m\n           JOIN whatsapp_accounts a ON a.id = m.account_id\n           WHERE a.user_id = $1 AND (m.expires_at IS NULL OR m.expires_at > now())\n           GROUP BY m.chat_type, m.chat_id\n           ORDER BY max(m.sent_at) DESC, m.chat_id",
+  "query": "SELECT m.chat_type, m.chat_id, max(m.sent_at) AS \"last_message_at!\",\n                  count(*) AS \"messages!\"\n           FROM inbox_messages m\n           JOIN whatsapp_accounts a ON a.id = m.account_id\n           WHERE a.user_id = $1 AND (m.expires_at IS NULL OR m.expires_at > now())\n             AND ($2::timestamptz IS NULL OR m.sent_at >= $2)\n           GROUP BY m.chat_type, m.chat_id\n           ORDER BY max(m.sent_at) DESC, m.chat_id",
   "describe": {
     "columns": [
       {
@@ -40,7 +40,8 @@
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Timestamptz"
       ]
     },
     "nullable": [
@@ -50,5 +51,5 @@
       null
     ]
   },
-  "hash": "39f1546415cf52c8c1a6d8ba9060d3638ffc3760a7442e34ffd85cb55881e503"
+  "hash": "759beb856475eedd9779760ec783d9426945ba55c4e3e3b6f73dac45f7a97b54"
 }

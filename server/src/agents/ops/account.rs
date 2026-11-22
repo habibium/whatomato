@@ -11,12 +11,15 @@ use crate::{
     agents::{
         DAILY_CEILING, Decision, Grant, WAITING_MAX,
         decide::{Action, Facts, SCHEDULES_MAX, decide},
-        grant::{Contacts, Deliveries, Schedules, Scope, SendLevel, Strangers, Templates},
+        grant::{
+            Attachments, Contacts, Deliveries, Reach, Schedules, Scope, SendLevel, Strangers,
+            Templates,
+        },
     },
-    db::{agent_connections, message_templates, whatsapp_contacts},
+    db::{agent_connections, message_history, message_templates, whatsapp_contacts},
     scheduler::RecipientType,
     state::AppState,
-    whatsapp::{contacts::open_names, status::Status},
+    whatsapp::{contacts::open_names, inbox::History, status::Status},
 };
 
 /// Matches `find_chats` returns at most
@@ -86,6 +89,10 @@ pub struct Permissions {
     pub default_daily_limit: Option<u32>,
     /// Under scope `all`, whether it may read the messages of a chat without its own rule
     pub default_read: bool,
+    /// How old a message it may read can be, in the chats it may read
+    pub read_back: Reach,
+    /// Whether it may open the pictures and files of the chats it may read, and send its own
+    pub attachments: Attachments,
     /// Messages to people who aren't saved contacts and have no rule of their own
     pub strangers: Strangers,
     /// How many chats have a rule of their own; `find_chats` shows each one's
@@ -142,12 +149,20 @@ async fn run_whoami(state: &AppState, caller: &Caller) -> Result<WhoAmI, OpError
             default_send: chats.default.send,
             default_daily_limit: chats.default.daily_limit,
             default_read: state.agent_reading && chats.default.read,
+            read_back: chats.reach,
+            attachments: Attachments {
+                open: state.agent_reading && grant.attachments.open,
+                send: grant.attachments.send,
+            },
             strangers: chats.strangers,
             chat_rules: chats.rules.len(),
         },
         summary: {
             let mut lines = summary(&caller.grant);
-            lines.push(reading_line(state.agent_reading, grant).to_owned());
+            let history =
+                History::from_stored(message_history::find(&state.pool, caller.user_id()).await?);
+            lines.push(attachments_line(state.agent_reading, grant).to_owned());
+            lines.push(reading_line(state.agent_reading, grant, history));
             lines
         },
         limits: Limits {
@@ -328,18 +343,50 @@ pub async fn find_chats(
     result
 }
 
-const fn reading_line(reading: bool, grant: &Grant) -> &'static str {
-    match (reading, grant.chats.scope, grant.chats.default.read) {
-        (false, ..) => "It can't read messages: reading is turned off on this Whatomato server.",
-        (true, Scope::All, true) => {
-            "It may read the recent messages of any chat, unless a chat's own rule says otherwise. \
-             list_chats shows the chats with messages."
+const fn attachments_line(reading: bool, grant: &Grant) -> &'static str {
+    match (reading && grant.attachments.open, grant.attachments.send) {
+        (true, true) => {
+            "It can open the pictures and files of the chats it may read with get_attachment, and \
+             send its own with send_message's attachment."
         }
-        (true, ..) => {
-            "It may read the recent messages of only the chats whose own rule allows it; \
-             list_chats shows them."
+        (true, false) => {
+            "It can open the pictures and files of the chats it may read with get_attachment, but \
+             can't send any."
         }
+        (false, true) => {
+            "It can send pictures and files with send_message's attachment, but can't open the ones \
+             it receives."
+        }
+        (false, false) => "It can't open or send pictures and files, only text.",
     }
+}
+
+fn reading_line(reading: bool, grant: &Grant, history: History) -> String {
+    let chats = match (reading, grant.chats.scope, grant.chats.default.read) {
+        (false, ..) => {
+            return "It can't read messages: reading is turned off on this Whatomato server."
+                .to_owned();
+        }
+        (true, Scope::All, true) => {
+            "any chat, unless a chat's own rule says otherwise. list_chats shows the chats with \
+             messages."
+        }
+        (true, ..) => "only the chats whose own rule allows it; list_chats shows them.",
+    };
+    let reach = match grant.chats.reach {
+        Reach::Days(1) => "from the last day".to_owned(),
+        Reach::Days(days) => format!("from the last {days} days"),
+        Reach::Months(1) => "from the last month".to_owned(),
+        Reach::Months(months) => format!("from the last {months} months"),
+        Reach::All => "however old".to_owned(),
+    };
+    let beyond_window = !matches!(grant.chats.reach, Reach::Days(days) if days <= 7);
+    let kept = if history == History::Off && beyond_window {
+        " Whatomato keeps only the last 7 days of a chat it may read."
+    } else {
+        ""
+    };
+    format!("It may read messages {reach} in {chats}{kept}")
 }
 
 fn rule_view(

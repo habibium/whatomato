@@ -3,8 +3,11 @@ use std::{convert::Infallible, time::Duration};
 use axum::{
     Json,
     extract::{FromRequestParts, Path, State},
-    http::{StatusCode, request::Parts},
-    response::sse::{Event, KeepAlive, Sse},
+    http::{StatusCode, header, request::Parts},
+    response::{
+        IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
 };
 use chrono::{TimeDelta, Utc};
 use futures_util::{Stream, StreamExt as _, stream};
@@ -26,12 +29,13 @@ use crate::{
     db::{
         agent_activity, agent_approvals,
         agent_connections::{self, Connection, Credential, MAX_PER_USER, NewConnection},
+        message_history, outgoing_files,
     },
     email::templates::AgentAlert,
     error::{AppError, ErrorBody},
     extract::{ValidatedJson, ValidatedQuery},
     state::AppState,
-    whatsapp::inbox::WINDOW_DAYS,
+    whatsapp::{inbox::History, media::open_file},
 };
 
 /// Answers 404 when the instance has agent access off, as if the route didn't exist
@@ -102,16 +106,22 @@ pub async fn list_agents(
     (status = OK, body = AgentReading),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = NOT_FOUND, description = "Agent access is off on this server", body = ErrorBody),
+    (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
 ))]
 pub async fn get_agent_reading(
     _: Enabled,
-    _session: Session,
+    session: Session,
     State(state): State<AppState>,
-) -> Json<AgentReading> {
-    Json(AgentReading {
+) -> Result<Json<AgentReading>, AppError> {
+    let history = if state.agent_reading {
+        History::from_stored(message_history::find(&state.pool, session.user.id).await?)
+    } else {
+        History::Off
+    };
+    Ok(Json(AgentReading {
         available: state.agent_reading,
-        kept_days: WINDOW_DAYS,
-    })
+        history,
+    }))
 }
 
 /// The permission presets, in the order to offer them
@@ -450,6 +460,61 @@ pub async fn get_agent_approval(
     Path(id): Path<Uuid>,
 ) -> Result<Json<AgentApproval>, AppError> {
     answered(&state, id, session.user.id).await
+}
+
+/// A picture or file an agent asked to send, while it waits to go out
+///
+/// A picture comes as itself; anything else as a download, so nothing it holds runs as a page.
+#[utoipa::path(get, path = "/files/{id}", params(("id" = Uuid, Path)), responses(
+    (status = OK, description = "The file", content_type = "application/octet-stream"),
+    (status = UNAUTHORIZED, body = ErrorBody),
+    (status = NOT_FOUND, description = "Agent access is off, there's no such file, or it already went out", body = ErrorBody),
+    (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
+))]
+pub async fn get_agent_file(
+    _: Enabled,
+    State(state): State<AppState>,
+    session: Session,
+    Path(id): Path<Uuid>,
+) -> Result<Response, AppError> {
+    let stored = outgoing_files::find(&state.pool, id, session.user.id)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    let sealed = stored.data.ok_or(AppError::NotFound)?;
+    let data = open_file(&state.cipher, id, &sealed)?;
+    let inline = matches!(
+        stored.mime_type.as_str(),
+        "image/jpeg" | "image/png" | "image/gif" | "image/webp"
+    );
+    let (content_type, disposition) = if inline {
+        (stored.mime_type, "inline".to_owned())
+    } else {
+        let name = stored
+            .file_name
+            .unwrap_or_else(|| "file".to_owned())
+            .replace(
+                |c: char| !c.is_ascii_alphanumeric() && !".-_ ".contains(c),
+                "_",
+            );
+        (
+            "application/octet-stream".to_owned(),
+            format!("attachment; filename=\"{name}\""),
+        )
+    };
+    Ok((
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CONTENT_DISPOSITION, disposition),
+            (header::CACHE_CONTROL, "private, no-store".to_owned()),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_owned()),
+            (
+                header::CONTENT_SECURITY_POLICY,
+                "default-src 'none'; sandbox".to_owned(),
+            ),
+        ],
+        data,
+    )
+        .into_response())
 }
 
 /// Approve what an agent asked, optionally with your own text

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE inbox_messages SET sent_at = now() - make_interval(days => $1)\n             WHERE message_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e994ca443e2516990233e74f679b587d37a5094ff431d972fd0e675a4e2a6a5f"
+}

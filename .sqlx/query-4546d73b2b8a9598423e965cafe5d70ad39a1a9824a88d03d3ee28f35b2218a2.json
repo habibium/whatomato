@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT phone_number FROM whatsapp_accounts WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "phone_number",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "whatsapp_accounts",
+            "name": "phone_number"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "4546d73b2b8a9598423e965cafe5d70ad39a1a9824a88d03d3ee28f35b2218a2"
+}

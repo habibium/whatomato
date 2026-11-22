@@ -35,11 +35,13 @@ import {
   GroupsSection,
   TestMessageSection,
 } from '@/components/whatsapp-connected'
+import { MessageHistorySection } from '@/components/message-history-section'
 import { OfflineBanner } from '@/components/offline-banner'
 import { PageHeading } from '@/components/page-heading'
 import { PairingPanel } from '@/components/whatsapp-pairing'
 import { PhoneLinkDialog } from '@/components/whatsapp-phone-dialog'
 import type { PhoneLinkOutcome } from '@/components/whatsapp-phone-dialog'
+import { readingQuery } from '@/lib/agents'
 import { toFieldErrors } from '@/lib/form-errors'
 import { useSessionExpiry } from '@/lib/use-session-expiry'
 import {
@@ -131,7 +133,9 @@ function WhatsAppPage() {
   const queryClient = useQueryClient()
   const announce = useAnnounce()
   const query = useQuery(statusQuery)
-  const [dialog, setDialog] = useState<'qr' | 'phone' | 'unlink' | null>(null)
+  const [dialog, setDialog] = useState<
+    'qr' | 'phone' | 'unlink' | 'relink' | null
+  >(null)
   const [notice, setNotice] = useState<Notice | null>(null)
   const [isEndDismissed, setIsEndDismissed] = useState(false)
   const [failed, setFailed] = useState<Command | null>(null)
@@ -238,7 +242,25 @@ function WhatsAppPage() {
     return toConfirmOutcome(result)
   }
 
+  /** Unlinks, then links by QR code with the same password, so the phone sends its history. */
+  const relink = async (password: string): Promise<ConfirmOutcome> => {
+    const unlinked = await api.POST('/api/whatsapp/unlink', {
+      body: { password },
+    })
+    if (!unlinked.data && unlinked.response.status !== 409) {
+      return toConfirmOutcome(unlinked)
+    }
+    if (unlinked.data && !unlinked.data.removed_from_phone) {
+      setNotice('still-on-phone')
+    }
+    return linkByQr(password)
+  }
+
   const isConnected = status?.status === 'connected'
+  const isLinked =
+    status !== undefined &&
+    status.status !== 'not_linked' &&
+    status.status !== 'pairing'
 
   return (
     <AppFrame>
@@ -334,6 +356,12 @@ function WhatsAppPage() {
                   <TestMessageSection onStale={refresh} />
                 </VStack>
               ) : null}
+              {status.status === 'pairing' ? null : (
+                <MessageHistoryPanel
+                  isLinked={isLinked}
+                  onRelink={() => setDialog('relink')}
+                />
+              )}
             </VStack>
 
             <VStack as="aside" gap={6}>
@@ -372,6 +400,14 @@ function WhatsAppPage() {
         isOpen={dialog === 'phone'}
         onOpenChange={(isOpen) => setDialog(isOpen ? 'phone' : null)}
         onConfirm={linkByPhone}
+      />
+      <ConfirmPasswordDialog
+        isOpen={dialog === 'relink'}
+        onOpenChange={(isOpen) => setDialog(isOpen ? 'relink' : null)}
+        title="Link WhatsApp again?"
+        description="Whatomato unlinks, then shows a new QR code. Once your phone scans it, it sends its older messages. Scheduled messages wait until it's linked again."
+        confirmLabel="Unlink and continue"
+        onConfirm={relink}
       />
       <ConfirmPasswordDialog
         isOpen={dialog === 'unlink'}
@@ -592,7 +628,7 @@ const FACTS = [
   },
   {
     term: 'Your chats',
-    body: 'Whatomato never downloads your chat history or stores the messages you receive.',
+    body: 'Unless you choose to keep message history, Whatomato doesn’t download your chat history. It keeps messages only in chats you let an agent read, and only for 7 days.',
   },
   {
     term: 'Stopping',
@@ -652,6 +688,20 @@ function LinkDetails({ status, title, headingRef }: LinkDetailsProps) {
         />
         <Text weight="medium">{title}</Text>
       </HStack>
+    </VStack>
+  )
+}
+
+/** Its own panel, rendered only when the server lets agents read. */
+function MessageHistoryPanel(props: {
+  isLinked: boolean
+  onRelink: () => void
+}) {
+  const reading = useQuery(readingQuery)
+  if (!reading.data?.available) return null
+  return (
+    <VStack xstyle={styles.panel}>
+      <MessageHistorySection {...props} />
     </VStack>
   )
 }

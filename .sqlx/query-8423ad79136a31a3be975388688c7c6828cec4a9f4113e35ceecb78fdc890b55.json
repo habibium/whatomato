@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT m.account_id, m.chat_type, m.chat_id, m.message_id, m.from_me, m.sent_at, m.body\n         FROM inbox_messages m\n         JOIN whatsapp_accounts a ON a.id = m.account_id\n         WHERE a.user_id = $1 AND m.chat_type = $2 AND m.chat_id = $3 AND m.message_id = $4\n           AND (m.expires_at IS NULL OR m.expires_at > now())",
+  "query": "SELECT m.account_id, m.chat_type, m.chat_id, m.message_id, m.from_me, m.sent_at, m.body\n         FROM inbox_messages m\n         JOIN whatsapp_accounts a ON a.id = m.account_id\n         WHERE a.user_id = $1\n           AND ($2::text IS NULL OR (m.chat_type = $2 AND m.chat_id = $3))\n           AND ($4::timestamptz IS NULL OR m.sent_at >= $4)\n           AND ($5::timestamptz IS NULL OR (m.sent_at, m.message_id) < ($5, $6))\n           AND (m.expires_at IS NULL OR m.expires_at > now())\n         ORDER BY m.sent_at DESC, m.message_id DESC\n         LIMIT $7",
   "describe": {
     "columns": [
       {
@@ -86,7 +86,10 @@
         "Uuid",
         "Text",
         "Text",
-        "Text"
+        "Timestamptz",
+        "Timestamptz",
+        "Text",
+        "Int8"
       ]
     },
     "nullable": [
@@ -99,5 +102,5 @@
       false
     ]
   },
-  "hash": "cfc6e2ed28372251a25d742022f4c3708b01237d8fcfeb69ed7672d081770157"
+  "hash": "8423ad79136a31a3be975388688c7c6828cec4a9f4113e35ceecb78fdc890b55"
 }

@@ -562,6 +562,62 @@
         }
       }
     },
+    "/api/agents/files/{id}": {
+      "get": {
+        "summary": "A picture or file an agent asked to send, while it waits to go out",
+        "description": "A picture comes as itself; anything else as a download, so nothing it holds runs as a page.",
+        "operationId": "get_agent_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The file",
+            "content": {
+              "application/octet-stream": {}
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Agent access is off, there's no such file, or it already went out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/agents/pause-all": {
       "post": {
         "summary": "Pause every connection of the account at once",
@@ -688,6 +744,16 @@
           },
           "404": {
             "description": "Agent access is off on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
             "content": {
               "application/json": {
                 "schema": {
@@ -4048,6 +4114,111 @@
         }
       }
     },
+    "/api/whatsapp/history": {
+      "get": {
+        "summary": "What the owner keeps of their chats, and how the phone's history is coming in",
+        "operationId": "get_history",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageHistory"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Choose what to keep of the chats",
+        "description": "Keeping every chat also keeps the history the phone sends when WhatsApp links, so turning it on\nwhile linked brings in older messages only after linking again. Turning it off, or shortening\nit, deletes what falls outside within a few minutes.",
+        "operationId": "save_history",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageHistory"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Reading chats is turned off on this server",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/whatsapp/link": {
       "post": {
         "summary": "Start linking WhatsApp",
@@ -4932,17 +5103,16 @@
         "description": "What this server allows of reading chats",
         "required": [
           "available",
-          "kept_days"
+          "history"
         ],
         "properties": {
           "available": {
             "type": "boolean",
             "description": "Whether a connection may be allowed to read chats; set by `AGENT_READING`"
           },
-          "kept_days": {
-            "type": "integer",
-            "format": "int32",
-            "description": "How many days a readable chat's messages are kept"
+          "history": {
+            "$ref": "#/components/schemas/History",
+            "description": "What the owner keeps: `off` keeps a readable chat's last 7 days, otherwise every chat is kept\nfor that many `days` or `all` of it. A connection reads no further back than this."
           }
         }
       },
@@ -5078,6 +5248,21 @@
             "$ref": "#/components/schemas/AuthorizationRequest"
           }
         }
+      },
+      "Attachments": {
+        "type": "object",
+        "description": "What a connection may do with pictures and files, apart from text",
+        "properties": {
+          "open": {
+            "type": "boolean",
+            "description": "Open the pictures and files of the chats it may read"
+          },
+          "send": {
+            "type": "boolean",
+            "description": "Send pictures and files where it may send"
+          }
+        },
+        "additionalProperties": false
       },
       "AuthenticatorCode": {
         "type": "object",
@@ -5219,6 +5404,10 @@
           "default": {
             "$ref": "#/components/schemas/Rule",
             "description": "Every chat's rule under scope `all`; under `selected`, only what a newly added chat starts with"
+          },
+          "reach": {
+            "$ref": "#/components/schemas/Reach",
+            "description": "How old a message in a chat it may read can be. Left out of the stored grant at its\ndefault of 7 days, so grants that don't change it stay readable by older servers."
           },
           "rules": {
             "type": "array",
@@ -5378,6 +5567,24 @@
           "all"
         ]
       },
+      "DeliveryAttachment": {
+        "type": "object",
+        "required": [
+          "kind",
+          "file_name"
+        ],
+        "properties": {
+          "file_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FileKind"
+          }
+        }
+      },
       "DeliveryPage": {
         "type": "object",
         "required": [
@@ -5421,9 +5628,21 @@
           "status",
           "error",
           "created_at",
-          "sent_at"
+          "sent_at",
+          "attachment"
         ],
         "properties": {
+          "attachment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DeliveryAttachment",
+                "description": "The picture or file it carried, its body being the caption"
+              }
+            ]
+          },
           "body": {
             "type": "string"
           },
@@ -5562,6 +5781,50 @@
           }
         }
       },
+      "FileKind": {
+        "type": "string",
+        "description": "What a file an agent sends goes out as",
+        "enum": [
+          "image",
+          "video",
+          "audio",
+          "document"
+        ]
+      },
+      "FileNote": {
+        "type": "object",
+        "description": "What a send's picture or file is, for the owner's pages and the approval it waits in",
+        "required": [
+          "id",
+          "kind",
+          "mime_type",
+          "file_name",
+          "size"
+        ],
+        "properties": {
+          "file_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/FileKind"
+          },
+          "mime_type": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "Grant": {
         "type": "object",
         "required": [
@@ -5573,6 +5836,10 @@
           "chats"
         ],
         "properties": {
+          "attachments": {
+            "$ref": "#/components/schemas/Attachments",
+            "description": "Pictures and files. Left out of the stored grant while both are off."
+          },
           "chats": {
             "$ref": "#/components/schemas/Chats"
           },
@@ -5628,6 +5895,75 @@
           }
         }
       },
+      "History": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": [
+              "off"
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "days"
+            ],
+            "properties": {
+              "days": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "string",
+            "enum": [
+              "all"
+            ]
+          }
+        ],
+        "description": "What an owner keeps: `off` keeps only the chats some connection may read, for 7 days; the\nothers keep every chat, the phone's history included."
+      },
+      "HistoryImport": {
+        "type": "object",
+        "required": [
+          "progress",
+          "imported",
+          "waiting"
+        ],
+        "properties": {
+          "imported": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Messages brought in from the phone's history so far"
+          },
+          "progress": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "How much of its history the phone has sent, from 0 to 100. Empty until the first part\narrives, which only happens after linking while history is kept."
+          },
+          "waiting": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Parts of the history received and still being brought in"
+          }
+        }
+      },
+      "HistoryRequest": {
+        "type": "object",
+        "required": [
+          "keep"
+        ],
+        "properties": {
+          "keep": {
+            "$ref": "#/components/schemas/History"
+          }
+        }
+      },
       "LinkRequest": {
         "type": "object",
         "required": [
@@ -5643,6 +5979,36 @@
               "null"
             ],
             "description": "Link with a code typed on the phone that has this number, instead of a QR code. Digits with\nthe country code; a leading +, spaces and dashes are ignored."
+          }
+        }
+      },
+      "MessageHistory": {
+        "type": "object",
+        "description": "What the owner keeps of their chats for agents to read, and how the phone's history is coming in",
+        "required": [
+          "keep",
+          "available",
+          "import"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "Whether this server lets connections read chats; while it doesn't, nothing is kept"
+          },
+          "import": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/HistoryImport",
+                "description": "The import of the phone's history into the linked account; empty while nothing is linked"
+              }
+            ]
+          },
+          "keep": {
+            "$ref": "#/components/schemas/History",
+            "description": "`off` keeps only the chats a connection may read, for 7 days. Otherwise every chat is kept,\nthe phone's history included: for that many `days`, or `all` of it."
           }
         }
       },
@@ -6054,6 +6420,46 @@
           }
         }
       },
+      "Reach": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "days"
+            ],
+            "properties": {
+              "days": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Calendar months",
+            "required": [
+              "months"
+            ],
+            "properties": {
+              "months": {
+                "type": "integer",
+                "format": "int32",
+                "description": "Calendar months",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "string",
+            "description": "Everything Whatomato keeps",
+            "enum": [
+              "all"
+            ]
+          }
+        ],
+        "description": "How far back a connection may read"
+      },
       "RecipientType": {
         "type": "string",
         "enum": [
@@ -6145,9 +6551,21 @@
           "recipient_name",
           "body",
           "timezone",
-          "schedule"
+          "schedule",
+          "attachment"
         ],
         "properties": {
+          "attachment": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FileNote",
+                "description": "The picture or file a send carries, its text being the caption"
+              }
+            ]
+          },
           "body": {
             "type": "string",
             "description": "The whole text, as the agent wrote it; variables are filled in when it goes out"

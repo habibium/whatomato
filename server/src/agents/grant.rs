@@ -7,6 +7,7 @@
 
 use std::collections::HashSet;
 
+use chrono::{DateTime, Months, TimeDelta, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -19,6 +20,11 @@ pub const RULES_MAX: usize = 500;
 pub const NOTE_MAX: usize = 500;
 /// The same bound as a scheduled message's recipient name
 pub const CHAT_NAME_MAX: usize = 255;
+/// How far back a connection reads when its grant doesn't say: the inbox's window before it
+/// could keep more
+pub const REACH_DEFAULT_DAYS: u32 = 7;
+pub const REACH_DAYS_MAX: u32 = 3650;
+pub const REACH_MONTHS_MAX: u32 = 120;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -30,6 +36,33 @@ pub struct Grant {
     pub templates: Templates,
     pub deliveries: Deliveries,
     pub chats: Chats,
+    /// Pictures and files. Left out of the stored grant while both are off.
+    #[serde(default, skip_serializing_if = "Attachments::is_off")]
+    pub attachments: Attachments,
+}
+
+/// What a connection may do with pictures and files, apart from text
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct Attachments {
+    /// Open the pictures and files of the chats it may read
+    #[serde(default)]
+    pub open: bool,
+    /// Send pictures and files where it may send
+    #[serde(default)]
+    pub send: bool,
+}
+
+impl Attachments {
+    #[allow(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's skip_serializing_if passes a reference"
+    )]
+    const fn is_off(&self) -> bool {
+        !self.open && !self.send
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -74,6 +107,60 @@ pub struct Chats {
     pub rules: Vec<ChatRule>,
     /// People who aren't saved contacts and have no rule of their own
     pub strangers: Strangers,
+    /// How old a message in a chat it may read can be. Left out of the stored grant at its
+    /// default of 7 days, so grants that don't change it stay readable by older servers.
+    #[serde(default, skip_serializing_if = "Reach::is_default")]
+    pub reach: Reach,
+}
+
+/// How far back a connection may read
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Reach {
+    Days(u32),
+    /// Calendar months
+    Months(u32),
+    /// Everything Whatomato keeps
+    All,
+}
+
+impl Default for Reach {
+    fn default() -> Self {
+        Self::Days(REACH_DEFAULT_DAYS)
+    }
+}
+
+impl Reach {
+    #[allow(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's skip_serializing_if passes a reference"
+    )]
+    fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    /// The oldest a message within reach may be, counted back from `now`; `None` when nothing is
+    /// out of reach
+    #[must_use]
+    pub fn since(self, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+        match self {
+            Self::Days(days) => now.checked_sub_signed(TimeDelta::days(i64::from(days))),
+            Self::Months(months) => now.checked_sub_months(Months::new(months)),
+            Self::All => None,
+        }
+    }
+
+    fn problem(self) -> Option<String> {
+        match self {
+            Self::Days(days) if !(1..=REACH_DAYS_MAX).contains(&days) => Some(format!(
+                "How far back it may read must be between 1 and {REACH_DAYS_MAX} days."
+            )),
+            Self::Months(months) if !(1..=REACH_MONTHS_MAX).contains(&months) => Some(format!(
+                "How far back it may read must be between 1 and {REACH_MONTHS_MAX} months."
+            )),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -186,6 +273,9 @@ impl Grant {
                 grant.chats.rules.len()
             ));
         }
+        if let Some(problem) = grant.chats.reach.problem() {
+            problems.push(problem);
+        }
         check_rule(
             "The default rule",
             grant.chats.default.daily_limit,
@@ -256,6 +346,8 @@ impl Grant {
     /// The same grant, reading no chat
     #[must_use]
     pub fn without_reading(mut self) -> Self {
+        self.chats.reach = Reach::default();
+        self.attachments.open = false;
         self.chats.default.read = false;
         for rule in &mut self.chats.rules {
             rule.read = false;
@@ -366,6 +458,10 @@ impl Preset {
             schedules,
             templates: Templates::Read,
             deliveries,
+            attachments: Attachments {
+                open: false,
+                send: false,
+            },
             chats: Chats {
                 scope: Scope::All,
                 default: Rule {
@@ -376,15 +472,17 @@ impl Preset {
                 },
                 rules: Vec::new(),
                 strangers,
+                reach: Reach::Days(REACH_DEFAULT_DAYS),
             },
         }
     }
 
-    /// The preset `grant` equals, or `None` for a custom one. Reading is chosen on its own, so it
-    /// doesn't make a preset custom.
+    /// The preset `grant` equals, or `None` for a custom one. Reading and attachments are chosen
+    /// on their own, so they don't make a preset custom.
     #[must_use]
     pub fn of(grant: &Grant) -> Option<Self> {
-        let sending = grant.clone().without_reading();
+        let mut sending = grant.clone().without_reading();
+        sending.attachments = Attachments::default();
         Self::ALL
             .into_iter()
             .find(|preset| preset.grant() == sending)
@@ -415,6 +513,93 @@ mod tests {
         let mut grant = Preset::AskBeforeSending.grant();
         grant.chats.rules = rules;
         grant
+    }
+
+    #[test]
+    fn attachments_are_off_and_left_out_until_allowed() {
+        let grant = Preset::FullAccess.grant();
+        assert_eq!(grant.attachments, Attachments::default());
+        assert!(
+            serde_json::to_value(&grant)
+                .unwrap()
+                .get("attachments")
+                .is_none()
+        );
+
+        let mut allowed = grant;
+        allowed.attachments.send = true;
+        let stored = serde_json::to_value(&allowed).unwrap();
+        assert_eq!(
+            stored["attachments"],
+            json!({ "open": false, "send": true })
+        );
+        assert!(Grant::parse(&stored).unwrap().attachments.send);
+        // Chosen on their own, so the preset still shows
+        assert_eq!(Preset::of(&allowed), Some(Preset::FullAccess));
+
+        allowed.attachments.open = true;
+        let without = allowed.without_reading();
+        assert!(!without.attachments.open);
+        assert!(without.attachments.send);
+    }
+
+    #[test]
+    fn reach_defaults_to_a_week_and_is_left_out_while_it_does() {
+        let grant = Preset::ViewOnly.grant();
+        assert_eq!(grant.chats.reach, Reach::Days(7));
+        let stored = serde_json::to_value(&grant).unwrap();
+        assert!(stored["chats"].get("reach").is_none());
+
+        let mut longer = grant;
+        longer.chats.reach = Reach::Months(3);
+        let stored = serde_json::to_value(&longer).unwrap();
+        assert_eq!(stored["chats"]["reach"], json!({ "months": 3 }));
+        assert_eq!(Grant::parse(&stored).unwrap().chats.reach, Reach::Months(3));
+
+        longer.chats.reach = Reach::All;
+        let stored = serde_json::to_value(&longer).unwrap();
+        assert_eq!(stored["chats"]["reach"], json!("all"));
+    }
+
+    #[test]
+    fn reach_counts_back_from_now() {
+        let now = "2026-03-31T12:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        assert_eq!(
+            Reach::Days(7).since(now),
+            Some("2026-03-24T12:00:00Z".parse().unwrap())
+        );
+        // A month back from the 31st lands on the last day of a shorter month
+        assert_eq!(
+            Reach::Months(1).since(now),
+            Some("2026-02-28T12:00:00Z".parse().unwrap())
+        );
+        assert_eq!(Reach::All.since(now), None);
+    }
+
+    #[test]
+    fn refuses_a_reach_out_of_bounds() {
+        for reach in [
+            Reach::Days(0),
+            Reach::Days(REACH_DAYS_MAX + 1),
+            Reach::Months(0),
+            Reach::Months(REACH_MONTHS_MAX + 1),
+        ] {
+            let mut grant = Preset::ViewOnly.grant();
+            grant.chats.reach = reach;
+            assert_eq!(grant.check().unwrap_err().len(), 1, "{reach:?}");
+        }
+        let mut grant = Preset::ViewOnly.grant();
+        grant.chats.reach = Reach::Days(REACH_DAYS_MAX);
+        assert!(grant.check().is_ok());
+    }
+
+    #[test]
+    fn reach_doesnt_make_a_preset_custom() {
+        let mut grant = Preset::FullAccess.grant();
+        grant.chats.default.read = true;
+        grant.chats.reach = Reach::All;
+        assert_eq!(Preset::of(&grant), Some(Preset::FullAccess));
+        assert_eq!(grant.without_reading().chats.reach, Reach::default());
     }
 
     #[test]

@@ -5,23 +5,51 @@ use chacha20poly1305::{
     Key, XChaCha20Poly1305, XNonce,
     aead::{Aead, Generate, KeyInit, Payload},
 };
+use ring::hmac;
 use zeroize::Zeroizing;
 
 /// Leads every sealed value and names the key that sealed it, so a new key can take over while
 /// values sealed with the old one still open
 const VERSION: u8 = 1;
 const NONCE_LEN: usize = 24;
+/// Derives the tag key from the encryption key; changing it orphans every stored tag
+const TAG_KEY_LABEL: &[u8] = b"whatomato tags v1";
 
 /// Encrypts secrets the server has to read back, such as two-step verification keys, so a copy
 /// of the database alone does not give them away. A sealed value is `version || nonce ||
 /// ciphertext`.
 #[derive(Clone)]
-pub struct Cipher(Arc<XChaCha20Poly1305>);
+pub struct Cipher {
+    aead: Arc<XChaCha20Poly1305>,
+    tags: hmac::Key,
+}
 
 impl Cipher {
     #[must_use]
     pub fn new(key: &[u8; 32]) -> Self {
-        Self(Arc::new(XChaCha20Poly1305::new(&Key::from(*key))))
+        let derived = hmac::sign(&hmac::Key::new(hmac::HMAC_SHA256, key), TAG_KEY_LABEL);
+        Self {
+            aead: Arc::new(XChaCha20Poly1305::new(&Key::from(*key))),
+            tags: hmac::Key::new(hmac::HMAC_SHA256, derived.as_ref()),
+        }
+    }
+
+    /// A keyed hash of `data`: equal inputs give equal tags, so a stored tag can be matched
+    /// without storing `data`, but nobody without the key can compute or reverse one. `context`
+    /// keeps one row's or account's tags from matching another's.
+    #[must_use]
+    pub fn tag(&self, context: &[u8], data: &[u8]) -> [u8; 32] {
+        let mut signing = hmac::Context::with_key(&self.tags);
+        signing.update(
+            &u64::try_from(context.len())
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
+        signing.update(context);
+        signing.update(data);
+        let mut tag = [0; 32];
+        tag.copy_from_slice(signing.sign().as_ref());
+        tag
     }
 
     /// `context` is authenticated but not stored. Opening needs the same bytes, so a value copied
@@ -34,7 +62,7 @@ impl Cipher {
         let nonce = XNonce::try_generate()?;
         let aad = [&[VERSION], context].concat();
         let ciphertext = self
-            .0
+            .aead
             .encrypt(
                 &nonce,
                 Payload {
@@ -61,7 +89,7 @@ impl Cipher {
             .context("sealed value is truncated")?;
         let aad = [&[version], context].concat();
         let plaintext = self
-            .0
+            .aead
             .decrypt(
                 nonce.try_into()?,
                 Payload {
@@ -116,6 +144,19 @@ mod tests {
         assert!(cipher.decrypt(&sealed[..sealed.len() - 1], b"ada").is_err());
         assert!(cipher.decrypt(&sealed[..10], b"ada").is_err());
         assert!(cipher.decrypt(&[], b"ada").is_err());
+    }
+
+    #[test]
+    fn tags_depend_on_the_key_the_context_and_the_data() {
+        let cipher = Cipher::new(&KEY);
+        let tag = cipher.tag(b"ada", b"hello");
+
+        assert_eq!(tag, Cipher::new(&KEY).tag(b"ada", b"hello"));
+        assert_ne!(tag, cipher.tag(b"grace", b"hello"));
+        assert_ne!(tag, cipher.tag(b"ada", b"hellp"));
+        assert_ne!(tag, Cipher::new(&[8; 32]).tag(b"ada", b"hello"));
+        // The context's length is hashed too, so bytes can't move between context and data
+        assert_ne!(cipher.tag(b"ad", b"ahello"), tag);
     }
 
     #[test]

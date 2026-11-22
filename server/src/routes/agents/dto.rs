@@ -20,6 +20,7 @@ use crate::{
         RecipientType,
         draft::{add, finish},
     },
+    whatsapp::inbox::History,
 };
 
 pub(super) const NAME_MAX: usize = 60;
@@ -199,8 +200,9 @@ pub(super) struct AgentKeyIssued {
 pub(super) struct AgentReading {
     /// Whether a connection may be allowed to read chats; set by `AGENT_READING`
     pub available: bool,
-    /// How many days a readable chat's messages are kept
-    pub kept_days: i32,
+    /// What the owner keeps: `off` keeps a readable chat's last 7 days, otherwise every chat is kept
+    /// for that many `days` or `all` of it. A connection reads no further back than this.
+    pub history: History,
 }
 
 /// A starting point for a connection's permissions
