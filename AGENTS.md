@@ -1,8 +1,35 @@
 # AGENTS.md
 
 Guidance for AI coding agents working in this repository. The web app (Vite + React + TanStack)
-lives in `web/`; the Rust API server lives in `server/`. Everything below concerns `web/`, and every
-command listed here runs from that directory.
+lives in `web/`; the Rust API server lives in `server/`; the public documentation site (Astro +
+Starlight) lives in `site/`. Everything under "Project conventions" concerns `web/`, and every command
+listed there runs from that directory.
+
+## Documentation site
+
+`site/` is a static site that deploys by itself, apart from the app image. `site/README.md` covers
+its layout and deployment.
+
+- Pages are Markdown in `site/src/content/docs`, and the sidebar is listed by hand in
+  `site/astro.config.mjs`. A new page needs an entry there.
+- Use `.md`. Use `.mdx` only for a page that needs a component (`Steps`, `Tabs`, `Screenshot`), and
+  keep `{{variables}}` inside code there, since MDX reads a bare `{` as an expression.
+- A picture of the app is `<Screenshot name="..." alt="..." />`, which shows the light or dark file
+  of a pair in `site/src/assets/screenshots`. Take them only from the demo that
+  `site/screenshots/demo.sh` starts, never from a real account; `site/screenshots/README.md` has
+  the tools and the list of shots. A change to a screen means retaking its shots and keeping that
+  list in step.
+- Every page needs a `description`: it is shown under the title as the page's opening line. Quote it
+  if it holds a colon.
+- Internal links are absolute and end in a slash (`/guides/templates/`). `pnpm --dir site build`
+  fails on a broken link or anchor.
+- Write what the app does, checked against the code, with UI labels in bold exactly as the app
+  shows them. Habib speaks in first person ("I run a hosted instance").
+- Styling is plain CSS in `site/src/styles/theme.css`, which carries the app's Astryx neutral
+  values. No Tailwind, no eyebrows, hover styles inside `@media (hover: hover)`.
+- `site/src/content/docs/reference/changelog.md` is written from `CHANGELOG.md` at build time. Don't
+  edit or commit it.
+- Commands: `just docs` to preview, `just check-site` for what CI runs.
 
 ## Project conventions
 

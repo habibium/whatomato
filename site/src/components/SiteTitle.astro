@@ -1,0 +1,42 @@
+---
+import mark from '../assets/whatomato-mark.webp'
+import { HOME_PATH } from '../consts.mjs'
+
+const { siteTitle } = Astro.locals.starlightRoute
+---
+
+<a href={HOME_PATH} class="site-title">
+  <img src={mark.src} alt="" width={mark.width} height={mark.height} />
+  <span class="name" translate="no">{siteTitle}</span>
+  <span class="section">Docs</span>
+</a>
+
+<style>
+  .site-title {
+    align-items: center;
+    color: var(--wa-ink);
+    display: flex;
+    gap: 0.5rem;
+    min-width: 0;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  img {
+    flex-shrink: 0;
+    height: 1.5rem;
+    width: 1.5rem;
+  }
+  .name {
+    font-weight: 600;
+    letter-spacing: -0.012em;
+  }
+  .section {
+    color: var(--wa-ink-muted);
+    font-weight: 500;
+  }
+  @media (hover: hover) {
+    .site-title:hover .name {
+      opacity: 0.6;
+    }
+  }
+</style>

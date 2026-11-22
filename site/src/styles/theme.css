@@ -1,0 +1,287 @@
+/*
+ * The app's look, carried over: Astryx's neutral theme values, Figtree, hairlines, and the framed
+ * sheet from web/src/components/app-frame.tsx (navigation on the wash, the work on one sheet).
+ * Unlayered on purpose: Starlight's own styles sit in cascade layers, so everything here wins.
+ */
+
+:root {
+  --wa-wash: #1b1b1b;
+  --wa-sheet: #262626;
+  --wa-ink: #ffffff;
+  --wa-ink-soft: #d4d4d4;
+  --wa-ink-muted: #9e9e9e;
+  --wa-line: #ffffff1a;
+  --wa-line-strong: #525252;
+  --wa-tint: #ffffff1a;
+  --wa-tint-hover: #ffffff0d;
+  --wa-code: #1b1b1b;
+  /* What a screenshot rests on: darker than the wash, so a shot of either surface stands off it */
+  --wa-mat: #121212;
+  --wa-shot-shadow: 0 0 0 1px #ffffff14, 0 12px 32px -8px #000000b3;
+  --wa-warning: #f8d36a;
+  --wa-warning-muted: #e2b6233d;
+  --wa-error: #ffc4be;
+  --wa-error-muted: #ff98903d;
+
+  --wa-radius-container: 0.75rem;
+  --wa-radius-element: 0.625rem;
+  --wa-radius-inner: 0.375rem;
+  --wa-sheet-gap: 0.5rem;
+
+  --sl-font: 'Figtree';
+
+  --sl-color-white: var(--wa-ink);
+  --sl-color-gray-1: #f1f1f1;
+  --sl-color-gray-2: var(--wa-ink-soft);
+  --sl-color-gray-3: var(--wa-ink-muted);
+  --sl-color-gray-4: #6a6a6a;
+  --sl-color-gray-5: #404040;
+  --sl-color-gray-6: var(--wa-sheet);
+  --sl-color-black: var(--wa-wash);
+
+  --sl-color-accent-low: #303030;
+  --sl-color-accent: #f1f1f1;
+  --sl-color-accent-high: #ffffff;
+  --sl-color-text-accent: var(--wa-ink);
+  --sl-color-text-invert: #111111;
+
+  --sl-color-bg: var(--wa-wash);
+  --sl-color-bg-nav: var(--wa-wash);
+  --sl-color-bg-sidebar: var(--wa-wash);
+  --sl-color-bg-inline-code: var(--wa-tint);
+  --sl-color-hairline: var(--wa-line);
+  --sl-color-hairline-light: var(--wa-line);
+  /* The header and sidebar sit on the wash with no rule of their own */
+  --sl-color-hairline-shade: transparent;
+
+  --sl-content-width: 42rem;
+  --sl-sidebar-width: 17.5rem;
+  --sl-line-height: 1.65;
+  --sl-text-h1: var(--sl-text-4xl);
+  --sl-text-h2: var(--sl-text-2xl);
+  --sl-text-h3: var(--sl-text-xl);
+  --sl-text-h4: var(--sl-text-lg);
+}
+
+:root[data-theme='light'] {
+  --wa-wash: #f1f1f1;
+  --wa-sheet: #ffffff;
+  --wa-ink: #000000;
+  --wa-ink-soft: #2b2b2b;
+  --wa-ink-muted: #5c5c5c;
+  --wa-line: #00000014;
+  --wa-line-strong: #d4d4d4;
+  --wa-tint: #0000000f;
+  --wa-tint-hover: #0000000d;
+  --wa-code: #f7f7f7;
+  --wa-mat: #e6e6e6;
+  --wa-shot-shadow: 0 0 0 1px #00000014, 0 12px 32px -12px #00000040;
+  --wa-warning: #4b3900;
+  --wa-warning-muted: #fdf0c8;
+  --wa-error: #76000c;
+  --wa-error-muted: #ffe3df;
+
+  --sl-color-white: var(--wa-ink);
+  --sl-color-gray-1: #1b1b1b;
+  --sl-color-gray-2: var(--wa-ink-soft);
+  --sl-color-gray-3: var(--wa-ink-muted);
+  --sl-color-gray-4: #919191;
+  --sl-color-gray-5: var(--wa-line-strong);
+  --sl-color-gray-6: #f1f1f1;
+  --sl-color-gray-7: #f7f7f7;
+  --sl-color-black: var(--wa-sheet);
+
+  --sl-color-accent-low: #e2e2e2;
+  --sl-color-accent: #1b1b1b;
+  --sl-color-accent-high: #000000;
+  --sl-color-text-accent: var(--wa-ink);
+  --sl-color-text-invert: #ffffff;
+
+  --sl-color-bg: var(--wa-wash);
+  --sl-color-bg-nav: var(--wa-wash);
+  --sl-color-bg-sidebar: var(--wa-wash);
+  --sl-color-bg-inline-code: var(--wa-tint);
+  --sl-color-hairline-light: var(--wa-line);
+  --sl-color-hairline-shade: transparent;
+}
+
+@media (min-width: 50em) {
+  :root {
+    --sl-text-h1: var(--sl-text-5xl);
+    --sl-text-h2: var(--sl-text-3xl);
+    --sl-text-h3: var(--sl-text-xl);
+    --sl-text-h4: var(--sl-text-lg);
+  }
+}
+
+/* The framed sheet: a doc page is one sheet on the wash; on a phone the sheet is the screen */
+[data-has-sidebar] .main-frame > div {
+  background-color: var(--wa-sheet);
+  min-height: calc(100dvh - var(--sl-nav-height) - var(--sl-mobile-toc-height));
+}
+
+@media (min-width: 50rem) {
+  [data-has-sidebar] .main-frame > div {
+    border: 1px solid var(--wa-line);
+    border-radius: var(--wa-radius-container);
+    margin-block-end: var(--wa-sheet-gap);
+    margin-inline-end: var(--wa-sheet-gap);
+    min-height: calc(100dvh - var(--sl-nav-height) - var(--wa-sheet-gap));
+  }
+}
+
+/* The sheet's own edge already separates the contents list from the text */
+.right-sidebar {
+  border-inline-start: 0;
+}
+
+@media (min-width: 72rem) {
+  .right-sidebar-panel {
+    padding-block-start: 2.5rem;
+  }
+}
+
+.right-sidebar-panel h2 {
+  font-size: var(--sl-text-sm);
+}
+
+.content-panel:first-of-type {
+  padding-block-start: 2rem;
+}
+
+/* Headings */
+.sl-markdown-content :is(h2, h3, h4):not(:where(.not-content *)) {
+  letter-spacing: -0.012em;
+}
+
+.sl-markdown-content
+  :not(h1, h2, h3, h4, h5, h6)
+  + h2:not(:where(.not-content *)) {
+  margin-top: 2.25em;
+}
+
+/* Links: ink with a quiet rule that darkens under the pointer */
+.sl-markdown-content a:not(:where(.not-content *)) {
+  text-decoration-color: var(--wa-line-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.22em;
+}
+
+@media (hover: hover) {
+  .sl-markdown-content a:hover:not(:where(.not-content *)) {
+    text-decoration-color: currentColor;
+  }
+}
+
+.sl-markdown-content code:not(:where(.not-content *)) {
+  border-radius: var(--wa-radius-inner);
+}
+
+/* Tables: hairline rows, a firmer rule under the header */
+.sl-markdown-content :is(th, td):not(:where(.not-content *)) {
+  border-bottom-color: var(--wa-line);
+  padding-block: 0.625rem;
+}
+
+.sl-markdown-content th:not(:where(.not-content *)) {
+  border-bottom-color: var(--wa-line-strong);
+  font-size: var(--sl-text-sm);
+}
+
+.sl-markdown-content blockquote:not(:where(.not-content *)) {
+  border-inline-start-color: var(--wa-line-strong);
+  color: var(--wa-ink-muted);
+}
+
+/* Sidebar: the current page is a tint, as in the app's side nav, not a filled block */
+.sidebar-content [aria-current='page'],
+.sidebar-content [aria-current='page']:focus {
+  background-color: var(--wa-tint);
+  color: var(--wa-ink);
+  font-weight: 600;
+}
+
+.sidebar-content a {
+  border-radius: var(--wa-radius-inner);
+}
+
+@media (hover: hover) {
+  .sidebar-content a:not([aria-current='page']):hover {
+    background-color: var(--wa-tint-hover);
+  }
+
+  .sidebar-content [aria-current='page']:hover {
+    background-color: var(--wa-tint);
+    color: var(--wa-ink);
+  }
+}
+
+.sidebar-content ul ul li {
+  border-inline-start: 0;
+  margin-inline-start: 0;
+  padding-inline-start: 0;
+}
+
+.sidebar-content summary {
+  margin-block-end: 0.25rem;
+}
+
+@media (min-width: 50rem) {
+  .sidebar-content .top-level > li + li {
+    margin-top: 1.25rem;
+  }
+
+  .sidebar-content .large {
+    font-size: var(--sl-text-sm);
+  }
+}
+
+/* Search sits on the wash, so it takes the sheet's colour */
+@media (min-width: 50rem) {
+  button[data-open-modal] {
+    background-color: var(--wa-sheet);
+    border-color: var(--wa-line);
+    border-radius: var(--wa-radius-element);
+  }
+}
+
+/* Notices: a tinted panel with a hairline, no heavy side bar */
+.starlight-aside {
+  border: 1px solid var(--sl-color-asides-border);
+  border-radius: var(--wa-radius-element);
+  color: var(--wa-ink-soft);
+  padding: 1rem 1.125rem;
+}
+
+.starlight-aside--note,
+.starlight-aside--tip {
+  --sl-color-asides-border: var(--wa-line);
+  --sl-color-asides-text-accent: var(--wa-ink);
+  background-color: var(--wa-tint-hover);
+}
+
+.starlight-aside--caution {
+  --sl-color-asides-border: transparent;
+  --sl-color-asides-text-accent: var(--wa-warning);
+  background-color: var(--wa-warning-muted);
+}
+
+.starlight-aside--danger {
+  --sl-color-asides-border: transparent;
+  --sl-color-asides-text-accent: var(--wa-error);
+  background-color: var(--wa-error-muted);
+}
+
+.starlight-aside--caution,
+.starlight-aside--danger {
+  color: var(--sl-color-asides-text-accent);
+}
+
+.starlight-aside__title {
+  font-size: var(--sl-text-base);
+}
+
+/* The phone menu's foot: the buttons and the theme picker on one line */
+.mobile-preferences {
+  align-items: center;
+}

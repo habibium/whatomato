@@ -1,0 +1,71 @@
+---
+import { Icon } from '@astrojs/starlight/components'
+
+const { dir, pagination } = Astro.locals.starlightRoute
+const { prev, next } = pagination
+const isRtl = dir === 'rtl'
+---
+
+<div class="pagination-links print:hidden" dir={dir}>
+  {
+    prev && (
+      <a href={prev.href} rel="prev">
+        <Icon name={isRtl ? 'right-arrow' : 'left-arrow'} size="1.125rem" />
+        <span>
+          <span class="sr-only">{Astro.locals.t('page.previousLink')}: </span>
+          {prev.label}
+        </span>
+      </a>
+    )
+  }
+  {
+    next && (
+      <a href={next.href} rel="next">
+        <Icon name={isRtl ? 'left-arrow' : 'right-arrow'} size="1.125rem" />
+        <span>
+          <span class="sr-only">{Astro.locals.t('page.nextLink')}: </span>
+          {next.label}
+        </span>
+      </a>
+    )
+  }
+</div>
+
+<style>
+  .pagination-links {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr));
+  }
+  a {
+    align-items: center;
+    border: 1px solid var(--wa-line);
+    border-radius: var(--wa-radius-element);
+    color: var(--wa-ink);
+    display: flex;
+    font-weight: 500;
+    gap: 0.625rem;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+    padding: 0.875rem 1rem;
+    text-decoration: none;
+  }
+  [rel='next'] {
+    flex-direction: row-reverse;
+    text-align: end;
+  }
+  /* Alone on the first page, the next link keeps to the trailing half */
+  [rel='next']:only-child {
+    grid-column: -2;
+  }
+  svg {
+    color: var(--wa-ink-muted);
+    flex-shrink: 0;
+  }
+  @media (hover: hover) {
+    a:hover {
+      background-color: var(--wa-tint-hover);
+      border-color: var(--wa-line-strong);
+    }
+  }
+</style>

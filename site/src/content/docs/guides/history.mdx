@@ -1,0 +1,48 @@
+---
+title: History
+description: Every message Whatomato sent or tried to send, with its outcome and, when it failed, the reason.
+---
+
+import Screenshot from '../../../components/Screenshot.astro'
+
+**History** lists every send, newest first, grouped by day. That includes scheduled messages, messages sent with **Send now**, and anything an [agent](/agents/overview/) sent.
+
+Each row shows the time, who it went to, the text **as it went out** with its variables filled in, and a status. A send an agent caused is marked with the agent's name.
+
+<Screenshot name="history-list" alt="The History page: sends grouped by day, most marked Sent, one marked Failed with its reason, and two marked with the agent that caused them" />
+
+## Statuses
+
+| Status | Meaning |
+| --- | --- |
+| **Sending** | Queued and waiting its turn, or going out now. Each account sends one message every 3 seconds at most. |
+| **Waiting to retry** | A try failed in a way that's worth repeating. The reason is shown, and the next try follows by itself. |
+| **Sent** | WhatsApp accepted the message. |
+| **Failed** | It didn't go out, or Whatomato can't tell. The reason is shown. |
+
+:::note
+**Sent** means WhatsApp acknowledged the message. It doesn't prove the message reached the phone, or that anyone read it.
+:::
+
+## Why a send fails
+
+| Reason shown | What happened |
+| --- | --- |
+| WhatsApp wasn't connected | The connection was down. Whatomato retries for about half an hour. |
+| WhatsApp couldn't take this message | WhatsApp refused it for now. Retried the same way. |
+| WhatsApp isn't linked | No WhatsApp account is linked. [Link one](/guides/link-whatsapp/). |
+| WhatsApp is paused | You paused the connection. Reconnect it on the WhatsApp page. |
+| WhatsApp has stopped; reconnect it on the WhatsApp page | A takeover, a ban or a refusal stopped the connection. |
+| This number isn't on WhatsApp | The number has no WhatsApp account. |
+| WhatsApp rejected this message | WhatsApp returned an error, shown with its code. |
+| WhatsApp didn't confirm this message, so it may or may not have gone out | No acknowledgement came within 20 seconds. Check the chat on your phone before sending again. |
+| The server restarted during this send, so it may or may not have gone out | The same uncertainty, caused by a restart. |
+| Not sent: … | A scheduled message that belongs to an agent wasn't allowed to run. The text says why, for instance that the connection is paused or over a limit. |
+
+Only the first two are retried. The rest need you, and the two "may or may not have gone out" reasons are never retried because a retry could deliver a second copy.
+
+## Finding things
+
+History shows 25 sends a page and has no search. To see what went to one person, open them under **Contacts**: their page lists what was sent recently.
+
+History isn't cleared. Deleting a scheduled message keeps the record of what it already sent.

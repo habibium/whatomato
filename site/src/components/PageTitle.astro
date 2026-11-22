@@ -1,0 +1,26 @@
+---
+const { title, description } = Astro.locals.starlightRoute.entry.data
+---
+
+<h1 id="_top">{title}</h1>
+{description && <p class="lede">{description}</p>}
+
+<style>
+  h1 {
+    color: var(--wa-ink);
+    font-size: var(--sl-text-h1);
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    line-height: 1.1;
+    margin-top: 0.5rem;
+    text-wrap: balance;
+  }
+  .lede {
+    color: var(--wa-ink-muted);
+    font-size: var(--sl-text-lg);
+    line-height: 1.5;
+    margin-top: 0.875rem;
+    max-width: 38rem;
+    text-wrap: pretty;
+  }
+</style>

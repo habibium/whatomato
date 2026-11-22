@@ -1,0 +1,34 @@
+---
+title: Notifications
+description: Have your browser tell you when an agent needs your approval, even while Whatomato isn't open.
+---
+
+import Screenshot from '../../../components/Screenshot.astro'
+
+Notifications are about one thing: an [agent](/agents/overview/) asking for your approval. A notification names the agent and the chat, never the message, and a click on it opens the request. News about your WhatsApp link, such as an unlink or a ban, comes by email instead.
+
+## Turn them on
+
+Open **Settings**, find **Notifications** and choose **Turn on in this browser**. Your browser asks for permission. Once it's on, **Send a test** shows what a notification looks like.
+
+<Screenshot name="settings-notifications" alt="The Notifications section of Settings, marked Off, with a Turn on in this browser button" />
+
+Notifications are per browser. Turn them on in each browser you want to hear from; Settings lists them all, and you can turn any of them off from there. Signing out turns them off for that browser.
+
+## On an iPhone or iPad
+
+Notifications use the browser's own push service, and on iOS a website can only use it once it's on the Home Screen. In Safari, use **Share**, then **Add to Home Screen**, open Whatomato from there, and turn notifications on.
+
+## Limits
+
+- An account keeps its 10 most recent browsers. Turning notifications on in an eleventh drops the oldest.
+- A browser notifies for one account: the one that turned notifications on in it last.
+- A notification waits up to 24 hours for a browser that's offline.
+
+## When it won't turn on
+
+- **Notifications are blocked for this site**: allow them in your browser's settings for the site, then try again.
+- **This browser can't show notifications from a website**: the browser doesn't support web push. On an iPhone or iPad, see above.
+- **This browser's notification service isn't one Whatomato knows**: Whatomato sends only to the push services that Chrome, Firefox, Safari and Edge use.
+
+Each notification is encrypted for the browser it goes to, so the push service that carries it can't read it.

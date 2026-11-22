@@ -1,0 +1,248 @@
+---
+title: Connect an agent
+description: Connect Claude, ChatGPT, Claude Code, Codex, OpenCode, Antigravity, Cursor or any other MCP client, by signing in or with an access key.
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components'
+import Screenshot from '../../../components/Screenshot.astro'
+
+Agents reach Whatomato at your site's address followed by `/mcp`. On the hosted instance that is:
+
+```text
+https://whatomato.habibium.com/mcp
+```
+
+The examples below use it. On your own instance, put your own address in its place.
+
+## Which way to connect
+
+| App | Connect by |
+| --- | --- |
+| Claude, on the web or in the desktop app | Signing in |
+| ChatGPT | Signing in |
+| Claude Code | Signing in, or an access key |
+| Codex | Signing in, or an access key |
+| OpenCode, Antigravity, Cursor | An access key |
+| Anything else that speaks MCP | An access key |
+
+Signing in is the shorter path and leaves no key to look after. An access key works everywhere.
+
+## Connect by signing in
+
+You give the app the address, and it sends you to Whatomato in your browser.
+
+<Screenshot name="agents-connect-app" alt="The Connect an app that signs in section of the Agents page, with a tab for each app, the steps for Claude and the address to give it" />
+
+<Tabs syncKey="sign-in">
+<TabItem label="Claude">
+
+<Steps>
+
+1. In Claude, on the web or in the desktop app, open **Customize**, then **Connectors**, and choose to add a custom connector.
+2. Name it Whatomato and give it the address above.
+3. Choose to sign in. Whatomato opens in your browser.
+
+</Steps>
+
+</TabItem>
+<TabItem label="ChatGPT">
+
+<Steps>
+
+1. In ChatGPT on the web, with developer mode on, open **Plugins**, choose **+**, then **Add custom MCP server**.
+2. Name it Whatomato and give it the address above.
+3. Choose OAuth as the way to sign in, then create it. Whatomato opens in your browser.
+
+</Steps>
+
+</TabItem>
+<TabItem label="Claude Code">
+
+<Steps>
+
+1. Run this in a terminal:
+
+   ```sh
+   claude mcp add --scope user --transport http whatomato https://whatomato.habibium.com/mcp
+   ```
+
+2. Start Claude Code, type `/mcp`, pick `whatomato` and sign in. Whatomato opens in your browser.
+
+</Steps>
+
+</TabItem>
+<TabItem label="Codex">
+
+<Steps>
+
+1. Run these in a terminal:
+
+   ```sh
+   codex mcp add whatomato --url https://whatomato.habibium.com/mcp
+   codex mcp login whatomato
+   ```
+
+2. Whatomato opens in your browser.
+
+</Steps>
+
+</TabItem>
+</Tabs>
+
+### What you see in Whatomato
+
+The page is titled **Connect** followed by the app's name. Before you allow anything, check **Who is asking**:
+
+- **Calls itself** is the name the app gives. Anyone can claim a name.
+- **Published at** is the address the app publishes its details at, such as `claude.ai`. This is the part Whatomato can check.
+- **Sends you back to** is where your browser goes afterwards.
+
+An app that runs on your own computer carries a warning, because any program there can claim to be it. Go on only if you started the sign-in yourself, just now.
+
+Then give the connection a name, choose its [permissions](/agents/permissions/), choose **Allow** and enter your password. The connection starts as "Ask before sending". **Don't allow** sends you back to the app with nothing connected.
+
+If the app has connected before, you can choose **Sign in again** to keep that connection's permissions and activity, or make a new connection.
+
+### How long a sign-in lasts
+
+An app that signs in holds tokens in place of a key: an access token that lasts an hour, and a refresh token that is replaced each time it's used and runs out after 90 days without use. An app left unused for 90 days has to sign in again; choosing **Sign in again** keeps its permissions.
+
+If a spent refresh token or a used sign-in code shows up again, Whatomato signs the connection out, since that is what a stolen token looks like. The app has to sign in again, and its permissions stay.
+
+### Apps that can't sign in
+
+Whatomato knows an app by the address it publishes its details at. An app that only registers itself on request, the older method Cursor uses, can't sign in, and Whatomato says so. Connect it with a key.
+
+## Connect with an access key
+
+<Steps>
+
+1. Open **Agents** and choose **New connection**.
+2. Give it a name that says what the agent is, such as "Claude Code on my laptop".
+3. Choose its [permissions](/agents/permissions/). It starts as "Ask before sending".
+
+   <Screenshot name="agent-new-presets" alt="The What it may do choices for a new connection: Ask before sending, View only, Send without asking, Full access and Custom" />
+4. Under **Expiry**, leave the key to work until you revoke it, or have it stop after a number of days, from 1 to 365.
+5. Choose **Create connection** and enter your password.
+6. Copy the access key. **It's shown once**: Whatomato keeps only its last four characters.
+
+   <Screenshot name="agent-key" alt="The page shown once a connection is made: the access key with a copy button, and under it the setup steps for each agent with the key filled in" />
+
+   The key in the picture belongs to a demo account and opens nothing.
+
+</Steps>
+
+Below the key, the page gives the setup steps for each agent, ready to paste with the key filled in. They are repeated here with `YOUR_ACCESS_KEY` in its place.
+
+:::caution
+Anyone with the key can do what you allowed. Keep it out of chats, screenshots and shared files.
+:::
+
+<Tabs syncKey="key">
+<TabItem label="Claude Code">
+
+Run this in a terminal, then start Claude Code and type `/mcp` to check that it connected.
+
+```sh
+claude mcp add --scope user --transport http whatomato https://whatomato.habibium.com/mcp \
+  --header "Authorization: Bearer YOUR_ACCESS_KEY"
+```
+
+</TabItem>
+<TabItem label="Codex">
+
+Add this to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.whatomato]
+url = "https://whatomato.habibium.com/mcp"
+bearer_token_env_var = "WHATOMATO_KEY"
+```
+
+Codex reads the key from your environment. Add this line to your shell's profile, such as `~/.zshrc` or `~/.bashrc`, then open a new terminal:
+
+```sh
+export WHATOMATO_KEY="YOUR_ACCESS_KEY"
+```
+
+</TabItem>
+<TabItem label="OpenCode">
+
+Add this to `opencode.json`, next to anything already under `mcp.servers`. Keep `"oauth": false`, so OpenCode sends the key instead of trying to sign in.
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "whatomato": {
+        "type": "remote",
+        "url": "https://whatomato.habibium.com/mcp",
+        "oauth": false,
+        "headers": {
+          "Authorization": "Bearer YOUR_ACCESS_KEY"
+        }
+      }
+    }
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Antigravity">
+
+Add this to `~/.gemini/config/mcp_config.json`, next to anything already under `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "whatomato": {
+      "serverUrl": "https://whatomato.habibium.com/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_ACCESS_KEY"
+      }
+    }
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Cursor">
+
+Add this to `~/.cursor/mcp.json`, next to anything already under `mcpServers`:
+
+```json
+{
+  "mcpServers": {
+    "whatomato": {
+      "url": "https://whatomato.habibium.com/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_ACCESS_KEY"
+      }
+    }
+  }
+}
+```
+
+</TabItem>
+<TabItem label="Something else">
+
+Add a remote MCP server at the address above. It speaks Streamable HTTP. Send this header with every request:
+
+```text
+Authorization: Bearer YOUR_ACCESS_KEY
+```
+
+</TabItem>
+</Tabs>
+
+## Check that it works
+
+Ask the agent what it's allowed to do. It calls `whoami`, which reports the connection's name, whether your WhatsApp can send right now, and its permissions. The call also shows under **Activity** on the Agents page.
+
+## A lost or leaked key
+
+Open the connection from the Agents page and choose **Replace the key**. The old key stops working at once, and you see the new one once. Every agent that used the old key is refused until you give it the new one.
+
+<Screenshot name="agent-replace-key" alt="The Replace the key section of a connection's page, with a Replace the key button" />
+
+To set the same connection up on another machine, its page repeats the setup steps. The key isn't shown again, so put yours where `YOUR_ACCESS_KEY` is, or replace the key.

@@ -1,0 +1,35 @@
+---
+import Default from '@astrojs/starlight/components/Footer.astro'
+
+import { SOURCE_URL } from '../consts.mjs'
+---
+
+<Default><slot /></Default>
+<p class="site-footer print:hidden">
+  <span>Whatomato v{__APP_VERSION__}</span>
+  <a href="/reference/changelog/">Changelog</a>
+  <a href={SOURCE_URL}>Source code</a>
+  <a href="/llms.txt">llms.txt</a>
+</p>
+
+<style>
+  .site-footer {
+    border-top: 1px solid var(--wa-line);
+    color: var(--wa-ink-muted);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: var(--sl-text-sm);
+    gap: 0.5rem 1.5rem;
+    margin-top: 3rem;
+    padding-top: 1.25rem;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  @media (hover: hover) {
+    a:hover {
+      color: var(--wa-ink);
+    }
+  }
+</style>

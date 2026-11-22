@@ -1,0 +1,60 @@
+---
+title: Quickstart
+description: Create an account, link your WhatsApp and schedule a first message. It takes about five minutes.
+---
+
+import { Steps } from '@astrojs/starlight/components'
+import Screenshot from '../../../components/Screenshot.astro'
+
+These steps use the hosted instance at [whatomato.habibium.com](https://whatomato.habibium.com). On your own instance they are the same at your own address; to set one up, see [Run it with Docker Compose](/self-hosting/quickstart/).
+
+:::caution
+WhatsApp doesn't officially allow apps like Whatomato and can ban a number that uses one. Link a number you can afford to lose, and read [WhatsApp's rules](/start/whatsapp-risk/) first.
+:::
+
+<Steps>
+
+1. **Create an account.**
+
+   Open the app and choose **Create account**. Enter an email address and a password of at least 8 characters. A password that appears in a known data breach is refused, so pick one you don't use elsewhere.
+
+   <Screenshot name="signup" alt="The Create your account page, with fields for an email address and a password" />
+
+2. **Verify your email.**
+
+   Whatomato emails you a link that works for 24 hours. Open it in the browser you signed up in and you're signed in straight away. Opened anywhere else, it verifies the address and then asks you to sign in.
+
+3. **Link your WhatsApp.**
+
+   A new account shows a **Get set up** panel. Choose **Link WhatsApp**, then **Link with QR code**, and enter your password. On your phone, open WhatsApp, go to **Linked devices**, tap **Link a device** and point the phone at the code.
+
+   <Screenshot name="first-run" alt="The Get set up panel on the Messages page of a new account, with a Link WhatsApp button" />
+
+   <Screenshot name="whatsapp-qr" alt="The WhatsApp page showing a QR code to scan, the four steps to follow on the phone, and when the code expires" />
+
+   On the phone that has WhatsApp, with no second screen to show the code? Choose **Link with phone number instead**. Both ways are described in [Link your WhatsApp](/guides/link-whatsapp/).
+
+4. **Check that it can send.**
+
+   Once the WhatsApp page says **WhatsApp is connected**, choose **Send a test message**. It arrives in your own "Message yourself" chat.
+
+   <Screenshot name="whatsapp-connected" alt="The WhatsApp page once linked: the number, WhatsApp is connected, a Send a test message button and the list of groups" />
+
+5. **Schedule a message.**
+
+   Go to **Messages** and choose **New message**. Pick who it goes to, write the text, and set when it goes out: **One time**, or **Recurring**. Then choose **Schedule message**.
+
+   <Screenshot name="message-form" alt="The New message form filled in for one contact, with a one-time date and time" />
+
+6. **See how it went.**
+
+   When the time comes, the send appears under **History**. **Sent** means WhatsApp accepted the message.
+
+</Steps>
+
+## Where to go next
+
+- [Schedule a message](/guides/schedule-a-message/) covers repeats, sunrise and sunset, and what happens when a send fails.
+- [Templates and variables](/guides/templates/) shows how to greet each person by name.
+- [Account and security](/guides/account-security/) explains two-step verification and passkeys. Whoever gets into your account can send from your number, so turn one of them on.
+- [Connect an agent](/agents/connect/) lets an AI agent send and schedule for you.

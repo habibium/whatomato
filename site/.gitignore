@@ -1,0 +1,4 @@
+.astro
+.wrangler
+# written from the repository's CHANGELOG.md by integrations/changelog.mjs
+src/content/docs/reference/changelog.md

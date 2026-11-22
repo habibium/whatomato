@@ -1,0 +1,77 @@
+---
+import type { ImageMetadata } from 'astro'
+import { getImage } from 'astro:assets'
+
+interface Props {
+  /** A pair of files in src/assets/screenshots, named without `.light.webp` or `.dark.webp` */
+  name: string
+  alt: string
+}
+
+// The content column's width less the mat's padding, which nothing can show wider than
+const MAX_WIDTH = 624
+
+const files = import.meta.glob<{ default: ImageMetadata }>('../assets/screenshots/*.webp', {
+  eager: true,
+})
+
+const { name, alt } = Astro.props
+
+const shots = await Promise.all(
+  (['light', 'dark'] as const).map(async (scheme) => {
+    const file = files[`../assets/screenshots/${name}.${scheme}.webp`]
+    if (!file) throw new Error(`src/assets/screenshots has no ${name}.${scheme}.webp`)
+    const image = file.default
+    // Shots are taken at twice their size, so half the pixels is their natural width
+    const width = Math.min(Math.round(image.width / 2), MAX_WIDTH)
+    const [small, sharp] = await Promise.all([
+      getImage({ src: image, width }),
+      getImage({ src: image, width: Math.min(width * 2, image.width) }),
+    ])
+    return { scheme, small, sharp }
+  }),
+)
+---
+
+<figure class="screenshot">
+  {
+    shots.map(({ scheme, small, sharp }) => (
+      // A phone shrinks a desktop page past reading, so a tap opens the picture by itself
+      <a href={sharp.src} class={scheme}>
+        <img
+          src={small.src}
+          srcset={`${small.src} 1x, ${sharp.src} 2x`}
+          width={small.attributes.width}
+          height={small.attributes.height}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+        />
+      </a>
+    ))
+  }
+</figure>
+
+<style>
+  /* A mat under each shot: on the page's own background a picture of the app passes for the app */
+  .screenshot {
+    background-color: var(--wa-mat);
+    border-radius: var(--wa-radius-container);
+    margin-inline: 0;
+    padding: clamp(0.75rem, 4vw, 1.5rem);
+  }
+  .screenshot a {
+    cursor: zoom-in;
+    display: block;
+    margin-inline: auto;
+    width: fit-content;
+  }
+  .screenshot img {
+    border-radius: var(--wa-radius-container);
+    box-shadow: var(--wa-shot-shadow);
+  }
+  :global([data-theme='light']) .screenshot .dark,
+  :global([data-theme='dark']) .screenshot .light {
+    display: none;
+  }
+</style>

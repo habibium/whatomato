@@ -1,0 +1,103 @@
+---
+import { Icon } from '@astrojs/starlight/components'
+
+import { APP_URL, SOURCE_URL } from '../consts.mjs'
+import { REPO, stars } from '../stars.mjs'
+
+const count = await stars
+---
+
+<a class="cta star" href={SOURCE_URL} data-repo={REPO}>
+  <Icon name="github" />
+  <span>Star<span class="sr-only"> on GitHub</span></span>
+  <span class="count" hidden={count === null}>
+    <span data-stars>
+      {count !== null && new Intl.NumberFormat('en', { notation: 'compact' }).format(count)}
+    </span>
+    <span class="sr-only"> stars</span>
+  </span>
+</a>
+<a class="cta app" href={APP_URL}>Open app</a>
+
+<script>
+  // The build's count goes stale between deploys, so the page asks GitHub too, at most hourly
+  const KEY = 'whatomato-docs:stars'
+  const HOUR = 60 * 60 * 1000
+  const repo = document.querySelector<HTMLElement>('[data-repo]')?.dataset.repo
+
+  function show(count: number) {
+    const text = new Intl.NumberFormat('en', { notation: 'compact' }).format(count)
+    for (const element of document.querySelectorAll<HTMLElement>('[data-stars]')) {
+      element.textContent = text
+      element.parentElement?.removeAttribute('hidden')
+    }
+  }
+
+  let cached: { count: number; at: number } | null = null
+  try {
+    cached = JSON.parse(localStorage.getItem(KEY) ?? 'null')
+  } catch {}
+
+  if (cached && typeof cached.count === 'number' && Date.now() - cached.at < HOUR) {
+    show(cached.count)
+  } else if (repo) {
+    fetch(`https://api.github.com/repos/${repo}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        if (typeof data?.stargazers_count !== 'number') return
+        show(data.stargazers_count)
+        try {
+          localStorage.setItem(KEY, JSON.stringify({ count: data.stargazers_count, at: Date.now() }))
+        } catch {}
+      })
+      .catch(() => {})
+  }
+</script>
+
+<style>
+  .cta {
+    align-items: center;
+    border: 1px solid transparent;
+    border-radius: var(--wa-radius-element);
+    display: inline-flex;
+    font-size: var(--sl-text-sm);
+    font-weight: 500;
+    gap: 0.5rem;
+    height: 2.25rem;
+    padding-inline: 0.75rem;
+    text-decoration: none;
+    white-space: nowrap;
+  }
+  .star {
+    background-color: var(--wa-sheet);
+    border-color: var(--wa-line-strong);
+    color: var(--wa-ink);
+  }
+  .star :global(svg) {
+    font-size: 1rem;
+  }
+  .count {
+    align-items: center;
+    align-self: stretch;
+    border-inline-start: 1px solid var(--wa-line-strong);
+    color: var(--wa-ink-muted);
+    display: flex;
+    font-variant-numeric: tabular-nums;
+    padding-inline-start: 0.5rem;
+  }
+  .count[hidden] {
+    display: none;
+  }
+  .app {
+    background-color: var(--sl-color-accent);
+    color: var(--sl-color-text-invert);
+  }
+  @media (hover: hover) {
+    .star:hover {
+      border-color: var(--wa-ink-muted);
+    }
+    .app:hover {
+      background-color: var(--sl-color-accent-high);
+    }
+  }
+</style>

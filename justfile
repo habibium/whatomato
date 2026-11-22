@@ -7,7 +7,7 @@ dev:
     mprocs
 
 # Everything CI would run
-check: check-rust check-web
+check: check-rust check-web check-site
 
 check-rust:
     # stable, like CI and the Docker build: nightly clippy accepts code that stable rejects
@@ -19,6 +19,15 @@ check-web:
     pnpm --dir web check
     pnpm --dir web lint
     pnpm --dir web gen:api --check
+
+# Type-checks the documentation site and builds it, which fails on a broken internal link
+check-site:
+    pnpm --dir site check
+    pnpm --dir site build
+
+# Serve the documentation site locally, reloading as pages change
+docs:
+    pnpm --dir site dev
 
 # Regenerate openapi.json and the TypeScript API types
 gen-api:

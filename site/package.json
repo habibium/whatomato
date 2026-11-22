@@ -1,0 +1,26 @@
+{
+  "name": "site",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev --host",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "deploy": "astro build && wrangler deploy"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.43.1",
+    "@fontsource/figtree": "^5.3.0",
+    "astro": "^7.4.12",
+    "sharp": "^0.35.5",
+    "starlight-links-validator": "^0.27.0",
+    "starlight-llms-txt": "^0.12.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.12",
+    "typescript": "^6.0.3",
+    "wrangler": "^4.163.0"
+  }
+}

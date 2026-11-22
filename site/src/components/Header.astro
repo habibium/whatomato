@@ -1,0 +1,50 @@
+---
+import Search from '@astrojs/starlight/components/Search.astro'
+import ThemeSelect from '@astrojs/starlight/components/ThemeSelect.astro'
+
+import SiteTitle from './SiteTitle.astro'
+import SocialIcons from './SocialIcons.astro'
+---
+
+<div class="header">
+  <div class="title-wrapper sl-flex"><SiteTitle /></div>
+  <div class="search sl-flex print:hidden"><Search /></div>
+  <div class="right-group sl-hidden md:sl-flex print:hidden">
+    <ThemeSelect />
+    <SocialIcons />
+  </div>
+</div>
+
+<style>
+  .header {
+    align-items: center;
+    display: flex;
+    gap: var(--sl-nav-gap);
+    height: 100%;
+    justify-content: space-between;
+  }
+  .title-wrapper {
+    margin: -0.25rem;
+    min-width: 0;
+    overflow: clip;
+    padding: 0.25rem;
+  }
+  .right-group {
+    align-items: center;
+    gap: 0.75rem;
+    justify-content: flex-end;
+  }
+  @media (min-width: 50rem) {
+    /* Equal side columns keep the search box in the middle of the page */
+    .header {
+      display: grid;
+      grid-template-columns: minmax(max-content, 1fr) minmax(0, 24rem) minmax(max-content, 1fr);
+    }
+    .search {
+      justify-content: center;
+    }
+    .search :global(button[data-open-modal]) {
+      max-width: none;
+    }
+  }
+</style>
