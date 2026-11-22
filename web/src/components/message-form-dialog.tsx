@@ -115,9 +115,9 @@ function toValues(
   }
 }
 
-/** Running switches a one-time message off rather than its owner, so a copy of a sent one starts on. */
-function copyValues(original: ScheduledMessage): Values {
-  const values = toValues(original, null, null)
+/** Running switches a one-time message off rather than its owner, so scheduling a sent one again,
+ * or a copy of it, starts it on. */
+function startsOn(original: ScheduledMessage, values: Values): Values {
   const hasRun =
     original.schedule_kind === 'once' && Boolean(original.last_run_at)
   return hasRun ? { ...values, enabled: true } : values
@@ -219,8 +219,10 @@ function MessageForm({
 
   const form = useForm({
     defaultValues: copyOf
-      ? copyValues(copyOf)
-      : toValues(message, template, recipient),
+      ? startsOn(copyOf, toValues(copyOf, null, null))
+      : message
+        ? startsOn(message, toValues(message, template, recipient))
+        : toValues(message, template, recipient),
     validators: { onSubmit: schema },
     canSubmitWhenInvalid: true,
     listeners: {
