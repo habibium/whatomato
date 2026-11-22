@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.0] - 2026-11-22
+
+### Features
+
+- Owners can keep every chat's history, the phone's included, and choose how far back each agent reads (b077e3d)
+- Agents can open the pictures and files in chats they read, and send their own (a9bdeed)
 ## [0.4.1] - 2026-11-18
 
 ### Bug Fixes
