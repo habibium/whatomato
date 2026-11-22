@@ -14,7 +14,7 @@ import { PasskeysSection } from '@/components/passkeys-section'
 import { SettingsSection } from '@/components/settings-section'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { TwoFactorSection } from '@/components/two-factor-section'
-import { SOURCE_URL } from '@/lib/source'
+import { DOCS_URL, SOURCE_URL } from '@/lib/source'
 
 export const Route = createFileRoute('/_authenticated/settings')({
   component: Settings,
@@ -95,6 +95,11 @@ function Settings() {
             <MetadataListItem label="Source code">
               <Link href={SOURCE_URL} target="_blank" hasUnderline>
                 View on GitHub
+              </Link>
+            </MetadataListItem>
+            <MetadataListItem label="Documentation">
+              <Link href={DOCS_URL} target="_blank" hasUnderline>
+                Read the docs
               </Link>
             </MetadataListItem>
           </MetadataList>

@@ -26,6 +26,7 @@ import { OfflineBanner } from '@/components/offline-banner'
 import { PageHeading } from '@/components/page-heading'
 import { WaitingApprovals } from '@/components/waiting-approvals'
 import { describeChats } from '@/lib/agent-grant'
+import { DOCS_URL } from '@/lib/source'
 import {
   STATUS_DOTS,
   agentsQuery,
@@ -244,7 +245,14 @@ function AgentsPage() {
                 <Text color="secondary">
                   Claude, ChatGPT and some other apps need no access key. Give
                   the app Whatomato’s address, and it brings you here to choose
-                  what it may do.
+                  what it may do.{' '}
+                  <Link
+                    href={`${DOCS_URL}/agents/connect/`}
+                    target="_blank"
+                    hasUnderline
+                  >
+                    Setup guides for each app
+                  </Link>
                 </Text>
               </VStack>
               <AgentSetupSteps url={endpointURL()} isSigningIn />

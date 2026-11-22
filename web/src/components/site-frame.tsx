@@ -18,7 +18,7 @@ import {
 
 import { ThemeToggle } from '@/components/theme-toggle'
 import { Wordmark } from '@/components/wordmark'
-import { SOURCE_URL } from '@/lib/source'
+import { DOCS_URL, SOURCE_URL } from '@/lib/source'
 
 /** Layout's own padding, so header, content and footer share one content line. */
 export const FRAME_PADDING = 6
@@ -101,6 +101,14 @@ export function SiteFrame({
                 color="secondary"
               >
                 Source code
+              </Link>
+              <Link
+                href={DOCS_URL}
+                target="_blank"
+                type="supporting"
+                color="secondary"
+              >
+                Docs
               </Link>
             </HStack>
             <ThemeToggle />
