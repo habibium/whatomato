@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { Paperclip } from 'lucide-react'
 import * as stylex from '@stylexjs/stylex'
 import { useQuery } from '@tanstack/react-query'
 import { createFileRoute } from '@tanstack/react-router'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { HStack } from '@astryxdesign/core/HStack'
+import { Icon } from '@astryxdesign/core/Icon'
 import { List, ListItem } from '@astryxdesign/core/List'
 import { Pagination } from '@astryxdesign/core/Pagination'
 import { Skeleton } from '@astryxdesign/core/Skeleton'
@@ -28,6 +30,16 @@ import { useRecipientLabel, useRecipientPictureID } from '@/lib/contacts'
 import { DELIVERIES_PER_PAGE, deliveriesQuery } from '@/lib/scheduler'
 import type { Delivery } from '@/lib/scheduler'
 import { useSessionExpiry } from '@/lib/use-session-expiry'
+
+const ATTACHMENT_KINDS: Record<
+  NonNullable<Delivery['attachment']>['kind'],
+  string
+> = {
+  image: 'A picture',
+  video: 'A video',
+  audio: 'Audio',
+  document: 'A file',
+}
 
 export const Route = createFileRoute('/_authenticated/history')({
   component: HistoryPage,
@@ -203,9 +215,20 @@ function DeliveryRow({ delivery }: { delivery: Delivery }) {
       }
       description={
         <VStack>
-          <Text color="secondary" maxLines={1}>
-            {delivery.body}
-          </Text>
+          {delivery.attachment ? (
+            <HStack gap={1.5} vAlign="center">
+              <Icon icon={Paperclip} size="sm" color="secondary" />
+              <Text color="secondary" maxLines={1}>
+                {delivery.attachment.file_name ??
+                  ATTACHMENT_KINDS[delivery.attachment.kind]}
+              </Text>
+            </HStack>
+          ) : null}
+          {delivery.body ? (
+            <Text color="secondary" maxLines={1}>
+              {delivery.body}
+            </Text>
+          ) : null}
           {delivery.connection_name ? (
             <ByAgent name={delivery.connection_name} />
           ) : null}

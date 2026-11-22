@@ -28,10 +28,11 @@ use crate::{
     crypto::Cipher,
     db::{
         deliveries::{self, Claimed, NewDelivery},
-        scheduled_messages,
+        outgoing_files, scheduled_messages,
     },
     whatsapp::{
         manager::WhatsApp,
+        media::{OutgoingFile, open_file},
         supervisor::{Recipient, SendFailure},
     },
 };
@@ -178,6 +179,7 @@ pub trait Sender: Clone + Send + Sync + 'static {
         body: String,
         reply_to: Option<String>,
         mentions: Vec<String>,
+        file: Option<OutgoingFile>,
     ) -> impl Future<Output = Result<(), SendFailure>> + Send;
 }
 
@@ -193,8 +195,10 @@ impl Sender for WhatsApp {
         body: String,
         reply_to: Option<String>,
         mentions: Vec<String>,
+        file: Option<OutgoingFile>,
     ) -> Result<(), SendFailure> {
-        self.send_text(user_id, to, body, reply_to, mentions).await
+        self.send_text(user_id, to, body, reply_to, mentions, file)
+            .await
     }
 }
 
@@ -261,7 +265,12 @@ async fn run(
                     Ok(claimed) => {
                         for delivery in claimed {
                             let user_id = delivery.user_id;
-                            let send = sends.spawn(deliver(pool.clone(), sender.clone(), delivery));
+                            let send = sends.spawn(deliver(
+                                pool.clone(),
+                                cipher.clone(),
+                                sender.clone(),
+                                delivery,
+                            ));
                             busy.insert(send.id(), user_id);
                         }
                     }
@@ -361,7 +370,7 @@ pub(crate) async fn enqueue_due(
 }
 
 /// Sends one delivery and records how it went
-async fn deliver(pool: PgPool, sender: impl Sender, delivery: Claimed) {
+async fn deliver(pool: PgPool, cipher: Cipher, sender: impl Sender, delivery: Claimed) {
     let Claimed {
         id,
         user_id,
@@ -371,21 +380,75 @@ async fn deliver(pool: PgPool, sender: impl Sender, delivery: Claimed) {
         body,
         reply_to,
         mentions,
+        file_id,
         attempts,
     } = delivery;
+    let file = match file_id {
+        Some(file_id) => match held_file(&pool, &cipher, file_id, user_id).await {
+            Ok(Some(file)) => Some(file),
+            Ok(None) => {
+                let gone = Err(SendFailure::FileGone);
+                if let Err(error) = record(&pool, id, attempts, &gone).await {
+                    tracing::error!(delivery = %id, ?error, "couldn't record a send's outcome");
+                }
+                return;
+            }
+            Err(error) => {
+                tracing::warn!(delivery = %id, "couldn't open a send's file: {error:#}");
+                let later = Err(SendFailure::Offline);
+                if let Err(error) = record(&pool, id, attempts, &later).await {
+                    tracing::error!(delivery = %id, ?error, "couldn't record a send's outcome");
+                }
+                return;
+            }
+        },
+        None => None,
+    };
     let to = match (recipient_type, connection_id) {
         // An agent's rules name the number as stored, so its send may not reach another spelling
         (RecipientType::Contact, Some(_)) => Recipient::ExactNumber(recipient),
         (RecipientType::Contact, None) => Recipient::Number(recipient),
         (RecipientType::Group, _) => Recipient::Group(recipient),
     };
-    let outcome = sender.send(user_id, to, body, reply_to, mentions).await;
+    let outcome = sender
+        .send(user_id, to, body, reply_to, mentions, file)
+        .await;
     if let Err(failure) = &outcome {
         tracing::warn!(delivery = %id, %user_id, ?failure, attempts, "a send failed");
     }
     if let Err(error) = record(&pool, id, attempts, &outcome).await {
         tracing::error!(delivery = %id, ?error, "couldn't record a send's outcome");
     }
+    let over = match &outcome {
+        Ok(()) => true,
+        Err(failure) => retry_wait(failure, attempts).is_none(),
+    };
+    if let Some(file_id) = file_id.filter(|_| over)
+        && let Err(error) = outgoing_files::release(&pool, file_id).await
+    {
+        tracing::warn!(delivery = %id, ?error, "couldn't release a sent file");
+    }
+}
+
+/// A send's file, opened; `None` once its data was released
+async fn held_file(
+    pool: &PgPool,
+    cipher: &Cipher,
+    file_id: Uuid,
+    user_id: Uuid,
+) -> anyhow::Result<Option<OutgoingFile>> {
+    let Some(stored) = outgoing_files::find(pool, file_id, user_id).await? else {
+        return Ok(None);
+    };
+    let Some(sealed) = stored.data else {
+        return Ok(None);
+    };
+    Ok(Some(OutgoingFile {
+        kind: stored.kind,
+        mime_type: stored.mime_type,
+        file_name: stored.file_name,
+        data: open_file(cipher, file_id, &sealed)?,
+    }))
 }
 
 async fn record(
@@ -430,11 +493,17 @@ mod tests {
         db::agent_connections,
     };
 
+    fn cipher() -> Cipher {
+        Cipher::new(&[0; 32])
+    }
+
     #[derive(Clone)]
     struct FakeSender {
         sent: Arc<Mutex<Vec<(Uuid, String)>>>,
         /// Whether each send asked for its number exactly
         exact: Arc<Mutex<Vec<bool>>>,
+        /// The file each send carried
+        files: Arc<Mutex<Vec<Option<OutgoingFile>>>>,
         answers: Arc<Mutex<Vec<Result<(), SendFailure>>>>,
     }
 
@@ -443,6 +512,7 @@ mod tests {
             Self {
                 sent: Arc::default(),
                 exact: Arc::default(),
+                files: Arc::default(),
                 answers: Arc::new(Mutex::new(answers)),
             }
         }
@@ -460,8 +530,10 @@ mod tests {
             _body: String,
             _reply_to: Option<String>,
             _mentions: Vec<String>,
+            file: Option<OutgoingFile>,
         ) -> Result<(), SendFailure> {
             tokio::task::yield_now().await;
+            self.files.lock().unwrap().push(file);
             self.exact
                 .lock()
                 .unwrap()
@@ -822,13 +894,129 @@ mod tests {
         assert_eq!(claimed[0].user_id, first);
     }
 
+    /// A queued delivery carrying a held file
+    async fn queued_with_file(pool: &PgPool, owner: Uuid) -> (Uuid, Uuid) {
+        use crate::{
+            db::outgoing_files::{self, NewFile},
+            whatsapp::media::{FileKind, seal_file},
+        };
+
+        let delivery = queued(pool, owner).await;
+        let file_id = Uuid::new_v4();
+        let sealed = seal_file(&cipher(), file_id, b"%PDF-1.7").unwrap();
+        outgoing_files::save(
+            pool,
+            NewFile {
+                id: file_id,
+                user_id: owner,
+                kind: FileKind::Document,
+                mime_type: "application/pdf",
+                file_name: Some("March.pdf"),
+                size: 8,
+                sealed: &sealed,
+            },
+        )
+        .await
+        .unwrap();
+        deliveries::attach_file(pool, delivery, file_id)
+            .await
+            .unwrap();
+        (delivery, file_id)
+    }
+
+    async fn held(pool: &PgPool, file_id: Uuid) -> bool {
+        sqlx::query_scalar!(
+            r#"SELECT data IS NOT NULL AS "held!" FROM outgoing_files WHERE id = $1"#,
+            file_id
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    #[sqlx::test]
+    async fn a_file_goes_with_its_send_and_is_let_go_once_sent(pool: PgPool) {
+        let owner = user(&pool).await;
+        let (delivery, file_id) = queued_with_file(&pool, owner).await;
+        // The first try finds WhatsApp offline, so the file is kept for the next
+        let sender = FakeSender::answering(vec![Err(SendFailure::Offline)]);
+        deliver(
+            pool.clone(),
+            cipher(),
+            sender.clone(),
+            claim_one(&pool).await,
+        )
+        .await;
+        assert!(held(&pool, file_id).await);
+        sqlx::query!(
+            "UPDATE deliveries SET next_attempt_at = now() WHERE id = $1",
+            delivery
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        deliver(
+            pool.clone(),
+            cipher(),
+            sender.clone(),
+            claim_one(&pool).await,
+        )
+        .await;
+
+        let files = sender.files.lock().unwrap().clone();
+        let file = files[1].as_ref().unwrap();
+        assert_eq!(file.data, b"%PDF-1.7");
+        assert_eq!(file.file_name.as_deref(), Some("March.pdf"));
+        assert!(!held(&pool, file_id).await);
+        let status: String =
+            sqlx::query_scalar!("SELECT status FROM deliveries WHERE id = $1", delivery)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(status, "sent");
+    }
+
+    #[sqlx::test]
+    async fn a_send_whose_file_was_let_go_fails_without_sending(pool: PgPool) {
+        let owner = user(&pool).await;
+        let (delivery, file_id) = queued_with_file(&pool, owner).await;
+        crate::db::outgoing_files::release(&pool, file_id)
+            .await
+            .unwrap();
+        let sender = FakeSender::answering(Vec::new());
+        deliver(
+            pool.clone(),
+            cipher(),
+            sender.clone(),
+            claim_one(&pool).await,
+        )
+        .await;
+
+        assert!(sender.sent.lock().unwrap().is_empty());
+        let row = sqlx::query!(
+            "SELECT status, error FROM deliveries WHERE id = $1",
+            delivery
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row.status, "failed");
+        assert!(row.error.unwrap().contains("no longer kept"));
+    }
+
     #[sqlx::test]
     async fn a_good_send_is_marked_sent(pool: PgPool) {
         let owner = user(&pool).await;
         let id = queued(&pool, owner).await;
         let sender = FakeSender::answering(vec![Ok(())]);
 
-        deliver(pool.clone(), sender.clone(), claim_one(&pool).await).await;
+        deliver(
+            pool.clone(),
+            cipher(),
+            sender.clone(),
+            claim_one(&pool).await,
+        )
+        .await;
 
         assert_eq!(row(&pool, id).await.status, "sent");
         assert_eq!(
@@ -843,7 +1031,7 @@ mod tests {
         let id = queued(&pool, owner).await;
         let sender = FakeSender::answering(vec![Err(SendFailure::Offline)]);
 
-        deliver(pool.clone(), sender, claim_one(&pool).await).await;
+        deliver(pool.clone(), cipher(), sender, claim_one(&pool).await).await;
 
         let waiting = row(&pool, id).await;
         assert_eq!(waiting.status, "pending");
@@ -863,7 +1051,7 @@ mod tests {
             .unwrap();
         let sender = FakeSender::answering(vec![Err(SendFailure::Offline)]);
 
-        deliver(pool.clone(), sender, claim_one(&pool).await).await;
+        deliver(pool.clone(), cipher(), sender, claim_one(&pool).await).await;
 
         assert_eq!(row(&pool, id).await.status, "failed");
     }
@@ -874,7 +1062,7 @@ mod tests {
         let id = queued(&pool, owner).await;
         let sender = FakeSender::answering(vec![Err(SendFailure::Unconfirmed)]);
 
-        deliver(pool.clone(), sender, claim_one(&pool).await).await;
+        deliver(pool.clone(), cipher(), sender, claim_one(&pool).await).await;
 
         assert_eq!(row(&pool, id).await.status, "failed");
     }
@@ -885,7 +1073,7 @@ mod tests {
         let id = queued(&pool, owner).await;
         let sender = FakeSender::answering(vec![Err(SendFailure::NotOnWhatsApp)]);
 
-        deliver(pool.clone(), sender, claim_one(&pool).await).await;
+        deliver(pool.clone(), cipher(), sender, claim_one(&pool).await).await;
 
         let failed = row(&pool, id).await;
         assert_eq!(failed.status, "failed");
@@ -1339,9 +1527,21 @@ mod tests {
         let connection = agent(&pool, owner, &full_access()).await;
         queued(&pool, owner).await;
         let sender = FakeSender::answering(vec![]);
-        deliver(pool.clone(), sender.clone(), claim_one(&pool).await).await;
+        deliver(
+            pool.clone(),
+            cipher(),
+            sender.clone(),
+            claim_one(&pool).await,
+        )
+        .await;
         sent_by(&pool, owner, connection, 1).await;
-        deliver(pool.clone(), sender.clone(), claim_one(&pool).await).await;
+        deliver(
+            pool.clone(),
+            cipher(),
+            sender.clone(),
+            claim_one(&pool).await,
+        )
+        .await;
 
         assert_eq!(*sender.exact.lock().unwrap(), [false, true]);
     }

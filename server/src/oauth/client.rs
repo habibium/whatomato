@@ -306,7 +306,7 @@ fn read(client_id: &str, body: &[u8]) -> Result<Client, ClientError> {
 /// Resolves names to public addresses only, so a document can't be fetched from this server's own
 /// network. The connection is made to an address this returned, which rules out a second lookup
 /// that answers differently.
-struct PublicOnly;
+pub(crate) struct PublicOnly;
 
 impl Resolve for PublicOnly {
     fn resolve(&self, name: Name) -> Resolving {

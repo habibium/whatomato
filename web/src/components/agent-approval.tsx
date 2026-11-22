@@ -1,11 +1,15 @@
 import { forwardRef, useId, useMemo, useState } from 'react'
+import { Paperclip } from 'lucide-react'
 import * as stylex from '@stylexjs/stylex'
 import { useQueryClient } from '@tanstack/react-query'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { HStack } from '@astryxdesign/core/HStack'
 import { useAnnounce } from '@astryxdesign/core/hooks'
+import { Icon } from '@astryxdesign/core/Icon'
+import { Lightbox } from '@astryxdesign/core/Lightbox'
 import { Link } from '@astryxdesign/core/Link'
+import { Thumbnail } from '@astryxdesign/core/Thumbnail'
 import { Heading, Text } from '@astryxdesign/core/Text'
 import { TextArea } from '@astryxdesign/core/TextArea'
 import { useToast } from '@astryxdesign/core/Toast'
@@ -202,6 +206,13 @@ export const ApprovalCard = forwardRef<HTMLElement, ApprovalCardProps>(
           recipient_name={approval.recipient_name}
         />
 
+        {request?.attachment ? (
+          <AttachedFile
+            file={request.attachment}
+            isHeld={approval.status === 'waiting'}
+          />
+        ) : null}
+
         {request?.schedule ? (
           <ScheduleWords
             request={request}
@@ -371,4 +382,72 @@ function decidedMessage(approval: AgentApproval, who: string) {
   return approval.kind === 'schedule_create'
     ? `Approved. The message to ${who} is scheduled.`
     : `Approved. The scheduled message to ${who} is changed.`
+}
+
+type FileNote = components['schemas']['FileNote']
+
+const FILE_KINDS: Record<FileNote['kind'], string> = {
+  image: 'Picture',
+  video: 'Video',
+  audio: 'Audio',
+  document: 'File',
+}
+
+const INLINE_PICTURES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+])
+
+function formatSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} bytes`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/**
+ * The picture or file a send carries. While the request waits it can be looked at; once it's
+ * answered Whatomato lets the file go, so only what it was remains.
+ */
+function AttachedFile({ file, isHeld }: { file: FileNote; isHeld: boolean }) {
+  const [isOpen, setIsOpen] = useState(false)
+  const src = `/api/agents/files/${file.id}`
+  const name = file.file_name ?? FILE_KINDS[file.kind]
+  const isPicture = isHeld && INLINE_PICTURES.has(file.mime_type)
+  return (
+    <HStack gap={3} vAlign="center">
+      {isPicture ? (
+        <>
+          <Thumbnail
+            src={src}
+            alt={`The picture the agent attached: ${name}`}
+            label={name}
+            onClick={() => setIsOpen(true)}
+          />
+          <Lightbox
+            isOpen={isOpen}
+            onOpenChange={setIsOpen}
+            media={{ src, alt: name }}
+            hasZoom
+          />
+        </>
+      ) : (
+        <Icon icon={Paperclip} color="secondary" />
+      )}
+      <VStack gap={0.5}>
+        <Text weight="medium">{name}</Text>
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <Text type="supporting">
+            {FILE_KINDS[file.kind]}, {formatSize(file.size)}
+          </Text>
+          {isHeld && !isPicture ? (
+            <Link href={src} download={file.file_name ?? true}>
+              Download
+            </Link>
+          ) : null}
+        </HStack>
+      </VStack>
+    </HStack>
+  )
 }

@@ -13,6 +13,7 @@ use crate::{
     extract::ValidatedQuery,
     scheduler::{DeliveryStatus, RecipientType},
     state::AppState,
+    whatsapp::media::FileKind,
 };
 
 #[cfg(test)]
@@ -85,6 +86,16 @@ struct DeliveryResponse {
     created_at: DateTime<Utc>,
     #[schema(required = true)]
     sent_at: Option<DateTime<Utc>>,
+    /// The picture or file it carried, its body being the caption
+    #[schema(required = true)]
+    attachment: Option<DeliveryAttachment>,
+}
+
+#[derive(Serialize, ToSchema)]
+struct DeliveryAttachment {
+    kind: FileKind,
+    #[schema(required = true)]
+    file_name: Option<String>,
 }
 
 impl From<Row> for DeliveryResponse {
@@ -102,6 +113,10 @@ impl From<Row> for DeliveryResponse {
             error: row.error,
             created_at: row.created_at,
             sent_at: row.sent_at,
+            attachment: row.file_kind.map(|kind| DeliveryAttachment {
+                kind,
+                file_name: row.file_name,
+            }),
         }
     }
 }

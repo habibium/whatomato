@@ -3,7 +3,10 @@ use sqlx::PgExecutor;
 use uuid::Uuid;
 
 use super::Chats;
-use crate::scheduler::{DeliveryStatus, RecipientType};
+use crate::{
+    scheduler::{DeliveryStatus, RecipientType},
+    whatsapp::media::FileKind,
+};
 
 pub struct Delivery {
     pub id: Uuid,
@@ -20,6 +23,9 @@ pub struct Delivery {
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
     pub sent_at: Option<DateTime<Utc>>,
+    /// What its picture or file went as, if it carried one
+    pub file_kind: Option<FileKind>,
+    pub file_name: Option<String>,
 }
 
 pub struct NewDelivery<'a> {
@@ -47,6 +53,8 @@ pub struct Claimed {
     pub body: String,
     pub reply_to: Option<String>,
     pub mentions: Vec<String>,
+    /// The picture or file it carries
+    pub file_id: Option<Uuid>,
     /// Counting this one
     pub attempts: i32,
 }
@@ -69,6 +77,18 @@ pub async fn create(db: impl PgExecutor<'_>, delivery: NewDelivery<'_>) -> sqlx:
     )
     .fetch_one(db)
     .await
+}
+
+/// Gives a new delivery the picture or file it carries
+pub async fn attach_file(db: impl PgExecutor<'_>, id: Uuid, file_id: Uuid) -> sqlx::Result<()> {
+    sqlx::query!(
+        "UPDATE deliveries SET file_id = $2 WHERE id = $1",
+        id,
+        file_id
+    )
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// Records a run that was skipped before any attempt, failed with `error`, unless the schedule's
@@ -130,8 +150,10 @@ pub async fn page(
         r#"SELECT d.id, d.scheduled_message_id, d.connection_id, c.name AS "connection_name?",
                d.recipient_type AS "recipient_type: RecipientType", d.recipient,
                d.recipient_name, d.body, d.status AS "status: DeliveryStatus", d.error,
-               d.created_at, d.sent_at
+               d.created_at, d.sent_at, f.kind AS "file_kind?: FileKind",
+               f.file_name AS "file_name?"
            FROM deliveries d LEFT JOIN agent_connections c ON c.id = d.connection_id
+               LEFT JOIN outgoing_files f ON f.id = d.file_id
            WHERE d.user_id = $1 AND ($2::text IS NULL OR d.recipient = $2)
                AND ($3::uuid IS NULL OR d.connection_id = $3
                    OR (d.recipient_type, d.recipient)
@@ -203,7 +225,7 @@ pub async fn claim(db: impl PgExecutor<'_>, busy: &[Uuid]) -> sqlx::Result<Vec<C
            )
            RETURNING id, user_id, connection_id,
                recipient_type AS "recipient_type: RecipientType", recipient, body, reply_to,
-               mentions, attempts"#,
+               mentions, file_id, attempts"#,
         busy,
     )
     .fetch_all(db)

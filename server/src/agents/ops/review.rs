@@ -25,7 +25,7 @@ use crate::{
         variables,
     },
     state::AppState,
-    whatsapp::status::Status,
+    whatsapp::{media::FileNote, status::Status},
 };
 
 /// 2 added [`Request::ScheduleUpdate`]'s `schedule_updated_at`; a version 1 payload has none
@@ -69,6 +69,9 @@ pub struct SendRequest {
     /// The numbers it tags, each written as `@number` in `body`
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<String>,
+    /// The picture or file it carries, `body` being its caption
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<FileNote>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -198,6 +201,9 @@ pub struct Requested {
     /// For a schedule
     #[schema(required = true)]
     pub schedule: Option<RequestedSchedule>,
+    /// The picture or file a send carries, its text being the caption
+    #[schema(required = true)]
+    pub attachment: Option<FileNote>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -232,6 +238,7 @@ impl Requested {
                     body: send.body,
                     timezone: send.timezone.unwrap_or_else(|| "UTC".to_owned()),
                     schedule: None,
+                    attachment: send.file,
                 };
             }
             Request::ScheduleCreate(schedule) => (schedule, None),
@@ -264,6 +271,7 @@ impl Requested {
             recipient_name: schedule.recipient_name,
             body: schedule.body,
             timezone: schedule.timezone,
+            attachment: None,
             schedule: Some(RequestedSchedule {
                 scheduled_message_id,
                 schedule_kind: schedule.schedule_kind,
@@ -372,7 +380,10 @@ async fn check_now(
     match request {
         Request::Send(send) => {
             draft::check_recipient(send.recipient_type, &send.recipient, None, &mut errors);
-            draft::check_body(&send.body, &mut errors);
+            // A picture or file may go without a caption
+            if send.file.is_none() || !send.body.trim().is_empty() {
+                draft::check_body(&send.body, &mut errors);
+            }
         }
         Request::ScheduleCreate(schedule) | Request::ScheduleUpdate { schedule, .. } => {
             schedule.draft().check(&mut errors);
@@ -510,6 +521,9 @@ async fn carry_out(
                 },
             )
             .await?;
+            if let Some(file) = &send.file {
+                deliveries::attach_file(&mut *transaction, delivery_id, file.id).await?;
+            }
             Became {
                 delivery_id: Some(delivery_id),
                 scheduled_message_id: None,
