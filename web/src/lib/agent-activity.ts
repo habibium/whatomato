@@ -124,6 +124,10 @@ const TOOL_PHRASES: Record<string, string> = {
   update_scheduled_message: 'Changed a scheduled message',
   delete_scheduled_message: 'Deleted a scheduled message',
   list_templates: 'Read templates',
+  list_chats: 'Listed chats with recent messages',
+  read_messages: 'Read a chat',
+  search_messages: 'Searched messages',
+  get_attachment: 'Opened a picture or file',
 }
 
 /** Activity names what was tried, so a refused send reads "Tried to send a message". */
@@ -135,6 +139,10 @@ const TRIED: Record<string, string> = {
   find_chats: 'Tried to look up chats',
   list_templates: 'Tried to read templates',
   list_scheduled_messages: 'Tried to look at scheduled messages',
+  list_chats: 'Tried to list chats',
+  read_messages: 'Tried to read a chat',
+  search_messages: 'Tried to search messages',
+  get_attachment: 'Tried to open a picture or file',
 }
 
 const ASKED: Record<string, string> = {
