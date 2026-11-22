@@ -160,8 +160,7 @@ async fn import_chunk(
     };
     let own = whatsapp_accounts::phone_number(pool, account_id)
         .await?
-        .map(|number| format!("{number}@s.whatsapp.net"))
-        .unwrap_or_default();
+        .map_or_default(|number| format!("{number}@s.whatsapp.net"));
     let since = history.since(Utc::now());
     let parsed = tokio::task::spawn_blocking(move || parse(&compressed, since, &own)).await?;
     let parsed = match parsed {
@@ -389,8 +388,7 @@ fn read_entry(info: &wa::WebMessageInfo, chat_jid: &str, own: &str) -> Option<En
             .filter(|jid| !jid.is_empty())
             .unwrap_or(chat_jid)
             .parse::<Jid>()
-            .map(|jid| jid.to_non_ad().to_string())
-            .unwrap_or_default()
+            .map_or_default(|jid| jid.to_non_ad().to_string())
     };
     let sender_number = (!from_me)
         .then(|| sender.strip_suffix("@s.whatsapp.net").map(str::to_owned))
@@ -460,8 +458,7 @@ pub(super) async fn index(pool: PgPool, cipher: Cipher) {
         for message in batch {
             // One that doesn't open is still given terms, or it would be picked again forever
             let terms = super::open_body(&cipher, &message)
-                .map(|body| terms::of_body(&cipher, message.account_id, &body))
-                .unwrap_or_default();
+                .map_or_default(|body| terms::of_body(&cipher, message.account_id, &body));
             if let Err(error) = inbox_messages::set_terms(&pool, &message, &terms).await {
                 tracing::warn!(?error, "couldn't index a kept message");
                 tokio::time::sleep(RETRY).await;
