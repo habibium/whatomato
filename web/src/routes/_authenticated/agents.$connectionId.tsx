@@ -620,7 +620,7 @@ function headline(
     case 'paused':
       return 'Paused. The agent is refused, and the messages it scheduled don’t go out, until you resume it.'
     case 'expired':
-      return 'Its key has expired, so the agent is refused and the messages it scheduled don’t go out. Replace the key to use it again.'
+      return 'Expired. The agent is refused and the messages it scheduled don’t go out. An expired connection can’t be renewed: revoke it and create a new one.'
     case 'unusable':
       return 'Its permissions can’t be read, so the agent can do nothing until you set them again.'
     default: {
