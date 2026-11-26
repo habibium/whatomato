@@ -48,16 +48,20 @@ The site also publishes itself for language models at `/llms.txt`, `/llms-full.t
 
 ## Deploying
 
-The site is served by Cloudflare as static assets of a Worker with no script. `.github/workflows/docs.yml` builds it on every pull request that touches it, and builds and deploys it on every push to `main` that does. A release changes `CHANGELOG.md` and `openapi.json`, so it redeploys the docs with the new version and changelog.
+The site is served by Cloudflare at https://docs.whatomato.habibium.com, as static assets of a Worker with no script. `.github/workflows/docs.yml` does the rest:
 
-One-time setup:
+| When | What happens |
+| --- | --- |
+| A pull request, or a push to `main`, that touches the site, `CHANGELOG.md` or `openapi.json` | Type-checks and builds it, which fails on a broken link. Nothing is published. |
+| A stable release tag, `vX.Y.Z` | Builds the site from the tag and deploys it, with that version and its changelog. Pre-releases don't deploy. |
+| A run by hand from the **Actions** tab | Builds and deploys the branch or tag you pick: `main` to publish a docs fix before the next release, a tag to publish that release again. |
 
-1. In Cloudflare, create an API token from the **Edit Cloudflare Workers** template, limited to the account and to the zone the docs host is in.
-2. In the repository's settings on GitHub, create an environment named `docs` and add two secrets to it: `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
-3. Run the **Docs** workflow by hand, or push a change under `site/`.
+So the live docs always describe the latest stable release. `just release` pushes the tag, and the docs follow without another step.
 
-The first deploy creates the Worker, the DNS record for the host in `wrangler.jsonc` and its certificate. Until the secrets exist, the workflow builds the site and skips the deploy.
+Deploys run in the GitHub environment `docs`, which only `main` and `v*` tags may use and which holds two secrets: `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. A deploy without them fails and says so. To make the token, create one in Cloudflare from the **Edit Cloudflare Workers** template, limited to the account and to the `habibium.com` zone, then run `gh secret set CLOUDFLARE_API_TOKEN --env docs` and paste it.
 
-To serve the site from another address, change `SITE_URL` in `src/consts.mjs` and the route in `wrangler.jsonc` together.
+The first deploy creates the Worker, the DNS record for the host in `wrangler.jsonc` and its certificate.
+
+To serve the site from another address, change `SITE_URL` in `src/consts.mjs`, the route in `wrangler.jsonc`, the environment's `url` in the workflow and `DOCS_URL` in `web/src/lib/source.ts` together.
 
 To deploy from your own machine instead: `pnpm --dir site run deploy`, after `pnpm --dir site exec wrangler login`.

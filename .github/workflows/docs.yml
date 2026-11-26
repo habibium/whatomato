@@ -1,8 +1,13 @@
 name: Docs
 
+# Every change to the docs is built; only a stable release publishes them, so the live docs
+# describe the version people can run. Run it by hand on main to publish a docs fix early, or on
+# a tag to publish that release again.
 on:
   push:
     branches: [main]
+    # GitHub doesn't apply `paths` to tag pushes, so every stable release deploys
+    tags: ["v*", "!v*-*"]
     paths:
       - site/**
       - CHANGELOG.md
@@ -21,13 +26,12 @@ permissions:
 
 concurrency:
   group: docs-${{ github.ref }}
-  # a deploy runs to its end; only a pull request's superseded build is dropped
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  check:
+  build:
     name: Build
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -36,6 +40,7 @@ jobs:
           version: "12"
           runtime: node@24
           cache: true
+          save-cache: ${{ github.event_name != 'pull_request' }}
           working-directory: site
           require-lockfile: true
       - run: pnpm --dir site check
@@ -47,13 +52,26 @@ jobs:
 
   deploy:
     name: Build & deploy
-    if: github.event_name != 'pull_request'
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    # holds CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID; without them the site builds and the deploy skips
-    environment: docs
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    # holds the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID secrets
+    environment:
+      name: docs
+      url: https://docs.whatomato.habibium.com
+    # one deploy at a time across refs, and none is cut short
+    concurrency:
+      group: docs-deploy
+      cancel-in-progress: false
     steps:
+      - name: Check the Cloudflare secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::error::The docs environment needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID; site/README.md says how to make them"
+            exit 1
+          fi
       - uses: actions/checkout@v7
       - uses: pnpm/setup@v3
         with:
@@ -67,7 +85,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
       - name: Deploy to Cloudflare
-        if: env.CLOUDFLARE_API_TOKEN != ''
         uses: cloudflare/wrangler-action@v4
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
