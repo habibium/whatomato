@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.5.1] - 2026-11-26
+
+### Features
+
+- The app links to the documentation from its footer, Settings and the Agents page (c0b0628)
+
+### Bug Fixes
+
+- An agent can send a file of up to 16 MB as base64, not only one of about 45 KB (99279fa)
+- Schedule again opens a sent message switched on, so saving it schedules it instead of filing it under Off (a5e3a88)
+- An expired connection says it can't be renewed, instead of suggesting a new key brings it back (4395049)
+- The message help text moves a time with a plain minus, which the variables accept (c007fd8)
+- The activity log names the reading and attachment tools instead of calling them unknown (5216086)
+
+### Documentation
+
+- The README matches the code on two-step code limits, reading, approval emails and pictures and files (5af960c)
+- A documentation site in site/, built with Astro Starlight and deployed to Cloudflare by its own workflow (423ec5d)
+
+### Maintenance
+
+- Pass clippy 1.100, which CI runs (ce43a68)
+- The docs deploy on each stable release, or by hand, and every other change only builds them (d8c496b)
 ## [0.5.0] - 2026-11-22
 
 ### Features
