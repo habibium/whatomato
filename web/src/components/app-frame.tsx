@@ -26,6 +26,8 @@ import {
   spacingVars,
 } from '@astryxdesign/core/theme/tokens.stylex'
 import {
+  ArrowUpRight,
+  BookOpen,
   BookUser,
   Bot,
   CalendarClock,
@@ -40,6 +42,7 @@ import { Wordmark } from '@/components/wordmark'
 import { agentsQuery } from '@/lib/agents'
 import { turnOffPush } from '@/lib/push'
 import { HOME_HREF, SIGNIN_HREF, setSessionUser } from '@/lib/session'
+import { DOCS_URL } from '@/lib/source'
 import { CONNECTION_DOTS, formatPhoneNumber, statusQuery } from '@/lib/whatsapp'
 
 const WORK = [
@@ -214,6 +217,12 @@ function AppNav() {
           href="/settings"
           icon={Settings}
           isSelected={pathname === '/settings'}
+        />
+        <SideNavItem
+          label="Docs"
+          href={DOCS_URL}
+          icon={BookOpen}
+          endContent={<ArrowUpRight size={14} aria-hidden />}
         />
       </SideNavSection>
       {linkedNumber ? (
