@@ -8,14 +8,20 @@ import { Layout, LayoutContent, LayoutFooter } from '@astryxdesign/core/Layout'
 import { VStack } from '@astryxdesign/core/VStack'
 import { z } from 'zod'
 
-import { ConfirmProblemBanner } from '@/components/confirm-password-dialog'
+import {
+  ConfirmProblemBanner,
+  PasskeyReauthButton,
+} from '@/components/confirm-password-dialog'
 import type {
   ConfirmOutcome,
   ConfirmProblem,
+  Reauth,
 } from '@/components/confirm-password-dialog'
 import { PasswordField } from '@/components/password-field'
 import { PhoneNumberField } from '@/components/phone-number-field'
 import { toStatusMessage } from '@/lib/form-errors'
+import { usePasskeyReauth } from '@/lib/use-passkey-reauth'
+import type { PasskeyAnswer } from '@/lib/use-passkey-reauth'
 import { NUMBER_HINT, digitsOf, isPhoneNumber } from '@/lib/whatsapp'
 
 const schema = z.object({
@@ -29,15 +35,16 @@ interface PhoneLinkDialogProps {
   isOpen: boolean
   onOpenChange: (isOpen: boolean) => void
   /** Starts linking with the number's digits; the dialog closes once it is `confirmed`. */
-  onConfirm: (digits: string, password: string) => Promise<PhoneLinkOutcome>
+  onConfirm: (digits: string, reauth: Reauth) => Promise<PhoneLinkOutcome>
 }
 
-/** Takes the number of the phone to link, and the password the link is behind. */
+/** Takes the number of the phone to link, and the password or passkey the link is behind. */
 export function PhoneLinkDialog({
   isOpen,
   onOpenChange,
   onConfirm,
 }: PhoneLinkDialogProps) {
+  const passkey = usePasskeyReauth(isOpen)
   return (
     <Dialog
       isOpen={isOpen}
@@ -49,6 +56,7 @@ export function PhoneLinkDialog({
       {isOpen ? (
         <PhoneLinkForm
           onConfirm={onConfirm}
+          passkey={passkey}
           onClose={() => onOpenChange(false)}
         />
       ) : null}
@@ -58,11 +66,20 @@ export function PhoneLinkDialog({
 
 interface PhoneLinkFormProps {
   onConfirm: PhoneLinkDialogProps['onConfirm']
+  passkey: ReturnType<typeof usePasskeyReauth>
   onClose: () => void
 }
 
-function PhoneLinkForm({ onConfirm, onClose }: PhoneLinkFormProps) {
+function PhoneLinkForm({ onConfirm, passkey, onClose }: PhoneLinkFormProps) {
   const [problem, setProblem] = useState<ConfirmProblem | null>(null)
+
+  const confirm = async (phoneNumber: string, reauth: Reauth) => {
+    try {
+      return await onConfirm(digitsOf(phoneNumber), reauth)
+    } catch {
+      return 'failed' as const
+    }
+  }
 
   const form = useForm({
     defaultValues: { phone_number: '', password: '' },
@@ -72,12 +89,9 @@ function PhoneLinkForm({ onConfirm, onClose }: PhoneLinkFormProps) {
       onChange: () => setProblem(null),
     },
     onSubmit: async ({ value, formApi }) => {
-      let outcome: PhoneLinkOutcome
-      try {
-        outcome = await onConfirm(digitsOf(value.phone_number), value.password)
-      } catch {
-        outcome = 'failed'
-      }
+      const outcome = await confirm(value.phone_number, {
+        password: value.password,
+      })
       if (outcome === 'confirmed') {
         onClose()
       } else if (outcome === 'incorrect-password') {
@@ -87,14 +101,40 @@ function PhoneLinkForm({ onConfirm, onClose }: PhoneLinkFormProps) {
           },
         })
       } else if (outcome === 'invalid-number') {
-        formApi.setErrorMap({
-          onSubmit: { fields: { phone_number: [{ message: NUMBER_HINT }] } },
-        })
+        showNumberHint()
       } else {
         setProblem(outcome)
       }
     },
   })
+
+  function showNumberHint() {
+    form.setFieldMeta('phone_number', (meta) => ({ ...meta, isTouched: true }))
+    form.setErrorMap({
+      onSubmit: { fields: { phone_number: [{ message: NUMBER_HINT }] } },
+    })
+  }
+
+  // Checked before the browser's prompt, which a bad number would only waste.
+  const hasNumber = () => {
+    if (isPhoneNumber(form.getFieldValue('phone_number').trim())) return true
+    showNumberHint()
+    return false
+  }
+
+  const confirmWithPasskey = async (answer: PasskeyAnswer) => {
+    setProblem(null)
+    if (answer === 'cancelled') return
+    if (answer === 'failed') {
+      setProblem('passkey-failed')
+      return
+    }
+    const outcome = await confirm(form.getFieldValue('phone_number'), answer)
+    if (outcome === 'confirmed') onClose()
+    else if (outcome === 'invalid-number') showNumberHint()
+    else if (outcome === 'incorrect-password') setProblem('passkey-rejected')
+    else setProblem(outcome)
+  }
 
   return (
     <form
@@ -150,6 +190,13 @@ function PhoneLinkForm({ onConfirm, onClose }: PhoneLinkFormProps) {
                   )}
                 </form.Field>
               </FormLayout>
+              {passkey.isAvailable ? (
+                <PasskeyReauthButton
+                  canAnswer={hasNumber}
+                  answer={passkey.answer}
+                  onAnswer={confirmWithPasskey}
+                />
+              ) : null}
             </VStack>
           </LayoutContent>
         }

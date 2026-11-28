@@ -19,8 +19,14 @@ import type { components } from '@/api/schema'
 import { api } from '@/api/client'
 import { PermissionEditor } from '@/components/agent-permissions'
 import { AppFrame } from '@/components/app-frame'
-import { ConfirmPasswordDialog } from '@/components/confirm-password-dialog'
-import type { ConfirmOutcome } from '@/components/confirm-password-dialog'
+import {
+  ConfirmPasswordDialog,
+  toReauthProblem,
+} from '@/components/confirm-password-dialog'
+import type {
+  ConfirmOutcome,
+  Reauth,
+} from '@/components/confirm-password-dialog'
 import { ListEmpty } from '@/components/list-empty'
 import { PageHeading } from '@/components/page-heading'
 import { SettingsSection } from '@/components/settings-section'
@@ -216,17 +222,17 @@ function Consent({ ask, presets, request }: ConsentProps) {
     }
   }, [problem, grantProblems])
 
-  const approve = async (password: string): Promise<ConfirmOutcome> => {
+  const approve = async (reauth: Reauth): Promise<ConfirmOutcome> => {
     if (!pending) return 'failed'
     const body: components['schemas']['ApproveSignIn'] =
       pending.choice === NEW
         ? {
             request,
-            password,
+            ...reauth,
             name: pending.name.trim(),
             grant: cleanGrant(pending.grant),
           }
-        : { request, password, connection_id: pending.choice }
+        : { request, ...reauth, connection_id: pending.choice }
     let result
     try {
       result = await api.POST('/api/agents/sign-in/approve', { body })
@@ -244,7 +250,8 @@ function Consent({ ask, presets, request }: ConsentProps) {
     if (response.status === 429) {
       return { kind: 'rate-limited', retryAfter: retryAfterSeconds(response) }
     }
-    if (toFieldErrors(error, ['password'] as const)) return 'incorrect-password'
+    const reauthProblem = toReauthProblem(error)
+    if (reauthProblem) return reauthProblem
     if (response.status === 409) {
       setProblem({
         title: 'You have 20 connections already.',
@@ -464,7 +471,7 @@ function Consent({ ask, presets, request }: ConsentProps) {
           if (!isOpen) setPending(null)
         }}
         title="Confirm it’s you"
-        description={`${ask.client_name} will be able to act on your WhatsApp within these permissions, so connecting it needs your password.`}
+        description={`${ask.client_name} will be able to act on your WhatsApp within these permissions, so connecting it needs your password or a passkey.`}
         confirmLabel={choice === NEW ? 'Allow' : 'Sign in again'}
         onConfirm={approve}
       />

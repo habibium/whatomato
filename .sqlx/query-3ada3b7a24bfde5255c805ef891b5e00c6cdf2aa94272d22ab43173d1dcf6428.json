@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT passkey AS \"passkey: Json<Passkey>\" FROM passkeys WHERE user_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "passkey: Json<Passkey>",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "passkeys",
+            "name": "passkey"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3ada3b7a24bfde5255c805ef891b5e00c6cdf2aa94272d22ab43173d1dcf6428"
+}

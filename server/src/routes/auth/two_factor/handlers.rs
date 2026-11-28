@@ -11,13 +11,14 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::dto::{
-    AuthenticatorCode, PasswordConfirmation, RecoveryCode, RecoveryCodes, SecondFactor,
-    TwoFactorSetup, TwoFactorStatus,
+    AuthenticatorCode, RecoveryCode, RecoveryCodes, SecondFactor, TwoFactorSetup,
+    TwoFactorStatus,
 };
 use crate::{
     AppState,
     auth::{
-        cookie, reauth,
+        cookie,
+        reauth::{self, Reauth},
         session::{self, Session},
         token, two_factor,
     },
@@ -53,23 +54,24 @@ pub async fn get_two_factor(
 
 /// Start setting up two-step verification
 ///
-/// Checks the password, then creates a key for an authenticator app. Signing in does not ask for
-/// codes until `POST /two-factor/enable` confirms the app shows the right one, which it has 15
-/// minutes to do. Starting again replaces a key that was never confirmed.
-#[utoipa::path(post, path = "/two-factor/setup", request_body = PasswordConfirmation, responses(
+/// Checks the password or a passkey, then creates a key for an authenticator app. Signing in does
+/// not ask for codes until `POST /two-factor/enable` confirms the app shows the right one, which it
+/// has 15 minutes to do. Starting again replaces a key that was never confirmed.
+#[utoipa::path(post, path = "/two-factor/setup", request_body = Reauth, responses(
     (status = OK, body = TwoFactorSetup),
-    (status = BAD_REQUEST, description = "The password is incorrect", body = ErrorBody),
+    (status = BAD_REQUEST, description = "The password or passkey is incorrect", body = ErrorBody),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = CONFLICT, description = "Two-step verification is already on", body = ErrorBody),
     (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
 ))]
 pub async fn setup_two_factor(
     State(state): State<AppState>,
+    jar: CookieJar,
     session: Session,
-    ValidatedJson(payload): ValidatedJson<PasswordConfirmation>,
+    ValidatedJson(payload): ValidatedJson<Reauth>,
 ) -> Result<impl IntoResponse, AppError> {
     let user = session.user;
-    reauth::confirm_password(&state, user.id, payload.password).await?;
+    reauth::confirm(&state, &jar, user.id, payload).await?;
 
     let secret = two_factor::new_secret()?;
     let totp = two_factor::totp(secret.as_slice(), &user.email)?;
@@ -158,22 +160,23 @@ pub async fn enable_two_factor(
 
 /// Turn off two-step verification
 ///
-/// Checks the password, then deletes the authenticator key and every recovery code, so signing in
-/// asks for the password alone again.
-#[utoipa::path(post, path = "/two-factor/disable", request_body = PasswordConfirmation, responses(
+/// Checks the password or a passkey, then deletes the authenticator key and every recovery code, so
+/// signing in asks for the password alone again.
+#[utoipa::path(post, path = "/two-factor/disable", request_body = Reauth, responses(
     (status = NO_CONTENT),
-    (status = BAD_REQUEST, description = "The password is incorrect", body = ErrorBody),
+    (status = BAD_REQUEST, description = "The password or passkey is incorrect", body = ErrorBody),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = CONFLICT, description = "Two-step verification is already off", body = ErrorBody),
     (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
 ))]
 pub async fn disable_two_factor(
     State(state): State<AppState>,
+    jar: CookieJar,
     session: Session,
-    ValidatedJson(payload): ValidatedJson<PasswordConfirmation>,
+    ValidatedJson(payload): ValidatedJson<Reauth>,
 ) -> Result<StatusCode, AppError> {
     let user = session.user;
-    reauth::confirm_password(&state, user.id, payload.password).await?;
+    reauth::confirm(&state, &jar, user.id, payload).await?;
 
     let mut tx = state.pool.begin().await?;
     db::users::lock(&mut *tx, user.id).await?;
@@ -191,22 +194,23 @@ pub async fn disable_two_factor(
 
 /// Replace the recovery codes
 ///
-/// Checks the password, then returns ten new recovery codes. The earlier ones stop working, used
-/// or not.
-#[utoipa::path(post, path = "/two-factor/recovery-codes", request_body = PasswordConfirmation, responses(
+/// Checks the password or a passkey, then returns ten new recovery codes. The earlier ones stop
+/// working, used or not.
+#[utoipa::path(post, path = "/two-factor/recovery-codes", request_body = Reauth, responses(
     (status = OK, body = RecoveryCodes),
-    (status = BAD_REQUEST, description = "The password is incorrect", body = ErrorBody),
+    (status = BAD_REQUEST, description = "The password or passkey is incorrect", body = ErrorBody),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = CONFLICT, description = "Two-step verification is off", body = ErrorBody),
     (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
 ))]
 pub async fn regenerate_recovery_codes(
     State(state): State<AppState>,
+    jar: CookieJar,
     session: Session,
-    ValidatedJson(payload): ValidatedJson<PasswordConfirmation>,
+    ValidatedJson(payload): ValidatedJson<Reauth>,
 ) -> Result<impl IntoResponse, AppError> {
     let user = session.user;
-    reauth::confirm_password(&state, user.id, payload.password).await?;
+    reauth::confirm(&state, &jar, user.id, payload).await?;
 
     let mut tx = state.pool.begin().await?;
     // Otherwise a concurrent disable could commit in between, and new codes would outlive it

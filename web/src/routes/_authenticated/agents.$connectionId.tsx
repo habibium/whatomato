@@ -40,8 +40,14 @@ import { PermissionEditor } from '@/components/agent-permissions'
 import { AgentSetupSteps } from '@/components/agent-setup-steps'
 import { AppFrame } from '@/components/app-frame'
 import { BackLink } from '@/components/back-link'
-import { ConfirmPasswordDialog } from '@/components/confirm-password-dialog'
-import type { ConfirmOutcome } from '@/components/confirm-password-dialog'
+import {
+  ConfirmPasswordDialog,
+  toReauthProblem,
+} from '@/components/confirm-password-dialog'
+import type {
+  ConfirmOutcome,
+  Reauth,
+} from '@/components/confirm-password-dialog'
 import { OfflineBanner } from '@/components/offline-banner'
 import { PageHeading } from '@/components/page-heading'
 import { SettingsSection } from '@/components/settings-section'
@@ -233,14 +239,14 @@ function ConnectionDetails({
     setIsToggling(false)
   }
 
-  const saveGrant = async (password: string): Promise<ConfirmOutcome> => {
+  const saveGrant = async (reauth: Reauth): Promise<ConfirmOutcome> => {
     if (!draft) return 'confirmed'
     const failed = "Couldn't save the permissions."
     let result
     try {
       result = await api.PATCH('/api/agents/{id}', {
         params: { path: { id: connection.id } },
-        body: { grant: cleanGrant(draft), password },
+        body: { grant: cleanGrant(draft), ...reauth },
       })
     } catch {
       setProblem(connectionProblem(failed))
@@ -258,7 +264,8 @@ function ConnectionDetails({
     if (response.status === 429) {
       return { kind: 'rate-limited', retryAfter: retryAfterSeconds(response) }
     }
-    if (toFieldErrors(error, ['password'] as const)) return 'incorrect-password'
+    const reauthProblem = toReauthProblem(error)
+    if (reauthProblem) return reauthProblem
     const grant = (error as ErrorBody | undefined)?.details?.grant ?? []
     if (grant.length) {
       setGrantProblems(grant)
@@ -268,13 +275,13 @@ function ConnectionDetails({
     return 'confirmed'
   }
 
-  const rotate = async (password: string): Promise<ConfirmOutcome> => {
+  const rotate = async (reauth: Reauth): Promise<ConfirmOutcome> => {
     const failed = "Couldn't replace the key."
     let result
     try {
       result = await api.POST('/api/agents/{id}/rotate-key', {
         params: { path: { id: connection.id } },
-        body: { password },
+        body: reauth,
       })
     } catch {
       setProblem(connectionProblem(failed))
@@ -289,7 +296,8 @@ function ConnectionDetails({
     if (response.status === 429) {
       return { kind: 'rate-limited', retryAfter: retryAfterSeconds(response) }
     }
-    if (toFieldErrors(error, ['password'] as const)) return 'incorrect-password'
+    const reauthProblem = toReauthProblem(error)
+    if (reauthProblem) return reauthProblem
     setProblem(toWriteProblem(result, failed))
     return 'confirmed'
   }
@@ -574,7 +582,7 @@ function ConnectionDetails({
           if (!isOpen) setDialog(null)
         }}
         title="Confirm it’s you"
-        description="Changing what an agent may do needs your password."
+        description="Changing what an agent may do needs your password or a passkey."
         confirmLabel="Save permissions"
         onConfirm={saveGrant}
       />

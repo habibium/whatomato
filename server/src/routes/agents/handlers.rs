@@ -9,6 +9,7 @@ use axum::{
         sse::{Event, KeepAlive, Sse},
     },
 };
+use axum_extra::extract::cookie::CookieJar;
 use chrono::{TimeDelta, Utc};
 use futures_util::{Stream, StreamExt as _, stream};
 use uuid::Uuid;
@@ -16,8 +17,8 @@ use uuid::Uuid;
 use super::dto::{
     ActivityQuery, AgentActivityPage, AgentApproval, AgentApprovalPage, AgentConnection,
     AgentConnectionDetail, AgentKeyIssued, AgentPreset, AgentReading, AgentRevoked, AgentsOverview,
-    AgentsPaused, ApprovalsQuery, ApproveRequest, CreateConnection, RevokeQuery, RotateKeyRequest,
-    UNREADABLE, UpdateConnection,
+    AgentsPaused, ApprovalsQuery, ApproveRequest, CreateConnection, RevokeQuery, UNREADABLE,
+    UpdateConnection,
 };
 use crate::{
     agents::{
@@ -25,7 +26,10 @@ use crate::{
         key::AccessKey,
         ops::review::{self, Requested, ReviewError},
     },
-    auth::{reauth, session::Session},
+    auth::{
+        reauth::{self, Reauth},
+        session::Session,
+    },
     db::{
         agent_activity, agent_approvals,
         agent_connections::{self, Connection, Credential, MAX_PER_USER, NewConnection},
@@ -136,11 +140,12 @@ pub async fn list_agent_presets(_: Enabled, _session: Session) -> Json<Vec<Agent
 
 /// Connect an AI agent
 ///
-/// Checks the permissions, then the password, and answers with the access key, shown this once.
+/// Checks the permissions, then the password or a passkey, and answers with the access key, shown
+/// this once.
 /// Emails the owner.
 #[utoipa::path(post, path = "/", request_body = CreateConnection, responses(
     (status = CREATED, body = AgentKeyIssued),
-    (status = BAD_REQUEST, description = "A field is missing or out of range, or the password is incorrect", body = ErrorBody),
+    (status = BAD_REQUEST, description = "A field is missing or out of range, or the password or passkey is incorrect", body = ErrorBody),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = NOT_FOUND, description = "Agent access is off on this server", body = ErrorBody),
     (status = CONFLICT, description = "The account already has 20 connections", body = ErrorBody),
@@ -151,12 +156,13 @@ pub async fn list_agent_presets(_: Enabled, _session: Session) -> Json<Vec<Agent
 pub async fn create_agent(
     _: Enabled,
     State(state): State<AppState>,
+    jar: CookieJar,
     session: Session,
     ValidatedJson(input): ValidatedJson<CreateConnection>,
 ) -> Result<(StatusCode, Json<AgentKeyIssued>), AppError> {
     let user_id = session.user.id;
     let grant = checked(input.grant, state.agent_reading)?;
-    reauth::confirm_password(&state, user_id, input.password).await?;
+    reauth::confirm(&state, &jar, user_id, input.reauth).await?;
     let key = AccessKey::generate()?;
     let connection = agent_connections::create(
         &state.pool,
@@ -221,11 +227,11 @@ pub async fn get_agent(
 
 /// Rename a connection, change its permissions, or both
 ///
-/// A rename alone needs nothing more. New permissions need the password and email the owner when
-/// they differ from the old ones.
+/// A rename alone needs nothing more. New permissions need the password or a passkey, and email the
+/// owner when they differ from the old ones.
 #[utoipa::path(patch, path = "/{id}", params(("id" = Uuid, Path)), request_body = UpdateConnection, responses(
     (status = OK, body = AgentConnection),
-    (status = BAD_REQUEST, description = "Nothing to change, a field is out of range, or the password is missing or incorrect", body = ErrorBody),
+    (status = BAD_REQUEST, description = "Nothing to change, a field is out of range, or the password or passkey is missing or incorrect", body = ErrorBody),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = NOT_FOUND, body = ErrorBody),
     (status = UNPROCESSABLE_ENTITY, description = "The permissions have problems, one sentence each under `details.grant`", body = ErrorBody),
@@ -235,6 +241,7 @@ pub async fn get_agent(
 pub async fn update_agent(
     _: Enabled,
     State(state): State<AppState>,
+    jar: CookieJar,
     session: Session,
     Path(id): Path<Uuid>,
     ValidatedJson(input): ValidatedJson<UpdateConnection>,
@@ -248,8 +255,7 @@ pub async fn update_agent(
         .map(|grant| checked(grant, state.agent_reading))
         .transpose()?;
     if grant.is_some() {
-        let password = input.password.unwrap_or_default();
-        reauth::confirm_password(&state, user_id, password).await?;
+        reauth::confirm(&state, &jar, user_id, input.reauth).await?;
     }
 
     let mut transaction = state.pool.begin().await?;
@@ -341,9 +347,9 @@ pub async fn pause_all_agents(
 ///
 /// The old key stops working at once. Answers with the new key, shown this once, and emails the
 /// owner.
-#[utoipa::path(post, path = "/{id}/rotate-key", params(("id" = Uuid, Path)), request_body = RotateKeyRequest, responses(
+#[utoipa::path(post, path = "/{id}/rotate-key", params(("id" = Uuid, Path)), request_body = Reauth, responses(
     (status = OK, body = AgentKeyIssued),
-    (status = BAD_REQUEST, description = "The password is incorrect", body = ErrorBody),
+    (status = BAD_REQUEST, description = "The password or passkey is incorrect", body = ErrorBody),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = NOT_FOUND, body = ErrorBody),
     (status = TOO_MANY_REQUESTS, body = ErrorBody),
@@ -352,9 +358,10 @@ pub async fn pause_all_agents(
 pub async fn rotate_agent_key(
     _: Enabled,
     State(state): State<AppState>,
+    jar: CookieJar,
     session: Session,
     Path(id): Path<Uuid>,
-    ValidatedJson(input): ValidatedJson<RotateKeyRequest>,
+    ValidatedJson(input): ValidatedJson<Reauth>,
 ) -> Result<Json<AgentKeyIssued>, AppError> {
     let user_id = session.user.id;
     let found = agent_connections::find(&state.pool, id, user_id)
@@ -366,7 +373,7 @@ pub async fn rotate_agent_key(
              it.",
         ));
     }
-    reauth::confirm_password(&state, user_id, input.password).await?;
+    reauth::confirm(&state, &jar, user_id, input).await?;
     let key = AccessKey::generate()?;
     let connection = agent_connections::rotate_key(&state.pool, id, user_id, &key.hash, &key.hint)
         .await?

@@ -13,4 +13,5 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::finish_registration))
         .routes(routes!(handlers::start_sign_in))
         .routes(routes!(handlers::finish_sign_in))
+        .routes(routes!(handlers::start_reauth))
 }

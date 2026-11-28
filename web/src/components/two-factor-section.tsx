@@ -17,6 +17,7 @@ import {
   ConfirmPasswordDialog,
   toConfirmOutcome,
 } from '@/components/confirm-password-dialog'
+import type { Reauth } from '@/components/confirm-password-dialog'
 import { SettingsSection } from '@/components/settings-section'
 import { RecoveryCodesDialog } from '@/components/two-factor-recovery-codes'
 import { TwoFactorSetupDialog } from '@/components/two-factor-setup-dialog'
@@ -44,9 +45,9 @@ export function TwoFactorSection() {
     if (!isOpen) setConfirming(null)
   }
 
-  const startSetup = async (password: string) => {
+  const startSetup = async (reauth: Reauth) => {
     const result = await api.POST('/api/auth/two-factor/setup', {
-      body: { password },
+      body: reauth,
     })
     if (result.data) setSetup(result.data)
     // Already on, from another tab: showing that is the whole answer
@@ -57,9 +58,9 @@ export function TwoFactorSection() {
     return toConfirmOutcome(result)
   }
 
-  const disable = async (password: string) => {
+  const disable = async (reauth: Reauth) => {
     const result = await api.POST('/api/auth/two-factor/disable', {
-      body: { password },
+      body: reauth,
     })
     if (result.response.ok || result.response.status === 409) {
       await refresh()
@@ -68,9 +69,9 @@ export function TwoFactorSection() {
     return toConfirmOutcome(result)
   }
 
-  const regenerate = async (password: string) => {
+  const regenerate = async (reauth: Reauth) => {
     const result = await api.POST('/api/auth/two-factor/recovery-codes', {
-      body: { password },
+      body: reauth,
     })
     if (result.data) setNewCodes(result.data.recovery_codes)
     if (result.response.status === 409) await refresh()

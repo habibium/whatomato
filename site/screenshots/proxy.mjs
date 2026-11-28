@@ -150,6 +150,8 @@ async function whatsapp(req, res, path) {
       return send(res, 204, undefined, setState('connected'))
     case 'POST /unlink':
       return send(res, 200, { removed_from_phone: true }, setState('not_linked'))
+    case 'POST /relink':
+      return send(res, 200, { removed_from_phone: true }, setState('pairing_qr'))
     case 'POST /test-message':
       return send(res, 204)
     default:

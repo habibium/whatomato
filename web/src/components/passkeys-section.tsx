@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { AlertDialog } from '@astryxdesign/core/AlertDialog'
 import { Banner } from '@astryxdesign/core/Banner'
 import { Button } from '@astryxdesign/core/Button'
 import { HStack } from '@astryxdesign/core/HStack'
@@ -13,7 +14,10 @@ import {
   ConfirmPasswordDialog,
   toConfirmOutcome,
 } from '@/components/confirm-password-dialog'
-import type { ConfirmOutcome } from '@/components/confirm-password-dialog'
+import type {
+  ConfirmOutcome,
+  Reauth,
+} from '@/components/confirm-password-dialog'
 import { PasskeyNameDialog } from '@/components/passkey-name-dialog'
 import { SettingsSection } from '@/components/settings-section'
 import type { Passkey, SaveOutcome } from '@/components/passkey-name-dialog'
@@ -31,13 +35,14 @@ type Notice =
   | 'device-registered'
   | 'limit'
 
-/** Lists the user's passkeys and adds or removes them, each change behind the password. */
+/** Lists the user's passkeys and adds or removes them, each change behind the password or a passkey. */
 export function PasskeysSection() {
   const [isSupported] = useState(hasPasskeySupport)
   const passkeys = $api.useQuery('get', '/api/auth/passkeys')
   const [notice, setNotice] = useState<Notice | null>(null)
   const [isAdding, setIsAdding] = useState(false)
   const [created, setCreated] = useState<WebAuthnJSON | null>(null)
+  const [readyToCreate, setReadyToCreate] = useState<WebAuthnJSON | null>(null)
   const [removing, setRemoving] = useState<Passkey | null>(null)
 
   const startAdding = () => {
@@ -45,23 +50,29 @@ export function PasskeysSection() {
     setIsAdding(true)
   }
 
-  // Runs inside the password dialog's submit, so the browser's prompt still follows a click.
-  const register = async (password: string): Promise<ConfirmOutcome> => {
+  const create = async (publicKey: WebAuthnJSON) => {
+    try {
+      setCreated(await createPasskey(publicKey))
+    } catch (error) {
+      const failure = toPasskeyFailure(error)
+      if (failure === 'already-registered') setNotice('device-registered')
+      else if (failure === 'failed') setNotice('failed')
+    }
+  }
+
+  // Runs inside the password's submit, so the browser's prompt still follows a click. A passkey's
+  // own prompt has used that click up, and Safari wants another before the next one.
+  const register = async (reauth: Reauth): Promise<ConfirmOutcome> => {
     const result = await api.POST('/api/auth/passkeys/registration/start', {
-      body: { password },
+      body: reauth,
     })
     if (!result.data) {
       if (result.response.status !== 409) return toConfirmOutcome(result)
       setNotice('limit')
       return 'confirmed'
     }
-    try {
-      setCreated(await createPasskey(result.data.publicKey))
-    } catch (error) {
-      const failure = toPasskeyFailure(error)
-      if (failure === 'already-registered') setNotice('device-registered')
-      else if (failure === 'failed') setNotice('failed')
-    }
+    if ('passkey' in reauth) setReadyToCreate(result.data.publicKey)
+    else await create(result.data.publicKey)
     return 'confirmed'
   }
 
@@ -71,11 +82,11 @@ export function PasskeysSection() {
     void passkeys.refetch()
   }
 
-  const remove = async (password: string): Promise<ConfirmOutcome> => {
+  const remove = async (reauth: Reauth): Promise<ConfirmOutcome> => {
     if (!removing) return 'confirmed'
     const result = await api.DELETE('/api/auth/passkeys/{id}', {
       params: { path: { id: removing.id } },
-      body: { password },
+      body: reauth,
     })
     // Already gone counts as removed: the list catches up either way.
     const outcome =
@@ -159,9 +170,24 @@ export function PasskeysSection() {
         isOpen={isAdding}
         onOpenChange={setIsAdding}
         title="Add a passkey."
-        description="Enter your password first. Your device then asks you to create the passkey."
+        description="Confirm it's you first. Your device then asks you to create the passkey."
         confirmLabel="Continue"
         onConfirm={register}
+      />
+      <AlertDialog
+        isOpen={readyToCreate !== null}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setReadyToCreate(null)
+        }}
+        title="Create the passkey."
+        description="Your device asks you to create it next."
+        actionLabel="Create passkey"
+        actionVariant="primary"
+        onAction={() => {
+          const publicKey = readyToCreate
+          setReadyToCreate(null)
+          if (publicKey) void create(publicKey)
+        }}
       />
       <PasskeyNameDialog credential={created} onDone={finishAdding} />
       <ConfirmPasswordDialog
@@ -170,7 +196,7 @@ export function PasskeysSection() {
           if (!isOpen) setRemoving(null)
         }}
         title={`Remove ${removing?.name ?? 'passkey'}?`}
-        description="Enter your password to remove it. It stops signing in to your account at once."
+        description="It stops signing in to your account at once."
         confirmLabel="Remove passkey"
         onConfirm={remove}
       />

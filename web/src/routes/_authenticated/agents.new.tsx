@@ -23,8 +23,14 @@ import { api } from '@/api/client'
 import { KeyIssued } from '@/components/agent-key-issued'
 import { PermissionEditor } from '@/components/agent-permissions'
 import { AppFrame } from '@/components/app-frame'
-import { ConfirmPasswordDialog } from '@/components/confirm-password-dialog'
-import type { ConfirmOutcome } from '@/components/confirm-password-dialog'
+import {
+  ConfirmPasswordDialog,
+  toReauthProblem,
+} from '@/components/confirm-password-dialog'
+import type {
+  ConfirmOutcome,
+  Reauth,
+} from '@/components/confirm-password-dialog'
 import { ListEmpty } from '@/components/list-empty'
 import { PageHeading } from '@/components/page-heading'
 import { SettingsSection } from '@/components/settings-section'
@@ -187,14 +193,14 @@ function CreateForm({ presets, onCreated }: CreateFormProps) {
     }
   }, [problem, grantProblems])
 
-  const create = async (password: string): Promise<ConfirmOutcome> => {
+  const create = async (reauth: Reauth): Promise<ConfirmOutcome> => {
     if (!pending) return 'failed'
     const body: components['schemas']['CreateConnection'] = {
       name: pending.name.trim(),
       grant: cleanGrant(pending.grant),
       expires_in_days:
         pending.expiry === 'days' ? pending.expires_in_days : null,
-      password,
+      ...reauth,
     }
     let result
     try {
@@ -212,7 +218,8 @@ function CreateForm({ presets, onCreated }: CreateFormProps) {
     if (response.status === 429) {
       return { kind: 'rate-limited', retryAfter: retryAfterSeconds(response) }
     }
-    if (toFieldErrors(error, ['password'] as const)) return 'incorrect-password'
+    const reauthProblem = toReauthProblem(error)
+    if (reauthProblem) return reauthProblem
     if (response.status === 409) {
       setProblem({
         title: 'You have 20 connections already.',
@@ -370,7 +377,7 @@ function CreateForm({ presets, onCreated }: CreateFormProps) {
           if (!isOpen) setPending(null)
         }}
         title="Confirm it’s you"
-        description="An access key can send messages from your number, so creating one needs your password."
+        description="An access key can send messages from your number, so creating one needs your password or a passkey."
         confirmLabel="Create connection"
         onConfirm={create}
       />

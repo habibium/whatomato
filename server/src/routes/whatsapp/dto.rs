@@ -1,10 +1,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-use validator::{Validate, ValidationError};
+use validator::{Validate, ValidationError, ValidationErrors};
 
 use crate::{
-    auth::two_factor::qr_code,
+    auth::{reauth::Reauth, two_factor::qr_code},
     whatsapp::{
         contacts::Names,
         inbox::History,
@@ -161,20 +161,28 @@ impl WhatsAppLink {
     }
 }
 
-#[derive(Deserialize, Validate, ToSchema)]
+#[derive(Deserialize, ToSchema)]
 pub(super) struct LinkRequest {
-    #[validate(length(min = 1, max = 128, message = "must be between 1 and 128 characters"))]
-    pub password: String,
+    #[serde(flatten)]
+    pub reauth: Reauth,
     /// Link with a code typed on the phone that has this number, instead of a QR code. Digits with
     /// the country code; a leading +, spaces and dashes are ignored.
-    #[validate(custom(function = "full_phone_number"))]
     pub phone_number: Option<String>,
 }
 
-#[derive(Deserialize, Validate, ToSchema)]
-pub(super) struct PasswordConfirmation {
-    #[validate(length(min = 1, max = 128, message = "must be between 1 and 128 characters"))]
-    pub password: String,
+impl Validate for LinkRequest {
+    fn validate(&self) -> Result<(), ValidationErrors> {
+        let mut errors = ValidationErrors::new();
+        self.reauth.check(&mut errors);
+        if let Some(Err(error)) = self.phone_number.as_deref().map(full_phone_number) {
+            errors.add("phone_number", error);
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
 }
 
 #[derive(Serialize, ToSchema)]

@@ -5,15 +5,19 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
+use axum_extra::extract::cookie::CookieJar;
 use uuid::Uuid;
 use whatsapp_rust::prelude::{Jid, Server};
 
 use super::dto::{
     ContactBook, ContactResponse, GroupResponse, HistoryImport, HistoryRequest, LinkRequest,
-    MessageHistory, PasswordConfirmation, Unlinked, WhatsAppLink, WhatsAppStatus, digits,
+    MessageHistory, Unlinked, WhatsAppLink, WhatsAppStatus, digits,
 };
 use crate::{
-    auth::{reauth, session::Session},
+    auth::{
+        reauth::{self, Reauth},
+        session::Session,
+    },
     db::{history_chunks, message_history, whatsapp_accounts, whatsapp_contacts},
     error::{AppError, ErrorBody},
     extract::ValidatedJson,
@@ -51,12 +55,12 @@ async fn may_link(state: &AppState, user_id: Uuid) -> Result<bool, AppError> {
 
 /// Start linking WhatsApp
 ///
-/// Checks the password, then starts linking: by QR code, or with `phone_number` by a code typed on
-/// that phone. The status then carries the code. Linking stops after 5 minutes, or once the QR codes
+/// Checks the password or a passkey, then starts linking: by QR code, or with `phone_number` by a
+/// code typed on that phone. The status then carries the code. Linking stops after 5 minutes, or once the QR codes
 /// run out after about 3.
 #[utoipa::path(post, path = "/link", request_body = LinkRequest, responses(
     (status = NO_CONTENT),
-    (status = BAD_REQUEST, description = "The password is incorrect", body = ErrorBody),
+    (status = BAD_REQUEST, description = "The password or passkey is incorrect", body = ErrorBody),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = CONFLICT, description = "WhatsApp is already linked or linking", body = ErrorBody),
     (status = TOO_MANY_REQUESTS, body = ErrorBody),
@@ -65,11 +69,12 @@ async fn may_link(state: &AppState, user_id: Uuid) -> Result<bool, AppError> {
 ))]
 pub async fn link(
     State(state): State<AppState>,
+    jar: CookieJar,
     session: Session,
     ValidatedJson(payload): ValidatedJson<LinkRequest>,
 ) -> Result<StatusCode, AppError> {
     let user = session.user;
-    reauth::confirm_password(&state, user.id, payload.password).await?;
+    reauth::confirm(&state, &jar, user.id, payload.reauth).await?;
     state.rate_limits.whatsapp_link(user.id)?;
     if !may_link(&state, user.id).await? {
         return Err(AppError::Full(
@@ -155,23 +160,24 @@ pub async fn resume(
 
 /// Unlink WhatsApp
 ///
-/// Checks the password, asks WhatsApp to remove the device from the phone, and deletes its keys.
-/// When WhatsApp can't be reached, the device stays under Linked devices on the phone until it's
-/// removed there.
-#[utoipa::path(post, path = "/unlink", request_body = PasswordConfirmation, responses(
+/// Checks the password or a passkey, asks WhatsApp to remove the device from the phone, and
+/// deletes its keys. When WhatsApp can't be reached, the device stays under Linked devices on the
+/// phone until it's removed there.
+#[utoipa::path(post, path = "/unlink", request_body = Reauth, responses(
     (status = OK, body = Unlinked),
-    (status = BAD_REQUEST, description = "The password is incorrect", body = ErrorBody),
+    (status = BAD_REQUEST, description = "The password or passkey is incorrect", body = ErrorBody),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = CONFLICT, description = "WhatsApp isn't linked", body = ErrorBody),
     (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
 ))]
 pub async fn unlink(
     State(state): State<AppState>,
+    jar: CookieJar,
     session: Session,
-    ValidatedJson(payload): ValidatedJson<PasswordConfirmation>,
+    ValidatedJson(payload): ValidatedJson<Reauth>,
 ) -> Result<Json<Unlinked>, AppError> {
     let user = session.user;
-    reauth::confirm_password(&state, user.id, payload.password).await?;
+    reauth::confirm(&state, &jar, user.id, payload).await?;
 
     let removed_from_phone = state
         .whatsapp
@@ -179,6 +185,50 @@ pub async fn unlink(
         .unlink()
         .await
         .map_err(refused_with("WhatsApp isn't linked"))?;
+
+    Ok(Json(Unlinked { removed_from_phone }))
+}
+
+/// Link WhatsApp again
+///
+/// Checks the password or a passkey once, unlinks as `/unlink` does, then starts linking by QR
+/// code as `/link` does, so the phone sends its older messages to the new link. With nothing
+/// linked, it only starts linking.
+#[utoipa::path(post, path = "/relink", request_body = Reauth, responses(
+    (status = OK, body = Unlinked),
+    (status = BAD_REQUEST, description = "The password or passkey is incorrect", body = ErrorBody),
+    (status = UNAUTHORIZED, body = ErrorBody),
+    (status = CONFLICT, description = "WhatsApp is being linked", body = ErrorBody),
+    (status = TOO_MANY_REQUESTS, body = ErrorBody),
+    (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
+    (status = SERVICE_UNAVAILABLE, description = "The server has as many WhatsApp accounts linked as it allows", body = ErrorBody),
+))]
+pub async fn relink(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    session: Session,
+    ValidatedJson(payload): ValidatedJson<Reauth>,
+) -> Result<Json<Unlinked>, AppError> {
+    let user = session.user;
+    reauth::confirm(&state, &jar, user.id, payload).await?;
+    // Both before unlinking, which would otherwise leave nothing linked and the place given up
+    state.rate_limits.whatsapp_link(user.id)?;
+    if !may_link(&state, user.id).await? {
+        return Err(AppError::Full(
+            "There's no room for another WhatsApp account on this server right now. Try again later.",
+        ));
+    }
+
+    let whatsapp = state.whatsapp.handle(user.id);
+    let removed_from_phone = match whatsapp.unlink().await {
+        Ok(removed) => removed,
+        Err(CommandError::Refused) => true,
+        Err(error) => return Err(refused_with("WhatsApp is being linked")(error)),
+    };
+    whatsapp
+        .link(Method::Qr)
+        .await
+        .map_err(refused_with("WhatsApp is being linked"))?;
 
     Ok(Json(Unlinked { removed_from_phone }))
 }

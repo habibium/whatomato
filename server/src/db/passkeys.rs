@@ -52,6 +52,17 @@ pub async fn credential_ids(db: impl PgExecutor<'_>, user_id: Uuid) -> sqlx::Res
     .await
 }
 
+pub async fn credentials(db: impl PgExecutor<'_>, user_id: Uuid) -> sqlx::Result<Vec<Passkey>> {
+    let rows = sqlx::query_scalar!(
+        r#"SELECT passkey AS "passkey: Json<Passkey>" FROM passkeys WHERE user_id = $1"#,
+        user_id
+    )
+    .fetch_all(db)
+    .await?;
+
+    Ok(rows.into_iter().map(|row| row.0).collect())
+}
+
 /// The passkey's id, its credential and its owner. The row stays locked until the transaction
 /// ends, so concurrent sign-ins with one passkey check its signature counter one at a time.
 pub async fn find_for_update(

@@ -19,7 +19,8 @@ export interface paths {
         put?: never;
         /**
          * Connect an AI agent
-         * @description Checks the permissions, then the password, and answers with the access key, shown this once.
+         * @description Checks the permissions, then the password or a passkey, and answers with the access key, shown
+         *     this once.
          *     Emails the owner.
          */
         post: operations["create_agent"];
@@ -201,9 +202,9 @@ export interface paths {
         put?: never;
         /**
          * Let an app sign in
-         * @description Checks the request again, then the password, and answers with the address to send the browser
-         *     to. The connection is made, or signed in to again, when the app exchanges the code in that
-         *     address, which it has a minute to do; the owner is emailed about a new one then.
+         * @description Checks the request again, then the password or a passkey, and answers with the address to send
+         *     the browser to. The connection is made, or signed in to again, when the app exchanges the code
+         *     in that address, which it has a minute to do; the owner is emailed about a new one then.
          */
         post: operations["approve_agent_sign_in"];
         delete?: never;
@@ -255,8 +256,8 @@ export interface paths {
         head?: never;
         /**
          * Rename a connection, change its permissions, or both
-         * @description A rename alone needs nothing more. New permissions need the password and email the owner when
-         *     they differ from the old ones.
+         * @description A rename alone needs nothing more. New permissions need the password or a passkey, and email the
+         *     owner when they differ from the old ones.
          */
         patch: operations["update_agent"];
         trace?: never;
@@ -357,6 +358,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/passkeys/reauth/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a passkey re-check
+         * @description Returns the options for `navigator.credentials.get()`, naming the signed-in user's passkeys. A
+         *     change that asks for the password again takes the credential it returns as `passkey` instead.
+         *     The challenge stays on the server for five minutes, named by a cookie, and works once.
+         */
+        post: operations["start_reauth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/passkeys/registration/finish": {
         parameters: {
             query?: never;
@@ -389,8 +412,9 @@ export interface paths {
         put?: never;
         /**
          * Start adding a passkey
-         * @description Checks the password again and returns the options for `navigator.credentials.create()`. The
-         *     challenge stays on the server for five minutes, named by a cookie.
+         * @description Checks the password or a passkey again and returns the options for
+         *     `navigator.credentials.create()`. The challenge stays on the server for five minutes, named by a
+         *     cookie.
          */
         post: operations["start_registration"];
         delete?: never;
@@ -454,8 +478,9 @@ export interface paths {
         post?: never;
         /**
          * Remove a passkey
-         * @description Checks the password again, deletes one of the signed-in user's passkeys and emails the owner.
-         *     Answers 404 for a passkey that is not theirs.
+         * @description Checks the password or a passkey again, deletes one of the signed-in user's passkeys and emails
+         *     the owner. Answers 404 for a passkey that is not theirs. The passkey being removed may confirm
+         *     its own removal.
          */
         delete: operations["remove"];
         options?: never;
@@ -646,8 +671,8 @@ export interface paths {
         put?: never;
         /**
          * Turn off two-step verification
-         * @description Checks the password, then deletes the authenticator key and every recovery code, so signing in
-         *     asks for the password alone again.
+         * @description Checks the password or a passkey, then deletes the authenticator key and every recovery code, so
+         *     signing in asks for the password alone again.
          */
         post: operations["disable_two_factor"];
         delete?: never;
@@ -691,8 +716,8 @@ export interface paths {
         put?: never;
         /**
          * Replace the recovery codes
-         * @description Checks the password, then returns ten new recovery codes. The earlier ones stop working, used
-         *     or not.
+         * @description Checks the password or a passkey, then returns ten new recovery codes. The earlier ones stop
+         *     working, used or not.
          */
         post: operations["regenerate_recovery_codes"];
         delete?: never;
@@ -712,9 +737,9 @@ export interface paths {
         put?: never;
         /**
          * Start setting up two-step verification
-         * @description Checks the password, then creates a key for an authenticator app. Signing in does not ask for
-         *     codes until `POST /two-factor/enable` confirms the app shows the right one, which it has 15
-         *     minutes to do. Starting again replaces a key that was never confirmed.
+         * @description Checks the password or a passkey, then creates a key for an authenticator app. Signing in does
+         *     not ask for codes until `POST /two-factor/enable` confirms the app shows the right one, which it
+         *     has 15 minutes to do. Starting again replaces a key that was never confirmed.
          */
         post: operations["setup_two_factor"];
         delete?: never;
@@ -1054,8 +1079,8 @@ export interface paths {
         put?: never;
         /**
          * Start linking WhatsApp
-         * @description Checks the password, then starts linking: by QR code, or with `phone_number` by a code typed on
-         *     that phone. The status then carries the code. Linking stops after 5 minutes, or once the QR codes
+         * @description Checks the password or a passkey, then starts linking: by QR code, or with `phone_number` by a
+         *     code typed on that phone. The status then carries the code. Linking stops after 5 minutes, or once the QR codes
          *     run out after about 3.
          */
         post: operations["link"];
@@ -1114,6 +1139,28 @@ export interface paths {
         get: operations["picture"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/whatsapp/relink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Link WhatsApp again
+         * @description Checks the password or a passkey once, unlinks as `/unlink` does, then starts linking by QR
+         *     code as `/link` does, so the phone sends its older messages to the new link. With nothing
+         *     linked, it only starts linking.
+         */
+        post: operations["relink"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1182,9 +1229,9 @@ export interface paths {
         put?: never;
         /**
          * Unlink WhatsApp
-         * @description Checks the password, asks WhatsApp to remove the device from the phone, and deletes its keys.
-         *     When WhatsApp can't be reached, the device stays under Linked devices on the phone until it's
-         *     removed there.
+         * @description Checks the password or a passkey, asks WhatsApp to remove the device from the phone, and
+         *     deletes its keys. When WhatsApp can't be reached, the device stays under Linked devices on the
+         *     phone until it's removed there.
          */
         post: operations["unlink"];
         delete?: never;
@@ -1406,7 +1453,7 @@ export interface components {
              */
             body?: string | null;
         };
-        ApproveSignIn: {
+        ApproveSignIn: components["schemas"]["Reauth"] & {
             /**
              * Format: uuid
              * @description Sign in again to this connection, keeping its permissions. Left out for a new connection.
@@ -1415,8 +1462,6 @@ export interface components {
             grant?: null | components["schemas"]["Grant"];
             /** @description A new connection's name, 1 to 60 characters */
             name?: string | null;
-            /** @description The account's password, asked again */
-            password: string;
             request: components["schemas"]["AuthorizationRequest"];
         };
         /** @description What a connection may do with pictures and files, apart from text */
@@ -1475,10 +1520,6 @@ export interface components {
             /** @description People who aren't saved contacts and have no rule of their own */
             strangers: components["schemas"]["Strangers"];
         };
-        /** @description The account password, asked again before a passkey is added or removed */
-        ConfirmPasskeyChange: {
-            password: string;
-        };
         /**
          * @description Whether a connection can be used now
          * @enum {string}
@@ -1509,7 +1550,7 @@ export interface components {
         };
         /** @enum {string} */
         Contacts: "none" | "find";
-        CreateConnection: {
+        CreateConnection: components["schemas"]["Reauth"] & {
             /**
              * Format: int32
              * @description Days until it stops working, 1 to 365; left out, it never expires
@@ -1518,8 +1559,6 @@ export interface components {
             grant: components["schemas"]["Grant"];
             /** @description 1 to 60 characters, such as the agent's or the computer's name */
             name: string;
-            /** @description The account's password, asked again */
-            password: string;
         };
         Credentials: {
             email: string;
@@ -1655,8 +1694,7 @@ export interface components {
         HistoryRequest: {
             keep: components["schemas"]["History"];
         };
-        LinkRequest: {
-            password: string;
+        LinkRequest: components["schemas"]["Reauth"] & {
             /**
              * @description Link with a code typed on the phone that has this number, instead of a QR code. Digits with
              *     the country code; a leading +, spaces and dashes are ignored.
@@ -1742,8 +1780,9 @@ export interface components {
             };
         };
         /**
-         * @description Options for `navigator.credentials.get()`. They name no account, so the browser offers every
-         *     passkey it holds for this site; the page picks the mediation, modal or conditional.
+         * @description Options for `navigator.credentials.get()`. A sign-in's name no account, so the browser offers
+         *     every passkey it holds for this site and the page picks the mediation, modal or conditional; a
+         *     re-check's name the signed-in user's passkeys.
          */
         PasskeyRequestOptions: {
             /** @description For `PublicKeyCredential.parseRequestOptionsFromJSON` */
@@ -1768,10 +1807,6 @@ export interface components {
             credential: {
                 [key: string]: unknown;
             };
-        };
-        /** @description The account password, asked again before a change to two-step verification */
-        PasswordConfirmation: {
-            password: string;
         };
         PasswordReset: {
             password: string;
@@ -1839,6 +1874,21 @@ export interface components {
              */
             months: number;
         } | "all";
+        /**
+         * @description The password, or one of the user's passkeys in its place, asked again before a change that
+         *     would let someone holding only a stolen session cookie keep access or lock the owner out, such
+         *     as adding a passkey. Send one of the two.
+         */
+        Reauth: {
+            /**
+             * @description `toJSON()` of the credential `navigator.credentials.get()` returned for the options from
+             *     `/api/auth/passkeys/reauth/start`, sent from the same browser
+             */
+            passkey?: {
+                [key: string]: unknown;
+            } | null;
+            password?: string | null;
+        };
         /** @enum {string} */
         RecipientType: "contact" | "group";
         RecoveryCode: {
@@ -1892,9 +1942,6 @@ export interface components {
              * @description The scheduled message it changes; empty for a new one
              */
             scheduled_message_id: string | null;
-        };
-        RotateKeyRequest: {
-            password: string;
         };
         Rule: {
             /**
@@ -2094,12 +2141,10 @@ export interface components {
             endpoint: string;
         };
         /** @description A new name, new permissions, or both */
-        UpdateConnection: {
+        UpdateConnection: components["schemas"]["Reauth"] & {
             grant?: null | components["schemas"]["Grant"];
             /** @description 1 to 60 characters */
             name?: string | null;
-            /** @description The account's password, asked again; needed only with `grant` */
-            password?: string | null;
         };
         /** @description How much of its limits a connection has used */
         Usage: {
@@ -2254,7 +2299,7 @@ export interface operations {
                     "application/json": components["schemas"]["AgentKeyIssued"];
                 };
             };
-            /** @description A field is missing or out of range, or the password is incorrect */
+            /** @description A field is missing or out of range, or the password or passkey is incorrect */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -2821,7 +2866,7 @@ export interface operations {
                     "application/json": components["schemas"]["SignInApproved"];
                 };
             };
-            /** @description A field is missing or out of range, or the password is incorrect */
+            /** @description A field is missing or out of range, or the password or passkey is incorrect */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3071,7 +3116,7 @@ export interface operations {
                     "application/json": components["schemas"]["AgentConnection"];
                 };
             };
-            /** @description Nothing to change, a field is out of range, or the password is missing or incorrect */
+            /** @description Nothing to change, a field is out of range, or the password or passkey is missing or incorrect */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3240,7 +3285,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RotateKeyRequest"];
+                "application/json": components["schemas"]["Reauth"];
             };
         };
         responses: {
@@ -3252,7 +3297,7 @@ export interface operations {
                     "application/json": components["schemas"]["AgentKeyIssued"];
                 };
             };
-            /** @description The password is incorrect */
+            /** @description The password or passkey is incorrect */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3378,6 +3423,52 @@ export interface operations {
             };
         };
     };
+    start_reauth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    /** @description Names this re-check */
+                    "set-cookie"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasskeyRequestOptions"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The account has no passkeys */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     finish_registration: {
         parameters: {
             query?: never;
@@ -3444,7 +3535,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConfirmPasskeyChange"];
+                "application/json": components["schemas"]["Reauth"];
             };
         };
         responses: {
@@ -3458,7 +3549,7 @@ export interface operations {
                     "application/json": components["schemas"]["PasskeyCreationOptions"];
                 };
             };
-            /** @description Wrong password */
+            /** @description Wrong password or passkey */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -3593,7 +3684,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["ConfirmPasskeyChange"];
+                "application/json": components["schemas"]["Reauth"];
             };
         };
         responses: {
@@ -3603,7 +3694,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Wrong password */
+            /** @description Wrong password or passkey */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -4037,7 +4128,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PasswordConfirmation"];
+                "application/json": components["schemas"]["Reauth"];
             };
         };
         responses: {
@@ -4047,7 +4138,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The password is incorrect */
+            /** @description The password or passkey is incorrect */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -4162,7 +4253,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PasswordConfirmation"];
+                "application/json": components["schemas"]["Reauth"];
             };
         };
         responses: {
@@ -4174,7 +4265,7 @@ export interface operations {
                     "application/json": components["schemas"]["RecoveryCodes"];
                 };
             };
-            /** @description The password is incorrect */
+            /** @description The password or passkey is incorrect */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -4219,7 +4310,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PasswordConfirmation"];
+                "application/json": components["schemas"]["Reauth"];
             };
         };
         responses: {
@@ -4231,7 +4322,7 @@ export interface operations {
                     "application/json": components["schemas"]["TwoFactorSetup"];
                 };
             };
-            /** @description The password is incorrect */
+            /** @description The password or passkey is incorrect */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -5513,7 +5604,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description The password is incorrect */
+            /** @description The password or passkey is incorrect */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -5696,6 +5787,80 @@ export interface operations {
             };
         };
     };
+    relink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["Reauth"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unlinked"];
+                };
+            };
+            /** @description The password or passkey is incorrect */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description WhatsApp is being linked */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The server has as many WhatsApp accounts linked as it allows */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     resume: {
         parameters: {
             query?: never;
@@ -5824,7 +5989,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["PasswordConfirmation"];
+                "application/json": components["schemas"]["Reauth"];
             };
         };
         responses: {
@@ -5836,7 +6001,7 @@ export interface operations {
                     "application/json": components["schemas"]["Unlinked"];
                 };
             };
-            /** @description The password is incorrect */
+            /** @description The password or passkey is incorrect */
             400: {
                 headers: {
                     [name: string]: unknown;

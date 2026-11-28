@@ -2,6 +2,7 @@
 //! A no needs no call; the page sends the browser to `deny_url`.
 
 use axum::{Json, extract::State};
+use axum_extra::extract::cookie::CookieJar;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
@@ -14,7 +15,10 @@ use super::{
 };
 use crate::{
     agents::{Grant, key::Issued},
-    auth::{reauth, session::Session},
+    auth::{
+        reauth::{self, Reauth},
+        session::Session,
+    },
     db::{
         agent_connections::{self, MAX_PER_USER},
         agent_sign_ins::{self, NewSignIn, Target},
@@ -63,8 +67,8 @@ pub(super) struct SignInAsk {
 #[derive(Deserialize, ToSchema)]
 pub(super) struct ApproveSignIn {
     pub request: AuthorizationRequest,
-    /// The account's password, asked again
-    pub password: String,
+    #[serde(flatten)]
+    pub reauth: Reauth,
     /// Sign in again to this connection, keeping its permissions. Left out for a new connection.
     pub connection_id: Option<Uuid>,
     /// A new connection's name, 1 to 60 characters
@@ -76,13 +80,7 @@ pub(super) struct ApproveSignIn {
 impl Validate for ApproveSignIn {
     fn validate(&self) -> Result<(), ValidationErrors> {
         let mut errors = ValidationErrors::new();
-        if !(1..=128).contains(&self.password.chars().count()) {
-            add(
-                &mut errors,
-                "password",
-                "must be between 1 and 128 characters",
-            );
-        }
+        self.reauth.check(&mut errors);
         match (&self.connection_id, &self.name, &self.grant) {
             (Some(_), None, None) => {}
             (None, Some(name), Some(_)) => check_name(name, &mut errors),
@@ -155,12 +153,12 @@ pub async fn check_agent_sign_in(
 
 /// Let an app sign in
 ///
-/// Checks the request again, then the password, and answers with the address to send the browser
-/// to. The connection is made, or signed in to again, when the app exchanges the code in that
-/// address, which it has a minute to do; the owner is emailed about a new one then.
+/// Checks the request again, then the password or a passkey, and answers with the address to send
+/// the browser to. The connection is made, or signed in to again, when the app exchanges the code
+/// in that address, which it has a minute to do; the owner is emailed about a new one then.
 #[utoipa::path(post, path = "/sign-in/approve", request_body = ApproveSignIn, responses(
     (status = OK, body = SignInApproved),
-    (status = BAD_REQUEST, description = "A field is missing or out of range, or the password is incorrect", body = ErrorBody),
+    (status = BAD_REQUEST, description = "A field is missing or out of range, or the password or passkey is incorrect", body = ErrorBody),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = NOT_FOUND, description = "Agent access is off on this server, or the connection isn't one this app signed in to", body = ErrorBody),
     (status = CONFLICT, description = "The account already has 20 connections", body = ErrorBody),
@@ -171,6 +169,7 @@ pub async fn check_agent_sign_in(
 pub async fn approve_agent_sign_in(
     _: Enabled,
     State(state): State<AppState>,
+    jar: CookieJar,
     session: Session,
     ValidatedJson(input): ValidatedJson<ApproveSignIn>,
 ) -> Result<Json<SignInApproved>, AppError> {
@@ -209,7 +208,7 @@ pub async fn approve_agent_sign_in(
         // `validate` let only those two through
         _ => return Err(AppError::NotFound),
     };
-    reauth::confirm_password(&state, user_id, input.password).await?;
+    reauth::confirm(&state, &jar, user_id, input.reauth).await?;
 
     let (code, code_hash) = Issued::Code.generate()?;
     agent_sign_ins::create(

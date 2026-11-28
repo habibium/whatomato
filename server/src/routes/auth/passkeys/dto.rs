@@ -8,13 +8,6 @@ use webauthn_rs_proto::{PublicKeyCredentialCreationOptions, PublicKeyCredentialR
 
 use crate::db;
 
-/// The account password, asked again before a passkey is added or removed
-#[derive(Deserialize, Validate, ToSchema)]
-pub(super) struct ConfirmPasskeyChange {
-    #[validate(length(min = 1, max = 128, message = "must be between 1 and 128 characters"))]
-    pub password: String,
-}
-
 /// Options for `navigator.credentials.create()`
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -24,8 +17,9 @@ pub(super) struct PasskeyCreationOptions {
     pub public_key: PublicKeyCredentialCreationOptions,
 }
 
-/// Options for `navigator.credentials.get()`. They name no account, so the browser offers every
-/// passkey it holds for this site; the page picks the mediation, modal or conditional.
+/// Options for `navigator.credentials.get()`. A sign-in's name no account, so the browser offers
+/// every passkey it holds for this site and the page picks the mediation, modal or conditional; a
+/// re-check's name the signed-in user's passkeys.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct PasskeyRequestOptions {

@@ -50,7 +50,7 @@
       },
       "post": {
         "summary": "Connect an AI agent",
-        "description": "Checks the permissions, then the password, and answers with the access key, shown this once.\nEmails the owner.",
+        "description": "Checks the permissions, then the password or a passkey, and answers with the access key, shown\nthis once.\nEmails the owner.",
         "operationId": "create_agent",
         "requestBody": {
           "content": {
@@ -74,7 +74,7 @@
             }
           },
           "400": {
-            "description": "A field is missing or out of range, or the password is incorrect",
+            "description": "A field is missing or out of range, or the password or passkey is incorrect",
             "content": {
               "application/json": {
                 "schema": {
@@ -768,7 +768,7 @@
     "/api/agents/sign-in/approve": {
       "post": {
         "summary": "Let an app sign in",
-        "description": "Checks the request again, then the password, and answers with the address to send the browser\nto. The connection is made, or signed in to again, when the app exchanges the code in that\naddress, which it has a minute to do; the owner is emailed about a new one then.",
+        "description": "Checks the request again, then the password or a passkey, and answers with the address to send\nthe browser to. The connection is made, or signed in to again, when the app exchanges the code\nin that address, which it has a minute to do; the owner is emailed about a new one then.",
         "operationId": "approve_agent_sign_in",
         "requestBody": {
           "content": {
@@ -792,7 +792,7 @@
             }
           },
           "400": {
-            "description": "A field is missing or out of range, or the password is incorrect",
+            "description": "A field is missing or out of range, or the password or passkey is incorrect",
             "content": {
               "application/json": {
                 "schema": {
@@ -1080,7 +1080,7 @@
       },
       "patch": {
         "summary": "Rename a connection, change its permissions, or both",
-        "description": "A rename alone needs nothing more. New permissions need the password and email the owner when\nthey differ from the old ones.",
+        "description": "A rename alone needs nothing more. New permissions need the password or a passkey, and email the\nowner when they differ from the old ones.",
         "operationId": "update_agent",
         "parameters": [
           {
@@ -1115,7 +1115,7 @@
             }
           },
           "400": {
-            "description": "Nothing to change, a field is out of range, or the password is missing or incorrect",
+            "description": "Nothing to change, a field is out of range, or the password or passkey is missing or incorrect",
             "content": {
               "application/json": {
                 "schema": {
@@ -1335,7 +1335,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RotateKeyRequest"
+                "$ref": "#/components/schemas/Reauth"
               }
             }
           },
@@ -1353,7 +1353,7 @@
             }
           },
           "400": {
-            "description": "The password is incorrect",
+            "description": "The password or passkey is incorrect",
             "content": {
               "application/json": {
                 "schema": {
@@ -1509,6 +1509,63 @@
         }
       }
     },
+    "/api/auth/passkeys/reauth/start": {
+      "post": {
+        "summary": "Start a passkey re-check",
+        "description": "Returns the options for `navigator.credentials.get()`, naming the signed-in user's passkeys. A\nchange that asks for the password again takes the credential it returns as `passkey` instead.\nThe challenge stays on the server for five minutes, named by a cookie, and works once.",
+        "operationId": "start_reauth",
+        "responses": {
+          "200": {
+            "description": "",
+            "headers": {
+              "set-cookie": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Names this re-check"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyRequestOptions"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The account has no passkeys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/passkeys/registration/finish": {
       "post": {
         "summary": "Finish adding a passkey",
@@ -1581,13 +1638,13 @@
     "/api/auth/passkeys/registration/start": {
       "post": {
         "summary": "Start adding a passkey",
-        "description": "Checks the password again and returns the options for `navigator.credentials.create()`. The\nchallenge stays on the server for five minutes, named by a cookie.",
+        "description": "Checks the password or a passkey again and returns the options for\n`navigator.credentials.create()`. The challenge stays on the server for five minutes, named by a\ncookie.",
         "operationId": "start_registration",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ConfirmPasskeyChange"
+                "$ref": "#/components/schemas/Reauth"
               }
             }
           },
@@ -1613,7 +1670,7 @@
             }
           },
           "400": {
-            "description": "Wrong password",
+            "description": "Wrong password or passkey",
             "content": {
               "application/json": {
                 "schema": {
@@ -1772,7 +1829,7 @@
     "/api/auth/passkeys/{id}": {
       "delete": {
         "summary": "Remove a passkey",
-        "description": "Checks the password again, deletes one of the signed-in user's passkeys and emails the owner.\nAnswers 404 for a passkey that is not theirs.",
+        "description": "Checks the password or a passkey again, deletes one of the signed-in user's passkeys and emails\nthe owner. Answers 404 for a passkey that is not theirs. The passkey being removed may confirm\nits own removal.",
         "operationId": "remove",
         "parameters": [
           {
@@ -1789,7 +1846,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ConfirmPasskeyChange"
+                "$ref": "#/components/schemas/Reauth"
               }
             }
           },
@@ -1800,7 +1857,7 @@
             "description": ""
           },
           "400": {
-            "description": "Wrong password",
+            "description": "Wrong password or passkey",
             "content": {
               "application/json": {
                 "schema": {
@@ -2357,13 +2414,13 @@
     "/api/auth/two-factor/disable": {
       "post": {
         "summary": "Turn off two-step verification",
-        "description": "Checks the password, then deletes the authenticator key and every recovery code, so signing in\nasks for the password alone again.",
+        "description": "Checks the password or a passkey, then deletes the authenticator key and every recovery code, so\nsigning in asks for the password alone again.",
         "operationId": "disable_two_factor",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PasswordConfirmation"
+                "$ref": "#/components/schemas/Reauth"
               }
             }
           },
@@ -2374,7 +2431,7 @@
             "description": ""
           },
           "400": {
-            "description": "The password is incorrect",
+            "description": "The password or passkey is incorrect",
             "content": {
               "application/json": {
                 "schema": {
@@ -2516,13 +2573,13 @@
     "/api/auth/two-factor/recovery-codes": {
       "post": {
         "summary": "Replace the recovery codes",
-        "description": "Checks the password, then returns ten new recovery codes. The earlier ones stop working, used\nor not.",
+        "description": "Checks the password or a passkey, then returns ten new recovery codes. The earlier ones stop\nworking, used or not.",
         "operationId": "regenerate_recovery_codes",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PasswordConfirmation"
+                "$ref": "#/components/schemas/Reauth"
               }
             }
           },
@@ -2540,7 +2597,7 @@
             }
           },
           "400": {
-            "description": "The password is incorrect",
+            "description": "The password or passkey is incorrect",
             "content": {
               "application/json": {
                 "schema": {
@@ -2585,13 +2642,13 @@
     "/api/auth/two-factor/setup": {
       "post": {
         "summary": "Start setting up two-step verification",
-        "description": "Checks the password, then creates a key for an authenticator app. Signing in does not ask for\ncodes until `POST /two-factor/enable` confirms the app shows the right one, which it has 15\nminutes to do. Starting again replaces a key that was never confirmed.",
+        "description": "Checks the password or a passkey, then creates a key for an authenticator app. Signing in does\nnot ask for codes until `POST /two-factor/enable` confirms the app shows the right one, which it\nhas 15 minutes to do. Starting again replaces a key that was never confirmed.",
         "operationId": "setup_two_factor",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PasswordConfirmation"
+                "$ref": "#/components/schemas/Reauth"
               }
             }
           },
@@ -2609,7 +2666,7 @@
             }
           },
           "400": {
-            "description": "The password is incorrect",
+            "description": "The password or passkey is incorrect",
             "content": {
               "application/json": {
                 "schema": {
@@ -4222,7 +4279,7 @@
     "/api/whatsapp/link": {
       "post": {
         "summary": "Start linking WhatsApp",
-        "description": "Checks the password, then starts linking: by QR code, or with `phone_number` by a code typed on\nthat phone. The status then carries the code. Linking stops after 5 minutes, or once the QR codes\nrun out after about 3.",
+        "description": "Checks the password or a passkey, then starts linking: by QR code, or with `phone_number` by a\ncode typed on that phone. The status then carries the code. Linking stops after 5 minutes, or once the QR codes\nrun out after about 3.",
         "operationId": "link",
         "requestBody": {
           "content": {
@@ -4239,7 +4296,7 @@
             "description": ""
           },
           "400": {
-            "description": "The password is incorrect",
+            "description": "The password or passkey is incorrect",
             "content": {
               "application/json": {
                 "schema": {
@@ -4448,6 +4505,95 @@
         }
       }
     },
+    "/api/whatsapp/relink": {
+      "post": {
+        "summary": "Link WhatsApp again",
+        "description": "Checks the password or a passkey once, unlinks as `/unlink` does, then starts linking by QR\ncode as `/link` does, so the phone sends its older messages to the new link. With nothing\nlinked, it only starts linking.",
+        "operationId": "relink",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Reauth"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Unlinked"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The password or passkey is incorrect",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "WhatsApp is being linked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The server has as many WhatsApp accounts linked as it allows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/whatsapp/resume": {
       "post": {
         "summary": "Reconnect WhatsApp after a pause or a stop",
@@ -4571,13 +4717,13 @@
     "/api/whatsapp/unlink": {
       "post": {
         "summary": "Unlink WhatsApp",
-        "description": "Checks the password, asks WhatsApp to remove the device from the phone, and deletes its keys.\nWhen WhatsApp can't be reached, the device stays under Linked devices on the phone until it's\nremoved there.",
+        "description": "Checks the password or a passkey, asks WhatsApp to remove the device from the phone, and\ndeletes its keys. When WhatsApp can't be reached, the device stays under Linked devices on the\nphone until it's removed there.",
         "operationId": "unlink",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/PasswordConfirmation"
+                "$ref": "#/components/schemas/Reauth"
               }
             }
           },
@@ -4595,7 +4741,7 @@
             }
           },
           "400": {
-            "description": "The password is incorrect",
+            "description": "The password or passkey is incorrect",
             "content": {
               "application/json": {
                 "schema": {
@@ -5208,46 +5354,48 @@
         }
       },
       "ApproveSignIn": {
-        "type": "object",
-        "required": [
-          "request",
-          "password"
-        ],
-        "properties": {
-          "connection_id": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "uuid",
-            "description": "Sign in again to this connection, keeping its permissions. Left out for a new connection."
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Reauth"
           },
-          "grant": {
-            "oneOf": [
-              {
-                "type": "null"
+          {
+            "type": "object",
+            "required": [
+              "request"
+            ],
+            "properties": {
+              "connection_id": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "uuid",
+                "description": "Sign in again to this connection, keeping its permissions. Left out for a new connection."
               },
-              {
-                "$ref": "#/components/schemas/Grant",
-                "description": "A new connection's permissions"
+              "grant": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Grant",
+                    "description": "A new connection's permissions"
+                  }
+                ]
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "A new connection's name, 1 to 60 characters"
+              },
+              "request": {
+                "$ref": "#/components/schemas/AuthorizationRequest"
               }
-            ]
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "A new connection's name, 1 to 60 characters"
-          },
-          "password": {
-            "type": "string",
-            "description": "The account's password, asked again"
-          },
-          "request": {
-            "$ref": "#/components/schemas/AuthorizationRequest"
+            }
           }
-        }
+        ]
       },
       "Attachments": {
         "type": "object",
@@ -5426,18 +5574,6 @@
         },
         "additionalProperties": false
       },
-      "ConfirmPasskeyChange": {
-        "type": "object",
-        "description": "The account password, asked again before a passkey is added or removed",
-        "required": [
-          "password"
-        ],
-        "properties": {
-          "password": {
-            "type": "string"
-          }
-        }
-      },
       "ConnectionStatus": {
         "type": "string",
         "description": "Whether a connection can be used now",
@@ -5516,34 +5652,36 @@
         ]
       },
       "CreateConnection": {
-        "type": "object",
-        "required": [
-          "name",
-          "grant",
-          "password"
-        ],
-        "properties": {
-          "expires_in_days": {
-            "type": [
-              "integer",
-              "null"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Reauth"
+          },
+          {
+            "type": "object",
+            "required": [
+              "name",
+              "grant"
             ],
-            "format": "int32",
-            "description": "Days until it stops working, 1 to 365; left out, it never expires",
-            "minimum": 0
-          },
-          "grant": {
-            "$ref": "#/components/schemas/Grant"
-          },
-          "name": {
-            "type": "string",
-            "description": "1 to 60 characters, such as the agent's or the computer's name"
-          },
-          "password": {
-            "type": "string",
-            "description": "The account's password, asked again"
+            "properties": {
+              "expires_in_days": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int32",
+                "description": "Days until it stops working, 1 to 365; left out, it never expires",
+                "minimum": 0
+              },
+              "grant": {
+                "$ref": "#/components/schemas/Grant"
+              },
+              "name": {
+                "type": "string",
+                "description": "1 to 60 characters, such as the agent's or the computer's name"
+              }
+            }
           }
-        }
+        ]
       },
       "Credentials": {
         "type": "object",
@@ -5965,22 +6103,23 @@
         }
       },
       "LinkRequest": {
-        "type": "object",
-        "required": [
-          "password"
-        ],
-        "properties": {
-          "password": {
-            "type": "string"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Reauth"
           },
-          "phone_number": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Link with a code typed on the phone that has this number, instead of a QR code. Digits with\nthe country code; a leading +, spaces and dashes are ignored."
+          {
+            "type": "object",
+            "properties": {
+              "phone_number": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Link with a code typed on the phone that has this number, instead of a QR code. Digits with\nthe country code; a leading +, spaces and dashes are ignored."
+              }
+            }
           }
-        }
+        ]
       },
       "MessageHistory": {
         "type": "object",
@@ -6199,7 +6338,7 @@
       },
       "PasskeyRequestOptions": {
         "type": "object",
-        "description": "Options for `navigator.credentials.get()`. They name no account, so the browser offers every\npasskey it holds for this site; the page picks the mediation, modal or conditional.",
+        "description": "Options for `navigator.credentials.get()`. A sign-in's name no account, so the browser offers\nevery passkey it holds for this site and the page picks the mediation, modal or conditional; a\nre-check's name the signed-in user's passkeys.",
         "required": [
           "publicKey"
         ],
@@ -6257,18 +6396,6 @@
             "propertyNames": {
               "type": "string"
             }
-          }
-        }
-      },
-      "PasswordConfirmation": {
-        "type": "object",
-        "description": "The account password, asked again before a change to two-step verification",
-        "required": [
-          "password"
-        ],
-        "properties": {
-          "password": {
-            "type": "string"
           }
         }
       },
@@ -6459,6 +6586,29 @@
           }
         ],
         "description": "How far back a connection may read"
+      },
+      "Reauth": {
+        "type": "object",
+        "description": "The password, or one of the user's passkeys in its place, asked again before a change that\nwould let someone holding only a stolen session cookie keep access or lock the owner out, such\nas adding a passkey. Send one of the two.",
+        "properties": {
+          "passkey": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "`toJSON()` of the credential `navigator.credentials.get()` returned for the options from\n`/api/auth/passkeys/reauth/start`, sent from the same browser",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "RecipientType": {
         "type": "string",
@@ -6659,17 +6809,6 @@
             ],
             "format": "uuid",
             "description": "The scheduled message it changes; empty for a new one"
-          }
-        }
-      },
-      "RotateKeyRequest": {
-        "type": "object",
-        "required": [
-          "password"
-        ],
-        "properties": {
-          "password": {
-            "type": "string"
           }
         }
       },
@@ -7304,35 +7443,36 @@
         }
       },
       "UpdateConnection": {
-        "type": "object",
-        "description": "A new name, new permissions, or both",
-        "properties": {
-          "grant": {
-            "oneOf": [
-              {
-                "type": "null"
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Reauth",
+            "description": "Needed only with `grant`"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "grant": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/Grant",
+                    "description": "Needs the password or a passkey"
+                  }
+                ]
               },
-              {
-                "$ref": "#/components/schemas/Grant",
-                "description": "Needs `password`"
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "1 to 60 characters"
               }
-            ]
-          },
-          "name": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "1 to 60 characters"
-          },
-          "password": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The account's password, asked again; needed only with `grant`"
+            }
           }
-        }
+        ],
+        "description": "A new name, new permissions, or both"
       },
       "Usage": {
         "type": "object",

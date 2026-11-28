@@ -35,7 +35,7 @@ description: Every number Whatomato enforces, from how fast it sends to how many
 | Password reset link | 1 hour, single use |
 | Emailed links | One a minute for each account and purpose |
 | Password sign-in attempts for an account | 10, then one every 90 seconds |
-| Password re-checks for a signed-in user | 10, then one every 90 seconds |
+| Password or passkey re-checks for a signed-in user | 10, then one every 90 seconds |
 | Two-step code step | 5 minutes, 5 wrong codes |
 | Wrong two-step codes for an account | 30 a day |
 | Two-step setup | 15 minutes, 5 wrong codes |

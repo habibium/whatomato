@@ -86,7 +86,7 @@ async fn linking_and_unlinking_check_the_password(pool: PgPool) {
     let app = TestApp::new(pool);
     let (_, session) = app.signed_in("ada@example.com").await;
     let wrong = json!({ "password": "not the password" });
-    for path in ["/link", "/unlink"] {
+    for path in ["/link", "/unlink", "/relink"] {
         let response = call(
             &app,
             Method::POST,

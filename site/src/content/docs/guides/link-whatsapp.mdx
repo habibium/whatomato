@@ -8,7 +8,7 @@ import Screenshot from '../../../components/Screenshot.astro'
 
 Whatomato joins your account the way WhatsApp Web does, as a linked device. Your phone keeps working as usual, and messages go out from your own number.
 
-Each Whatomato account links one WhatsApp account. Linking and unlinking ask for your Whatomato password again.
+Each Whatomato account links one WhatsApp account. Linking and unlinking ask for your Whatomato password again, or a [passkey](/guides/account-security/#passkeys) if you've added one.
 
 :::caution
 WhatsApp doesn't officially allow apps like Whatomato and can ban a number that uses one. See [WhatsApp's rules](/start/whatsapp-risk/).
@@ -23,7 +23,7 @@ You need the phone that has WhatsApp, and a second screen to show the code on.
 <Steps>
 
 1. In Whatomato, open **WhatsApp** and choose **Link with QR code**.
-2. Enter your password and choose **Continue**.
+2. Enter your password and choose **Continue**, or choose **Use a passkey**.
 
    <Screenshot name="whatsapp-link-password" alt="The Link with a QR code dialog asking for the account password" />
 3. On your phone, open WhatsApp. Tap **Settings** on iPhone, or **⋮** on Android.
@@ -41,7 +41,7 @@ Use this when Whatomato is open on the same phone that has WhatsApp, so there's 
 <Steps>
 
 1. In Whatomato, open **WhatsApp** and choose **Link with phone number instead**.
-2. Enter the number of the phone that has WhatsApp, with its country code, then your password, and choose **Continue**.
+2. Enter the number of the phone that has WhatsApp, with its country code, then your password, and choose **Continue**. With a passkey, choose **Use a passkey** instead of entering the password.
 3. Whatomato shows an 8-character code. **Copy code** copies it.
 
    <Screenshot name="whatsapp-pair-code" alt="The WhatsApp page showing an 8-character pairing code, a Copy code button and the steps to follow on the phone" />
@@ -103,7 +103,7 @@ WhatsApp logs out a linked device that stays offline too long. To keep the link 
 
 ## Unlink
 
-**Unlink** asks for your password. Whatomato then logs out of your WhatsApp and deletes the keys that linked it, together with its copy of your contacts and the messages it kept for agents to read. Your scheduled messages, templates and history stay; the messages stop sending until you link again.
+**Unlink** asks for your password or a passkey. Whatomato then logs out of your WhatsApp and deletes the keys that linked it, together with its copy of your contacts and the messages it kept for agents to read. Your scheduled messages, templates and history stay; the messages stop sending until you link again.
 
 If WhatsApp can't be reached, the keys are deleted anyway and the page tells you to **remove Whatomato from your phone too**: open **Linked devices** on your phone, tap Whatomato, then **Log out**.
 

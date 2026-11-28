@@ -4,13 +4,6 @@ use validator::{Validate, ValidationErrors};
 
 use crate::db;
 
-/// The account password, asked again before a change to two-step verification
-#[derive(Deserialize, Validate, ToSchema)]
-pub(super) struct PasswordConfirmation {
-    #[validate(length(min = 1, max = 128, message = "must be between 1 and 128 characters"))]
-    pub password: String,
-}
-
 #[derive(Deserialize, Validate, ToSchema)]
 pub(super) struct AuthenticatorCode {
     /// The 6-digit code the authenticator app shows

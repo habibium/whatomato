@@ -15,6 +15,7 @@ pub fn router() -> OpenApiRouter<AppState> {
         .routes(routes!(handlers::pause))
         .routes(routes!(handlers::resume))
         .routes(routes!(handlers::unlink))
+        .routes(routes!(handlers::relink))
         .routes(routes!(handlers::groups))
         .routes(routes!(handlers::contacts))
         .routes(routes!(handlers::picture))

@@ -40,6 +40,8 @@ pub fn relying_party(app_url: &Url) -> anyhow::Result<Webauthn> {
 pub enum Ceremony {
     Registration,
     Authentication,
+    /// A signed-in user's passkey, asked for again in place of the password
+    Reauthentication,
 }
 
 impl Ceremony {
@@ -47,6 +49,7 @@ impl Ceremony {
         match self {
             Self::Registration => "registration",
             Self::Authentication => "authentication",
+            Self::Reauthentication => "reauthentication",
         }
     }
 }

@@ -28,6 +28,11 @@ pub enum AppError {
     #[error("Validation Failed")]
     IncorrectPassword,
 
+    /// A passkey asked for in place of the password isn't the user's, failed verification, or
+    /// answered a challenge that expired or was already used
+    #[error("Validation Failed")]
+    IncorrectPasskey,
+
     /// A new passkey failed verification, or came back after its registration expired or finished
     #[error("This passkey request is invalid or has expired")]
     PasskeyRejected,
@@ -148,6 +153,15 @@ impl IntoResponse for AppError {
                 Some(HashMap::from([(
                     "password".into(),
                     vec!["is incorrect".into()],
+                )])),
+            ),
+
+            Self::IncorrectPasskey => (
+                StatusCode::BAD_REQUEST,
+                self.to_string(),
+                Some(HashMap::from([(
+                    "passkey".into(),
+                    vec!["wasn't accepted".into()],
                 )])),
             ),
 

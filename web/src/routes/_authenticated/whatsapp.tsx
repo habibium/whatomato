@@ -30,7 +30,10 @@ import {
   ConfirmPasswordDialog,
   toConfirmOutcome,
 } from '@/components/confirm-password-dialog'
-import type { ConfirmOutcome } from '@/components/confirm-password-dialog'
+import type {
+  ConfirmOutcome,
+  Reauth,
+} from '@/components/confirm-password-dialog'
 import {
   GroupsSection,
   TestMessageSection,
@@ -190,11 +193,9 @@ function WhatsAppPage() {
     await refresh()
   }
 
-  const startLink = async (password: string, phoneNumber: string | null) => {
+  const startLink = async (reauth: Reauth, phoneNumber: string | null) => {
     const result = await api.POST('/api/whatsapp/link', {
-      body: phoneNumber
-        ? { password, phone_number: phoneNumber }
-        : { password },
+      body: phoneNumber ? { ...reauth, phone_number: phoneNumber } : reauth,
     })
     if (result.response.ok) setNotice(null)
     // 503: the server is full; the page says so in place of the dialog
@@ -211,16 +212,16 @@ function WhatsAppPage() {
     return result
   }
 
-  const linkByQr = async (password: string): Promise<ConfirmOutcome> => {
-    const result = await startLink(password, null)
+  const linkByQr = async (reauth: Reauth): Promise<ConfirmOutcome> => {
+    const result = await startLink(reauth, null)
     return result === 'confirmed' ? result : toConfirmOutcome(result)
   }
 
   const linkByPhone = async (
     digits: string,
-    password: string,
+    reauth: Reauth,
   ): Promise<PhoneLinkOutcome> => {
-    const result = await startLink(password, digits)
+    const result = await startLink(reauth, digits)
     if (result === 'confirmed') return result
     if (toFieldErrors(result.error, ['phone_number'] as const)) {
       return 'invalid-number'
@@ -228,10 +229,8 @@ function WhatsAppPage() {
     return toConfirmOutcome(result)
   }
 
-  const unlink = async (password: string): Promise<ConfirmOutcome> => {
-    const result = await api.POST('/api/whatsapp/unlink', {
-      body: { password },
-    })
+  const unlink = async (reauth: Reauth): Promise<ConfirmOutcome> => {
+    const result = await api.POST('/api/whatsapp/unlink', { body: reauth })
     if (result.data) {
       setNotice(result.data.removed_from_phone ? 'unlinked' : 'still-on-phone')
     }
@@ -242,18 +241,23 @@ function WhatsAppPage() {
     return toConfirmOutcome(result)
   }
 
-  /** Unlinks, then links by QR code with the same password, so the phone sends its history. */
-  const relink = async (password: string): Promise<ConfirmOutcome> => {
-    const unlinked = await api.POST('/api/whatsapp/unlink', {
-      body: { password },
-    })
-    if (!unlinked.data && unlinked.response.status !== 409) {
-      return toConfirmOutcome(unlinked)
+  /** Unlinks, then links by QR code, so the phone sends its history. */
+  const relink = async (reauth: Reauth): Promise<ConfirmOutcome> => {
+    const result = await api.POST('/api/whatsapp/relink', { body: reauth })
+    if (result.data) {
+      setNotice(result.data.removed_from_phone ? null : 'still-on-phone')
     }
-    if (unlinked.data && !unlinked.data.removed_from_phone) {
-      setNotice('still-on-phone')
+    if (result.response.status === 503) {
+      setLinkRefused(result.error?.error ?? NO_ROOM)
+      await refresh()
+      return 'confirmed'
     }
-    return linkByQr(password)
+    // 409: another tab started linking first, and the refresh shows how far it got
+    if (result.data || result.response.status === 409) {
+      await refresh()
+      return 'confirmed'
+    }
+    return toConfirmOutcome(result)
   }
 
   const isConnected = status?.status === 'connected'

@@ -14,6 +14,7 @@ use crate::{
         agent_approvals::Listed,
         agent_connections::{Connection, Revoked},
     },
+    auth::reauth::Reauth,
     oauth,
     routes::deliveries::DeliveryState,
     scheduler::{
@@ -24,7 +25,6 @@ use crate::{
 };
 
 pub(super) const NAME_MAX: usize = 60;
-const PASSWORD_MAX: usize = 128;
 const EXPIRY_DAYS_MAX: u32 = 365;
 
 /// The Agents page: whether agent access is on, the connections and how many approvals wait
@@ -254,8 +254,8 @@ pub(super) struct CreateConnection {
     pub grant: Grant,
     /// Days until it stops working, 1 to 365; left out, it never expires
     pub expires_in_days: Option<u32>,
-    /// The account's password, asked again
-    pub password: String,
+    #[serde(flatten)]
+    pub reauth: Reauth,
 }
 
 impl Validate for CreateConnection {
@@ -272,7 +272,7 @@ impl Validate for CreateConnection {
                 "must be between 1 and 365 days",
             );
         }
-        check_password(&self.password, &mut errors);
+        self.reauth.check(&mut errors);
         finish(errors)
     }
 }
@@ -282,10 +282,11 @@ impl Validate for CreateConnection {
 pub(super) struct UpdateConnection {
     /// 1 to 60 characters
     pub name: Option<String>,
-    /// Needs `password`
+    /// Needs the password or a passkey
     pub grant: Option<Grant>,
-    /// The account's password, asked again; needed only with `grant`
-    pub password: Option<String>,
+    /// Needed only with `grant`
+    #[serde(flatten)]
+    pub reauth: Reauth,
 }
 
 impl Validate for UpdateConnection {
@@ -298,13 +299,14 @@ impl Validate for UpdateConnection {
             add(&mut errors, "name", "give a new name or new permissions");
         }
         if self.grant.is_some() {
-            match &self.password {
-                Some(password) => check_password(password, &mut errors),
-                None => add(
+            if self.reauth.is_empty() {
+                add(
                     &mut errors,
                     "password",
-                    "is needed to change what an agent may do",
-                ),
+                    "or a passkey is needed to change what an agent may do",
+                );
+            } else {
+                self.reauth.check(&mut errors);
             }
         }
         finish(errors)
@@ -315,18 +317,6 @@ pub(super) fn check_name(name: &str, errors: &mut ValidationErrors) {
     if !(1..=NAME_MAX).contains(&name.trim().chars().count()) {
         add(errors, "name", "must be between 1 and 60 characters");
     }
-}
-
-fn check_password(password: &str, errors: &mut ValidationErrors) {
-    if !(1..=PASSWORD_MAX).contains(&password.chars().count()) {
-        add(errors, "password", "must be between 1 and 128 characters");
-    }
-}
-
-#[derive(Deserialize, Validate, ToSchema)]
-pub(super) struct RotateKeyRequest {
-    #[validate(length(min = 1, max = 128, message = "must be between 1 and 128 characters"))]
-    pub password: String,
 }
 
 #[derive(Deserialize, IntoParams, Validate)]

@@ -13,15 +13,14 @@ use webauthn_rs::prelude::{
 use webauthn_rs_proto::ResidentKeyRequirement;
 
 use super::dto::{
-    ConfirmPasskeyChange, NewPasskey, PasskeyCreationOptions, PasskeyRequestOptions,
-    PasskeyResponse, PasskeySignIn,
+    NewPasskey, PasskeyCreationOptions, PasskeyRequestOptions, PasskeyResponse, PasskeySignIn,
 };
 use crate::{
     AppState,
     auth::{
         cookie,
         passkey::{self, Ceremony},
-        reauth,
+        reauth::{self, Reauth},
         session::{self, Session},
     },
     db,
@@ -60,11 +59,12 @@ pub async fn list(
 
 /// Start adding a passkey
 ///
-/// Checks the password again and returns the options for `navigator.credentials.create()`. The
-/// challenge stays on the server for five minutes, named by a cookie.
-#[utoipa::path(post, path = "/passkeys/registration/start", request_body = ConfirmPasskeyChange, responses(
+/// Checks the password or a passkey again and returns the options for
+/// `navigator.credentials.create()`. The challenge stays on the server for five minutes, named by a
+/// cookie.
+#[utoipa::path(post, path = "/passkeys/registration/start", request_body = Reauth, responses(
     (status = OK, body = PasskeyCreationOptions, headers(("set-cookie" = String, description = "Names this registration"))),
-    (status = BAD_REQUEST, description = "Wrong password", body = ErrorBody),
+    (status = BAD_REQUEST, description = "Wrong password or passkey", body = ErrorBody),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = CONFLICT, description = "The account has as many passkeys as it may hold", body = ErrorBody),
     (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
@@ -73,10 +73,10 @@ pub async fn start_registration(
     State(state): State<AppState>,
     jar: CookieJar,
     session: Session,
-    ValidatedJson(payload): ValidatedJson<ConfirmPasskeyChange>,
+    ValidatedJson(payload): ValidatedJson<Reauth>,
 ) -> Result<(CookieJar, Json<PasskeyCreationOptions>), AppError> {
     let user = session.user;
-    reauth::confirm_password(&state, user.id, payload.password).await?;
+    reauth::confirm(&state, &jar, user.id, payload).await?;
 
     let existing = db::passkeys::credential_ids(&state.pool, user.id).await?;
     if existing.len() >= MAX_PASSKEYS {
@@ -171,27 +171,29 @@ pub async fn finish_registration(
 
 /// Remove a passkey
 ///
-/// Checks the password again, deletes one of the signed-in user's passkeys and emails the owner.
-/// Answers 404 for a passkey that is not theirs.
-#[utoipa::path(delete, path = "/passkeys/{id}", params(("id" = Uuid, Path)), request_body = ConfirmPasskeyChange, responses(
+/// Checks the password or a passkey again, deletes one of the signed-in user's passkeys and emails
+/// the owner. Answers 404 for a passkey that is not theirs. The passkey being removed may confirm
+/// its own removal.
+#[utoipa::path(delete, path = "/passkeys/{id}", params(("id" = Uuid, Path)), request_body = Reauth, responses(
     (status = NO_CONTENT),
-    (status = BAD_REQUEST, description = "Wrong password", body = ErrorBody),
+    (status = BAD_REQUEST, description = "Wrong password or passkey", body = ErrorBody),
     (status = UNAUTHORIZED, body = ErrorBody),
     (status = NOT_FOUND, body = ErrorBody),
     (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
 ))]
 pub async fn remove(
     State(state): State<AppState>,
+    jar: CookieJar,
     session: Session,
     id: Result<Path<Uuid>, PathRejection>,
-    ValidatedJson(payload): ValidatedJson<ConfirmPasskeyChange>,
+    ValidatedJson(payload): ValidatedJson<Reauth>,
 ) -> Result<StatusCode, AppError> {
     // A malformed id names no passkey, same as someone else's
     let Ok(Path(id)) = id else {
         return Err(AppError::NotFound);
     };
     let user = session.user;
-    reauth::confirm_password(&state, user.id, payload.password).await?;
+    reauth::confirm(&state, &jar, user.id, payload).await?;
 
     if !db::passkeys::delete(&state.pool, id, user.id).await? {
         return Err(AppError::NotFound);
@@ -201,6 +203,49 @@ pub async fn remove(
     state.mailer.send_in_background(user.email, alert);
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Start a passkey re-check
+///
+/// Returns the options for `navigator.credentials.get()`, naming the signed-in user's passkeys. A
+/// change that asks for the password again takes the credential it returns as `passkey` instead.
+/// The challenge stays on the server for five minutes, named by a cookie, and works once.
+#[utoipa::path(post, path = "/passkeys/reauth/start", responses(
+    (status = OK, body = PasskeyRequestOptions, headers(("set-cookie" = String, description = "Names this re-check"))),
+    (status = UNAUTHORIZED, body = ErrorBody),
+    (status = CONFLICT, description = "The account has no passkeys", body = ErrorBody),
+    (status = INTERNAL_SERVER_ERROR, body = ErrorBody),
+))]
+pub async fn start_reauth(
+    State(state): State<AppState>,
+    jar: CookieJar,
+    session: Session,
+) -> Result<(CookieJar, Json<PasskeyRequestOptions>), AppError> {
+    let user_id = session.user.id;
+    let passkeys = db::passkeys::credentials(&state.pool, user_id).await?;
+    if passkeys.is_empty() {
+        return Err(AppError::Conflict("This account has no passkeys"));
+    }
+    let (options, authentication) = passkey::relying_party(&state.app_url)?
+        .start_passkey_authentication(&passkeys)
+        .context("cannot start a passkey re-check")?;
+
+    let jar = passkey::begin(
+        &state.pool,
+        jar,
+        Ceremony::Reauthentication,
+        Some(user_id),
+        &authentication,
+        state.secure_cookies(),
+    )
+    .await?;
+
+    Ok((
+        jar,
+        Json(PasskeyRequestOptions {
+            public_key: options.public_key,
+        }),
+    ))
 }
 
 /// Start signing in with a passkey

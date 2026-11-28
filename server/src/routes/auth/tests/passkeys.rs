@@ -436,3 +436,174 @@ async fn https_deployments_get_a_secure_host_only_ceremony_cookie(pool: PgPool) 
     assert!(cookie.contains("; Secure"));
     assert!(cookie.contains("; HttpOnly"));
 }
+
+impl TestApp {
+    async fn start_reauth(&self, session: &str) -> TestResponse {
+        self.post("/passkeys/reauth/start", json!({}), Some(session))
+            .await
+    }
+
+    /// A passkey answer for a change that asks for the password again, and the cookie naming its
+    /// challenge
+    async fn reauth_with(
+        &self,
+        browser: &mut Browser,
+        session: &str,
+        passkey: &Registered,
+        user_id: Uuid,
+    ) -> (Value, String) {
+        let started = self.start_reauth(session).await;
+        assert_eq!(started.status, StatusCode::OK);
+        let assertion = browser.get(&started.body, &passkey.credential_id, user_id);
+        (assertion, started.cookie("passkey_ceremony"))
+    }
+}
+
+#[sqlx::test]
+async fn a_passkey_confirms_a_change_in_place_of_the_password(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (user_id, session) = app.signed_in("ada@example.com").await;
+    let mut browser = Browser::new();
+
+    let none_yet = app.start_reauth(&session).await;
+    assert_eq!(none_yet.status, StatusCode::CONFLICT);
+
+    let passkey = app.register(&mut browser, &session).await;
+    let started = app.start_reauth(&session).await;
+    let allowed = started.body["publicKey"]["allowCredentials"]
+        .as_array()
+        .unwrap();
+    assert_eq!(allowed.len(), 1);
+    assert_eq!(
+        allowed[0]["id"],
+        serde_json::to_value(&passkey.credential_id).unwrap()
+    );
+    assert_eq!(started.body["publicKey"]["userVerification"], "required");
+
+    let (assertion, ceremony) = app
+        .reauth_with(&mut browser, &session, &passkey, user_id)
+        .await;
+    let cookies = format!("{session}; {ceremony}");
+    let added = app
+        .post(
+            "/passkeys/registration/start",
+            json!({ "passkey": assertion }),
+            Some(&cookies),
+        )
+        .await;
+    assert_eq!(added.status, StatusCode::OK);
+
+    // The challenge works once
+    let replayed = app
+        .post(
+            "/passkeys/registration/start",
+            json!({ "passkey": assertion }),
+            Some(&cookies),
+        )
+        .await;
+    assert_eq!(replayed.status, StatusCode::BAD_REQUEST);
+    assert!(replayed.body["details"]["passkey"].is_array());
+
+    let listed = app.passkeys(&session).await;
+    assert!(listed.body[0]["last_used_at"].is_string());
+
+    // A passkey may confirm its own removal
+    let (assertion, ceremony) = app
+        .reauth_with(&mut browser, &session, &passkey, user_id)
+        .await;
+    let request = Request::delete(format!("/api/auth/passkeys/{}", passkey.id))
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, format!("{session}; {ceremony}"))
+        .body(Body::from(json!({ "passkey": assertion }).to_string()))
+        .unwrap();
+    assert_eq!(app.send(request).await.status, StatusCode::NO_CONTENT);
+}
+
+#[sqlx::test]
+async fn a_re_check_takes_only_the_users_own_passkey_once(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (ada, ada_session) = app.signed_in("ada@example.com").await;
+    let (grace, grace_session) = app.signed_in("grace@example.com").await;
+    let mut ada_browser = Browser::new();
+    let mut grace_browser = Browser::new();
+    let ada_passkey = app.register(&mut ada_browser, &ada_session).await;
+    let grace_passkey = app.register(&mut grace_browser, &grace_session).await;
+
+    // Grace's passkey answering Ada's challenge
+    let started = app.start_reauth(&ada_session).await;
+    let theirs = grace_browser.get(&started.body, &grace_passkey.credential_id, grace);
+    let cookies = format!("{ada_session}; {}", started.cookie("passkey_ceremony"));
+    let refused = app
+        .post("/two-factor/setup", json!({ "passkey": theirs }), Some(&cookies))
+        .await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST);
+    assert_eq!(refused.body["details"]["passkey"], json!(["wasn't accepted"]));
+
+    // Ada's challenge, answered by her own passkey but sent from Grace's session
+    let (assertion, ceremony) = app
+        .reauth_with(&mut ada_browser, &ada_session, &ada_passkey, ada)
+        .await;
+    let elsewhere = app
+        .post(
+            "/two-factor/setup",
+            json!({ "passkey": assertion }),
+            Some(&format!("{grace_session}; {ceremony}")),
+        )
+        .await;
+    assert_eq!(elsewhere.status, StatusCode::BAD_REQUEST);
+    assert!(elsewhere.body["details"]["passkey"].is_array());
+
+    // An expired challenge
+    let (assertion, ceremony) = app
+        .reauth_with(&mut ada_browser, &ada_session, &ada_passkey, ada)
+        .await;
+    app.expire_ceremonies().await;
+    let expired = app
+        .post(
+            "/two-factor/setup",
+            json!({ "passkey": assertion }),
+            Some(&format!("{ada_session}; {ceremony}")),
+        )
+        .await;
+    assert_eq!(expired.status, StatusCode::BAD_REQUEST);
+    assert!(expired.body["details"]["passkey"].is_array());
+
+    let (assertion, ceremony) = app
+        .reauth_with(&mut ada_browser, &ada_session, &ada_passkey, ada)
+        .await;
+    let confirmed = app
+        .post(
+            "/two-factor/setup",
+            json!({ "passkey": assertion }),
+            Some(&format!("{ada_session}; {ceremony}")),
+        )
+        .await;
+    assert_eq!(confirmed.status, StatusCode::OK);
+}
+
+#[sqlx::test]
+async fn a_re_check_takes_the_password_or_a_passkey_not_both(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let (user_id, session) = app.signed_in("ada@example.com").await;
+    let mut browser = Browser::new();
+    let passkey = app.register(&mut browser, &session).await;
+
+    let neither = app
+        .post("/two-factor/setup", json!({}), Some(&session))
+        .await;
+    assert_eq!(neither.status, StatusCode::BAD_REQUEST);
+    assert!(neither.body["details"]["password"].is_array());
+
+    let (assertion, ceremony) = app
+        .reauth_with(&mut browser, &session, &passkey, user_id)
+        .await;
+    let both = app
+        .post(
+            "/two-factor/setup",
+            json!({ "password": PASSWORD, "passkey": assertion }),
+            Some(&format!("{session}; {ceremony}")),
+        )
+        .await;
+    assert_eq!(both.status, StatusCode::BAD_REQUEST);
+    assert!(both.body["details"]["passkey"].is_array());
+}
