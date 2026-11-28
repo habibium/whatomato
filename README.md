@@ -6,6 +6,8 @@ Schedule and send WhatsApp messages. Rust backend (`server/`, axum) and a React 
 
 Run it yourself with the image described under [Self-hosting](#self-hosting), or use the hosted service.
 
+The documentation is at https://docs.whatomato.habibium.com: using the app, connecting an AI agent, self-hosting, and reference pages for schedules, variables, the MCP tools and limits.
+
 ## Hosted service
 
 I run a hosted instance at https://whatomato.habibium.com. It runs the same image that is published from this repository.
