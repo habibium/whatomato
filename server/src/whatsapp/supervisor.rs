@@ -38,7 +38,7 @@ use super::{
     alerts,
     contacts::{self, Changes, Feed},
     inbox::{Body, History, Inbox, Kind},
-    media::{FILE_MAX, MediaRef, OutgoingFile, file_message},
+    media::{FILE_MAX, FileKind, MediaRef, OutgoingFile, file_message},
     pictures::{Image, Pictures},
     status::{self, Alert, Code, Effect, Event, Method, Refused, Status, StopReason},
     store::PgStore,
@@ -1199,6 +1199,8 @@ impl Supervisor {
                     if let Some((inbox, account_id)) = kept {
                         let mut body = Body::sent(own, sent.text, reply_to, sent.mentions);
                         body.kind = sent.kind;
+                        body.file_name = sent.file_name;
+                        body.media = sent.media;
                         body.text = body.text.filter(|text| !text.is_empty());
                         inbox.sent(account_id, &sent.chat, &sent.id, body);
                     }
@@ -1313,6 +1315,8 @@ struct Sent {
     mentions: Vec<String>,
     /// Text, or what its picture or file went as
     kind: Kind,
+    file_name: Option<String>,
+    media: Option<Box<MediaRef>>,
 }
 
 /// The body and mentions in the form the chat knows the people tagged by
@@ -1382,6 +1386,11 @@ async fn send_and_confirm(
     let kind = uploaded
         .as_ref()
         .map_or(Kind::Text, |(file, _)| file.kind.into());
+    // Only a document carries its name to WhatsApp
+    let file_name = uploaded
+        .as_ref()
+        .filter(|(file, _)| file.kind == FileKind::Document)
+        .and_then(|(file, _)| file.file_name.clone());
     let message = match uploaded {
         Some((file, upload)) => {
             let context = reply_context(&jid, extras.quote, mentions.clone());
@@ -1389,6 +1398,7 @@ async fn send_and_confirm(
         }
         None => text_message(&jid, text.clone(), extras.quote, mentions.clone()),
     };
+    let media = MediaRef::of(&message).map(Box::new);
     let request =
         SendRequest::new(&jid, message).with_options(SendOptions::default().with_message_id(id));
     let outcome = timeout(SEND_LIMIT, async {
@@ -1405,6 +1415,8 @@ async fn send_and_confirm(
             text,
             mentions,
             kind,
+            file_name,
+            media,
         }),
         Ok(Ok(Ok(Some(code)))) => Err(SendFailure::Rejected(code)),
         Ok(Err(failure)) => Err(failure),
