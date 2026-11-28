@@ -11,8 +11,7 @@ use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::dto::{
-    AuthenticatorCode, RecoveryCode, RecoveryCodes, SecondFactor, TwoFactorSetup,
-    TwoFactorStatus,
+    AuthenticatorCode, RecoveryCode, RecoveryCodes, SecondFactor, TwoFactorSetup, TwoFactorStatus,
 };
 use crate::{
     AppState,

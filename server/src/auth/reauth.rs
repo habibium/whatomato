@@ -41,7 +41,10 @@ impl Reauth {
             _ => None,
         };
         if let Some((field, message)) = problem {
-            errors.add(field, ValidationError::new(field).with_message(message.into()));
+            errors.add(
+                field,
+                ValidationError::new(field).with_message(message.into()),
+            );
         }
     }
 }
@@ -74,7 +77,11 @@ pub async fn confirm(
     }
 }
 
-async fn confirm_password(state: &AppState, user_id: Uuid, password: String) -> Result<(), AppError> {
+async fn confirm_password(
+    state: &AppState,
+    user_id: Uuid,
+    password: String,
+) -> Result<(), AppError> {
     let hash = db::users::password_hash(&state.pool, user_id).await?;
     if password::verify(password, Some(hash)).await? {
         Ok(())

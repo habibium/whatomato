@@ -534,10 +534,17 @@ async fn a_re_check_takes_only_the_users_own_passkey_once(pool: PgPool) {
     let theirs = grace_browser.get(&started.body, &grace_passkey.credential_id, grace);
     let cookies = format!("{ada_session}; {}", started.cookie("passkey_ceremony"));
     let refused = app
-        .post("/two-factor/setup", json!({ "passkey": theirs }), Some(&cookies))
+        .post(
+            "/two-factor/setup",
+            json!({ "passkey": theirs }),
+            Some(&cookies),
+        )
         .await;
     assert_eq!(refused.status, StatusCode::BAD_REQUEST);
-    assert_eq!(refused.body["details"]["passkey"], json!(["wasn't accepted"]));
+    assert_eq!(
+        refused.body["details"]["passkey"],
+        json!(["wasn't accepted"])
+    );
 
     // Ada's challenge, answered by her own passkey but sent from Grace's session
     let (assertion, ceremony) = app
